@@ -67,10 +67,13 @@ mkdir -p "${LOGS_DIR}" "${SPLITS_DIR}" "${RESULTS_DIR}"
 [[ -f "${SPLITS_CONFIG}" ]] || die "Splits config not found: ${SPLITS_CONFIG}"
 [[ -f "${TRAINING_CONFIG}" ]] || die "Training config not found: ${TRAINING_CONFIG}"
 
-# Load conda environment
-if command -v conda >/dev/null 2>&1; then
-  source "$(conda info --base)/etc/profile.d/conda.sh"
-  conda activate csb 2>/dev/null || conda activate base 2>/dev/null || true
+# Activate virtual environment
+VENV_PATH="${BASE_DIR}/venv/bin/activate"
+if [[ -f "${VENV_PATH}" ]]; then
+  source "${VENV_PATH}"
+  log "Virtual environment activated"
+else
+  die "Virtual environment not found at ${VENV_PATH}. Run: bash scripts/hpc_setup.sh"
 fi
 
 log "============================================"
