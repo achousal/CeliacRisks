@@ -50,8 +50,8 @@ echo "=========================================="
 echo ""
 
 # Check we're in the right directory
-if [ ! -f "setup.py" ]; then
-    error "setup.py not found. Run this script from the analysis/ directory."
+if [ ! -f "pyproject.toml" ]; then
+    error "pyproject.toml not found. Run this script from the analysis/ directory."
 fi
 
 info "Current directory: $(pwd)"
