@@ -1,0 +1,39 @@
+name: Lint
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        pip install ruff black mypy
+
+    - name: Check formatting with black
+      run: |
+        cd analysis
+        black --check src/ tests/
+
+    - name: Lint with ruff
+      run: |
+        cd analysis
+        ruff check src/ tests/
+
+    - name: Type check with mypy
+      continue-on-error: true
+      run: |
+        cd analysis
+        mypy src/ced_ml --ignore-missing-imports

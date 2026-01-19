@@ -1,0 +1,67 @@
+# Example configuration for CeD-ML model training
+# This matches the current production settings (CeD_optimized.lsf)
+
+# Input data
+infile: ../../Celiac_dataset_proteomics.csv
+split_dir: splits_production
+scenario: IncidentPlusPrevalent
+split_seed: 0
+
+# Model selection
+model: LR_EN
+
+# Cross-validation configuration
+cv:
+  folds: 5
+  repeats: 10
+  inner_folds: 5
+  scoring: neg_brier_score
+  n_iter: 200
+  random_state: 0
+
+# Feature selection
+features:
+  feature_select: hybrid
+  screen_method: mannwhitney
+  screen_top_n: 1000
+  kbest_scope: protein
+  kbest_max: 500
+  k_grid: [50, 100, 200, 500]
+  stability_thresh: 0.75
+
+# Panel building
+panels:
+  build_panels: true
+  panel_sizes: [10, 25, 50, 100, 200]
+  panel_corr_thresh: 0.80
+
+# Threshold selection
+thresholds:
+  objective: max_f1
+  threshold_source: val
+  target_prevalence_source: test
+
+# Evaluation
+evaluation:
+  test_ci_bootstrap: true
+  n_boot: 500
+  feature_reports: true
+  control_spec_targets: [0.90, 0.95, 0.99]
+
+# DCA (computed in post-processing by default)
+dca:
+  compute_dca: false
+
+# Output configuration
+output:
+  save_val_preds: true
+  save_test_preds: true
+  save_calibration: true
+
+# Strictness level
+strictness:
+  level: warn
+  check_split_overlap: true
+  check_prevalent_in_eval: true
+
+outdir: results_production

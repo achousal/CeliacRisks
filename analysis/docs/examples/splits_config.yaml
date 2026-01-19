@@ -1,0 +1,20 @@
+# Example configuration for CeD-ML split generation
+# This matches the current production settings (CeD_optimized.lsf)
+
+mode: development
+scenarios:
+  - IncidentPlusPrevalent
+
+n_splits: 10
+val_size: 0.25
+test_size: 0.25
+seed_start: 0
+
+# Prevalent case handling (prevents reverse causality bias)
+prevalent_train_only: true
+prevalent_train_frac: 0.5
+
+# Control downsampling (1:5 case:control ratio)
+train_control_per_case: 5.0
+
+outdir: splits_production

@@ -1,0 +1,68 @@
+# Training Configuration
+# Model training for Celiac Disease risk prediction
+
+scenario: IncidentPlusPrevalent
+
+# Cross-validation
+cv:
+  folds: 5
+  repeats: 10
+  scoring: neg_brier_score  # Optimizes calibration
+  n_iter: 200  # RandomizedSearchCV iterations
+  inner_folds: 5
+  n_jobs: -1  # Use all available CPUs
+
+# Feature selection
+features:
+  feature_select: hybrid  # "none", "kbest", "l1_stability", "hybrid"
+  kbest_scope: protein
+  kbest_max: 800
+  k_grid: [25, 50, 100, 200, 300, 400, 600, 800]
+
+  # Screening (pre-filter before k-best)
+  screen_method: mannwhitney  # "mannwhitney" or "f_classif"
+  screen_top_n: 1000  # 0 = no screening
+  screen_min_n_per_group: 20
+
+  # Stability selection
+  stability_thresh: 0.75  # Minimum frequency across folds
+
+  # Correlation pruning
+  stable_corr_thresh: 0.85  # Remove features with r > 0.85
+
+# Calibration and thresholding
+thresholds:
+  calibrate_final_models: true
+  threshold_objective: fixed_spec  # "max_f1", "max_fbeta", "youden", "fixed_spec", "fixed_ppv"
+  fixed_spec: 0.95  # Target 95% specificity
+  threshold_source: val  # Select threshold on VAL set
+  target_prevalence_source: test  # Use TEST prevalence for calibration
+
+# Evaluation
+evaluation:
+  test_ci_bootstrap: true
+  n_boot: 500
+  write_test_ci_files: true
+
+  # Decision curve analysis
+  compute_dca: true
+  dca_threshold_min: 0.0005
+  dca_threshold_max: 1.0
+  dca_threshold_step: 0.001
+
+  # Learning curves
+  learning_curve: true
+  lc_cv: 3
+  lc_min_frac: 0.30
+  lc_points: 6
+
+# Outputs
+outputs:
+  save_controls_oof: true
+  save_train_oof: true
+  save_val_preds: true
+  save_test_preds: true
+  save_calibration: true
+  calib_bins: 6
+  feature_reports: all  # "none", "best", "all"
+  feature_report_max: 200

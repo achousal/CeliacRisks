@@ -1,0 +1,140 @@
+#!/bin/bash
+#==============================================================
+# CeD_production.lsf
+#
+# Modern LSF batch script for Celiac Disease ML pipeline using `ced` CLI
+#
+# Usage:
+#   # Submit all 4 models
+#   bsub < CeD_production.lsf
+#
+#   # Submit specific model
+#   MODEL=LR_EN bsub -J "CeD_LR" < CeD_production.lsf
+#
+# Array job mapping (LSB_JOBINDEX 1-4):
+#   1 → RF
+#   2 → XGBoost
+#   3 → LinSVM_cal
+#   4 → LR_EN
+#==============================================================
+
+#BSUB -J "CeD_train[1-4]"
+#BSUB -P acc_Chipuk_Laboratory
+#BSUB -q premium
+#BSUB -n 8
+#BSUB -W 144:00
+#BSUB -R "span[hosts=1] rusage[mem=8000]"
+#BSUB -oo logs/CeD_train_%J_%I.out
+#BSUB -eo logs/CeD_train_%J_%I.err
+
+set -euo pipefail
+
+#==============================================================
+# ENVIRONMENT
+#==============================================================
+# Load conda/modules
+if command -v module >/dev/null 2>&1; then
+  module load anaconda3 2>/dev/null || module load anaconda 2>/dev/null || true
+fi
+
+if command -v conda >/dev/null 2>&1; then
+  source "$(conda info --base)/etc/profile.d/conda.sh"
+  conda activate csb || conda activate base
+else
+  source activate csb 2>/dev/null || source activate base 2>/dev/null || true
+fi
+
+echo "[$(date +'%F %T')] Python: $(which python)"
+echo "[$(date +'%F %T')] Conda env: ${CONDA_DEFAULT_ENV:-none}"
+
+#==============================================================
+# PATHS
+#==============================================================
+BASE_DIR="/sc/arion/projects/Chipuk_Laboratory/chousa01/CeliacRiskML/sklearn"
+INFILE="${BASE_DIR}/../Celiac_dataset_proteomics.csv"
+SPLITS_DIR="${BASE_DIR}/splits_production"
+RESULTS_DIR="${BASE_DIR}/results_production"
+LOGS_DIR="${BASE_DIR}/logs"
+CONFIG_FILE="${BASE_DIR}/configs/training_config.yaml"
+
+cd "${BASE_DIR}" || exit 1
+mkdir -p "${LOGS_DIR}" "${RESULTS_DIR}" "${SPLITS_DIR}"
+
+#==============================================================
+# HPC RESOURCE MANAGEMENT
+#==============================================================
+CPUS="${LSB_DJOB_NUMPROC:-8}"
+
+# Disable nested parallelism
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export BLIS_NUM_THREADS=1
+export VECLIB_MAXIMUM_THREADS=1
+export OMP_DYNAMIC=FALSE
+export MKL_DYNAMIC=FALSE
+export LOKY_MAX_CPU_COUNT="${CPUS}"
+
+# Temp directory for joblib
+export JOBLIB_TEMP_FOLDER="/tmp/${USER}/joblib_${LSB_JOBID}_${LSB_JOBINDEX}"
+export TMPDIR="${JOBLIB_TEMP_FOLDER}"
+mkdir -p "${JOBLIB_TEMP_FOLDER}"
+cleanup() { rm -rf "${JOBLIB_TEMP_FOLDER}" 2>/dev/null || true; }
+trap cleanup EXIT
+
+#==============================================================
+# MODEL SELECTION
+#==============================================================
+# Map job array index to model name
+MODELS=(RF XGBoost LinSVM_cal LR_EN)
+
+# Allow manual override via MODEL env var
+if [[ -n "${MODEL:-}" ]]; then
+  MODEL_NAME="${MODEL}"
+else
+  MODEL_IDX=$((LSB_JOBINDEX - 1))
+  if [[ ${MODEL_IDX} -ge ${#MODELS[@]} ]]; then
+    echo "ERROR: LSB_JOBINDEX=${LSB_JOBINDEX} out of range (max 4)"
+    exit 1
+  fi
+  MODEL_NAME="${MODELS[$MODEL_IDX]}"
+fi
+
+echo "[$(date +'%F %T')] ============================================"
+echo "[$(date +'%F %T')] Job Configuration:"
+echo "[$(date +'%F %T')]   LSF Job ID: ${LSB_JOBID}"
+echo "[$(date +'%F %T')]   Array Index: ${LSB_JOBINDEX}"
+echo "[$(date +'%F %T')]   Model: ${MODEL_NAME}"
+echo "[$(date +'%F %T')]   CPUs: ${CPUS}"
+echo "[$(date +'%F %T')]   Config: ${CONFIG_FILE}"
+echo "[$(date +'%F %T')] ============================================"
+
+#==============================================================
+# TRAINING
+#==============================================================
+# Run training using ced CLI
+ced train \
+  --config "${CONFIG_FILE}" \
+  --model "${MODEL_NAME}" \
+  --infile "${INFILE}" \
+  --splits-dir "${SPLITS_DIR}" \
+  --outdir "${RESULTS_DIR}"
+
+#==============================================================
+# VALIDATION
+#==============================================================
+OUTPUT_PATTERN="${RESULTS_DIR}/IncidentPlusPrevalent__${MODEL_NAME}__*/core/test_metrics.csv"
+
+if compgen -G "${OUTPUT_PATTERN}" > /dev/null 2>&1; then
+  echo "[$(date +'%F %T')] ✓ Training completed successfully for ${MODEL_NAME}"
+  echo "[$(date +'%F %T')] Output: $(echo ${OUTPUT_PATTERN})"
+else
+  echo "[$(date +'%F %T')] ✗ Training failed for ${MODEL_NAME}"
+  echo "[$(date +'%F %T')] Expected output not found: ${OUTPUT_PATTERN}"
+  exit 1
+fi
+
+echo "[$(date +'%F %T')] ============================================"
+echo "[$(date +'%F %T')] Job completed successfully"
+echo "[$(date +'%F %T')] ============================================"

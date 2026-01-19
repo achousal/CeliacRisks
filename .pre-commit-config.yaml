@@ -1,0 +1,96 @@
+repos:
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-added-large-files
+        args: ['--maxkb=10000']
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+
+  # Secret detection
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: package.lock.json
+
+  # Python formatting
+  - repo: https://github.com/psf/black
+    rev: 24.1.1
+    hooks:
+      - id: black
+        language_version: python3.10
+        files: ^analysis/(src|tests)/.*\.py$
+
+  # Python linting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.14
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+        files: ^analysis/(src|tests)/.*\.py$
+
+  # Python type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        files: ^analysis/src/.*\.py$
+        args: [--ignore-missing-imports, --no-strict-optional]
+        additional_dependencies: [types-all]
+
+  # Prevent debug artifacts in Python
+  - repo: local
+    hooks:
+      - id: no-print-statements
+        name: Prevent print() in production code
+        entry: print\(
+        language: pygrep
+        files: ^analysis/src/ced_ml/.*\.py$
+        exclude: (cli|utils/logging)
+
+  # Prevent debug artifacts in R
+  - repo: local
+    hooks:
+      - id: no-r-debug
+        name: Prevent R debug functions
+        entry: (browser\(\)|debug\(\)|trace\()
+        language: pygrep
+        files: \.R$
+
+  # R linting (if lintr available)
+  - repo: https://github.com/lorenzwalthert/precommit
+    rev: v0.3.2.9025
+    hooks:
+      - id: style-files
+        args: [--style_pkg=styler, --style_fun=tidyverse_style]
+        files: \.R$
+      - id: lintr
+        files: \.R$
+        exclude: (tests/|renv/)
+
+  # Prevent .env files
+  - repo: local
+    hooks:
+      - id: no-env-files
+        name: Prevent .env files
+        entry: '^\.env$'
+        language: pygrep
+        files: ''
+        exclude: '\.env\.example$'
+
+  # Check for emojis (non-negotiable rule)
+  - repo: local
+    hooks:
+      - id: no-emojis
+        name: Prevent emojis in codebase
+        entry: '[\U0001F300-\U0001F9FF]'
+        language: pygrep
+        files: \.(py|R|md|yaml|yml|txt)$
+        exclude: (\.git/|Legacy/)

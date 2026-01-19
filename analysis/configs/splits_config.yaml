@@ -1,0 +1,23 @@
+# Splits Configuration
+# Generate train/val/test splits for Celiac Disease ML pipeline
+
+mode: development  # "development" or "holdout"
+scenarios:
+  - IncidentPlusPrevalent
+
+# Split sizes
+val_size: 0.25
+test_size: 0.25
+holdout_size: 0.30  # Only used when mode=holdout
+
+# Repeated splits
+n_splits: 10
+seed_start: 0
+
+# Prevalent case handling
+prevalent_train_only: true  # Only include prevalent in TRAIN (not VAL/TEST)
+prevalent_train_frac: 0.5   # Sample 50% of prevalent cases
+
+# Control downsampling
+train_control_per_case: 5  # 5 controls per case in TRAIN
+eval_control_per_case: null  # Use all controls in VAL/TEST

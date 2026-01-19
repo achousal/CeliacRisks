@@ -1,0 +1,160 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║          CELIAC RISK ML - CONFIGURATION KNOBS CHEATSHEET (v2026-01)        ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌─ CRITICAL KNOBS (What? How many? How well?) ─────────────────────────────┐
+│                                                                            │
+│ WHICH MODELS TO RUN?                                                      │
+│   RUN_MODELS="RF,XGB,SVM,LR"   → all 4 models in parallel (default)     │
+│   RUN_MODELS="LR"               → single model (debugging)               │
+│   RUN_MODELS="RF,LR"            → subset                                 │
+│                                                                            │
+│ HOW MANY DATA SPLITS?                                                    │
+│   N_SPLITS=1                    → single split (quick: ~2-4 hours)       │
+│   N_SPLITS=10                   → 10 repeated splits (robust: ~20-40h)   │
+│   SEED_START=0 with N_SPLITS=10 → seeds 0-9 (confidence intervals)       │
+│                                                                            │
+│ CROSS-VALIDATION SETUP (Outer CV for performance estimation)            │
+│   FOLDS=5; REPEATS=10           → 5×10 = 50 OOF predictions/sample      │
+│   FOLDS=2; REPEATS=3            → 2×3 = 6 OOF predictions (fast test)    │
+│   (Tradeoff: more FOLDS×REPEATS = longer training but more robust)       │
+│                                                                            │
+│ HYPERPARAMETER SEARCH BREADTH (Inner CV)                                │
+│   INNER_FOLDS=5; N_ITER=200     → thorough search (production)          │
+│   INNER_FOLDS=2; N_ITER=3       → minimal search (quick test)            │
+│   (Tradeoff: more iterations = better hyperparams but much slower)       │
+│                                                                            │
+│ DIMENSIONALITY REDUCTION                                                │
+│   SCREEN_TOP_N=1000; K_GRID=..  → 2920 proteins → ~100-800 features    │
+│   STABILITY_THRESH=0.75         → keep proteins selected in ≥75% folds  │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ WORKFLOW QUICK-START ─────────────────────────────────────────────────────┐
+│                                                                             │
+│ 1️⃣ DEVELOPMENT (Quick iteration):                                         │
+│    N_SPLITS=1 FOLDS=2 REPEATS=3 N_ITER=3 INNER_FOLDS=2 RUN_MODELS="LR" \ │
+│      ./run.sh                                                             │
+│    → ~10 min for single model, LR only                                    │
+│                                                                             │
+│ 2️⃣ QUALITY TESTING (All models, good CV):                               │
+│    RUN_MODELS="RF,XGB,SVM,LR" FOLDS=5 REPEATS=10 N_ITER=200 \            │
+│      INNER_FOLDS=5 N_SPLITS=1 SCORING="neg_brier_score" ./run.sh        │
+│    → ~6-8 hours total (training time, 4 models)                          │
+│                                                                             │
+│ 3️⃣ ROBUST PUBLICATION READY (Repeated splits for CIs):                  │
+│    N_SPLITS=10 RUN_MODELS="RF,XGB,SVM,LR" FOLDS=5 REPEATS=10 \          │
+│      N_ITER=200 INNER_FOLDS=5 SCORING="neg_brier_score" ./run.sh       │
+│    → ~60-80 hours total (10 seeds × 4 models)                            │
+│                                                                             │
+│ 4️⃣ FINAL EXTERNAL VALIDATION (Holdout set):                             │
+│    MODE=holdout RUN_MODELS="RF,XGB,SVM,LR" ./run.sh                     │
+│    → Creates separate holdout set (30%), runs training once              │
+│    → WARNING: Use ONLY for final reporting!                              │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ MODEL-SPECIFIC TUNING ────────────────────────────────────────────────────┐
+│                                                                            │
+│ LOGISTIC REGRESSION (LR_EN):                                             │
+│   LR_C_MIN=1e-4 → 1e-4 to 1e1 (20 log-spaced values)                   │
+│   LR_L1_RATIO_GRID="0.01,0.05,...,0.60" → mix of L1/L2                │
+│   → Best for: interpretable coefficients, probability calibration        │
+│                                                                            │
+│ RANDOM FOREST (RF):                                                      │
+│   RF_MAX_DEPTH_GRID="8,10,12,14" (deeper = overfit risk)               │
+│   RF_MIN_SAMPLES_LEAF_GRID="2,4,6" (higher = smoother)                │
+│   RF_CPUS=8, RF_MEM=8000 (need high memory for permutation importance)  │
+│   → Best for: non-linear, feature importance, robust to outliers        │
+│                                                                            │
+│ XGBOOST:                                                                 │
+│   XGB_MAX_DEPTH_GRID="3,7" (shallow for high-dim data)                │
+│   XGB_LEARNING_RATE_GRID="0.01,0.1" (smaller = slower but better)     │
+│   XGB_SCALE_POS_WEIGHT="auto" (auto = ~295 for Celiac imbalance)       │
+│   → Best for: predictive power, speed, nonlinear interactions            │
+│                                                                            │
+│ LINEAR SVM (LinSVM_cal):                                                 │
+│   SVM_C_MIN=1e-4 → 1e-4 to 1e4 (10 log-spaced values)                 │
+│   CALIBRATION_METHOD="sigmoid" (fit sigmoid to map scores→probabilities)│
+│   → Best for: high-dimensional data, margin-based separation            │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ CLINICAL DECISION CONFIGURATION ──────────────────────────────────────────┐
+│                                                                            │
+│ WHAT THRESHOLD TO USE?                                                   │
+│   THRESHOLD_OBJECTIVE="fixed_spec"  → target 95% specificity            │
+│   FIXED_SPEC=0.95                   → 95% = 5% false positive rate      │
+│   THRESHOLD_SOURCE="val"            → select on VAL (default, no leakage)│
+│   TARGET_PREVALENCE_SOURCE="test"   → use TEST prevalence for calibration│
+│                                                                            │
+│ WHAT METRICS TO REPORT?                                                 │
+│   CONTROL_SPEC_TARGETS="0.95,0.99"  → sensitivity at 95%, 99% specificity│
+│   TOPRISK_FRACS="0.01,0.05"         → performance in top 1%, 5% risk   │
+│   DCA_REPORT_POINTS="0.005,0.01,..."→ Decision curve at key prevalences│
+│                                                                            │
+│ CALIBRATION: How close are predictions to true risk?                    │
+│   CALIBRATE_FINAL_MODELS=1          → fit curve on VAL, apply to TEST  │
+│   CALIB_BINS=6                      → histogram bins for calibration   │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ PANEL BUILDING (Practical biomarker panels) ──────────────────────────────┐
+│                                                                            │
+│ CONSTRUCT CLINICAL PANELS:                                              │
+│   BUILD_PANELS=1                    → 1=build panels, 0=skip             │
+│   PANEL_SIZES="10,25,50,100,200"    → sizes to create (10 vs 800 proteins)│
+│   PANEL_CORR_THRESH=0.85            → remove correlated proteins        │
+│   PANEL_REFIT=1                     → refit model on selected proteins  │
+│   PANEL_STABILITY_MODE="rskf"       → "rskf" (thorough) or "audit"     │
+│                                                                            │
+│ Why? Smaller panels (10-50 proteins) more practical for labs than 2920  │
+│ Trade-off: smaller panel = easier to implement but slightly lower accuracy│
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ RESOURCE MANAGEMENT (LSF Job Submission) ────────────────────────────────┐
+│                                                                            │
+│ Per-model CPU & Memory Requirements:                                     │
+│                                                                            │
+│  RF:   8 CPUs × 8GB/CPU = 64GB total    (Need high-mem nodes)          │
+│  XGB:  8 CPUs × 4GB/CPU = 32GB total    (Histogram method, moderate)   │
+│  SVM:  8 CPUs × 2GB/CPU = 16GB total    (Lightweight)                  │
+│  LR:   8 CPUs × 2GB/CPU = 16GB total    (Lightweight)                  │
+│                                                                            │
+│ Walltime Estimates:                                                      │
+│  Single model: 2-6 hours (varies with FOLDS, REPEATS, N_ITER)          │
+│  4 models (parallel): still 2-6 hours (submitted in parallel)           │
+│  10 repeated splits: multiply by ~10 (same model, different seeds)      │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ MONITOR & DEBUG ─────────────────────────────────────────────────────────┐
+│                                                                            │
+│ Watch job status:                                                        │
+│   bjobs -w | egrep "CeD_RF|CeD_XGB|CeD_SVM|CeD_LR|postproc|viz"        │
+│                                                                            │
+│ Tail live logs:                                                          │
+│   tail -f logs_LR_1.17.26_a/*.live.log                                 │
+│                                                                            │
+│ Check completed models:                                                  │
+│   ls -la results_LR_1.17.26_a/*/core/test_metrics.csv                  │
+│                                                                            │
+│ Run postprocessing after models complete:                               │
+│   POSTPROCESS_NOW=1 ./run.sh                                            │
+│   (or wait for automatic postprocess job to submit)                     │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+KEY FILES:
+  📄 run.sh                    → Pipeline orchestration (LSF job submission)
+  📄 CeD_optimized.lsf         → Model training configuration (4 model specs)
+  📄 CONFIGURATION_GUIDE.md    → Full parameter reference
+  📄 KNOBS_CHEATSHEET.txt      → This file (quick reference)
+
+PRODUCTION DEFAULTS (what to set for final publication-ready results):
+  SCORING="neg_brier_score"    (optimize calibration, not just discrimination)
+  FOLDS=5 REPEATS=10           (50 OOF predictions per sample)
+  INNER_FOLDS=5; N_ITER=200    (thorough hyperparameter search)
+  N_SPLITS=10                  (10 repeated splits for robust CIs)
+  RUN_MODELS="RF,XGB,SVM,LR"  (all 4 models for comparison)

@@ -1,0 +1,375 @@
+"""
+Decision Curve Analysis (DCA) plotting functions.
+
+This module provides functions for visualizing DCA results to assess clinical utility
+of prediction models at different decision thresholds.
+"""
+
+from pathlib import Path
+from typing import Optional, Sequence
+
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+from ced_ml.metrics.dca import decision_curve_analysis
+
+
+def apply_plot_metadata(
+    fig: matplotlib.figure.Figure, meta_lines: Optional[Sequence[str]] = None
+) -> float:
+    """
+    Apply metadata text to bottom of figure.
+
+    Args:
+        fig: matplotlib figure object
+        meta_lines: sequence of metadata strings to display
+
+    Returns:
+        Required bottom margin as fraction of figure height (0.0 to 1.0)
+    """
+    lines = [str(line) for line in (meta_lines or []) if line]
+    if not lines:
+        return 0.10  # Default minimum bottom margin
+
+    # Position metadata at very bottom with fixed offset from edge
+    fig.text(
+        0.5, 0.005, "\n".join(lines), ha="center", va="bottom", fontsize=8, wrap=True
+    )
+
+    # Calculate required bottom margin: base + space per line
+    # Each line ~0.015 height + small padding
+    required_bottom = 0.10 + (0.018 * len(lines))
+    return min(required_bottom, 0.30)  # Cap at 30% to avoid excessive margin
+
+
+def plot_dca(
+    dca_df: pd.DataFrame, out_path: str, meta_lines: Optional[Sequence[str]] = None
+) -> None:
+    """
+    Generate DCA plot from pre-computed DCA DataFrame.
+
+    Args:
+        dca_df: DataFrame from decision_curve_analysis() with columns:
+            - threshold_pct: threshold as percentage (0-100)
+            - net_benefit_model: model net benefit
+            - net_benefit_all: treat-all net benefit
+            - net_benefit_none: treat-none net benefit
+        out_path: Path to save plot
+        meta_lines: Optional metadata lines to display at bottom
+    """
+    matplotlib.use("Agg")
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    thresholds = dca_df["threshold_pct"].values
+    nb_model = dca_df["net_benefit_model"].values
+    nb_all = dca_df["net_benefit_all"].values
+    nb_none = dca_df["net_benefit_none"].values
+
+    ax.plot(
+        thresholds, nb_model, color="steelblue", linestyle="-", linewidth=2, label="Model"
+    )
+    ax.plot(thresholds, nb_all, "r--", linewidth=1.5, label="Treat All")
+    ax.plot(thresholds, nb_none, "k:", linewidth=1.5, label="Treat None")
+
+    # Shade region where model is better than alternatives
+    ax.fill_between(
+        thresholds,
+        np.maximum(nb_all, nb_none),
+        nb_model,
+        where=(nb_model > np.maximum(nb_all, nb_none)),
+        alpha=0.2,
+        color="steelblue",
+        label="Model Benefit",
+    )
+
+    ax.set_xlabel("Threshold Probability (%)", fontsize=12)
+    ax.set_ylabel("Net Benefit", fontsize=12)
+    ax.set_title("Decision Curve Analysis", fontsize=14)
+    ax.legend(loc="upper right")
+    ax.grid(True, alpha=0.3)
+
+    # Set reasonable y-axis limits
+    y_min = min(nb_model.min(), nb_all.min(), -0.01)
+    y_max = max(nb_model.max(), nb_all.max(), 0.01) * 1.1
+    ax.set_ylim(y_min, y_max)
+    ax.set_xlim(thresholds.min(), thresholds.max())
+
+    bottom_margin = apply_plot_metadata(fig, meta_lines)
+    plt.subplots_adjust(left=0.15, right=0.9, top=0.8, bottom=bottom_margin)
+    plt.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.8)
+    plt.close()
+
+
+def plot_dca_curve(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    out_path: str,
+    title: str,
+    subtitle: str = "",
+    max_pt: float = 0.20,
+    step: float = 0.005,
+    split_ids: Optional[np.ndarray] = None,
+    meta_lines: Optional[Sequence[str]] = None,
+) -> None:
+    """
+    Generate DCA plot from raw predictions with multi-split averaging.
+
+    Computes Decision Curve Analysis across threshold range, with optional
+    multi-split averaging and confidence bands.
+
+    Args:
+        y_true: True binary labels
+        y_pred: Predicted probabilities
+        out_path: Path to save plot
+        title: Plot title
+        subtitle: Optional subtitle
+        max_pt: Maximum threshold (default: 0.20)
+        step: Threshold step size (default: 0.005)
+        split_ids: Optional array of split IDs for multi-split averaging
+        meta_lines: Optional metadata lines to display at bottom
+    """
+    try:
+        matplotlib.use("Agg")
+    except Exception as e:
+        print(f"[PLOT] DCA plot failed to import dependencies: {e}")
+        return
+
+    y = np.asarray(y_true).astype(int)
+    p = np.asarray(y_pred).astype(float)
+    mask = np.isfinite(p) & np.isfinite(y)
+    y = y[mask]
+    p = p[mask]
+
+    if len(y) == 0:
+        return
+
+    # Generate threshold array
+    thresholds = np.arange(0.0005, max_pt + step, step)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Multi-split handling
+    if split_ids is not None:
+        split_ids = np.asarray(split_ids)[mask]
+        unique_splits = pd.Series(split_ids).dropna().unique().tolist()
+    else:
+        unique_splits = []
+
+    # Initialize for scope
+    dca_df = pd.DataFrame()
+    nb_model_curves = []
+
+    if len(unique_splits) > 1:
+        # Compute DCA per split and average
+        nb_model_curves = []
+        nb_all_curves = []
+        nb_none_curves = []
+
+        for sid in unique_splits:
+            m = split_ids == sid
+            y_s = y[m]
+            p_s = p[m]
+            if len(np.unique(y_s)) < 2 or len(y_s) < 2:
+                continue
+
+            dca_df = decision_curve_analysis(y_s, p_s, thresholds=thresholds)
+            if not dca_df.empty:
+                nb_model_curves.append(dca_df["net_benefit_model"].values)
+                nb_all_curves.append(dca_df["net_benefit_all"].values)
+                nb_none_curves.append(dca_df["net_benefit_none"].values)
+
+        if nb_model_curves:
+            nb_model_curves = np.vstack(nb_model_curves)
+            nb_all_curves = np.vstack(nb_all_curves)
+            nb_none_curves = np.vstack(nb_none_curves)
+
+            nb_model_mean = np.mean(nb_model_curves, axis=0)
+            nb_model_sd = np.std(nb_model_curves, axis=0)
+            nb_model_lo = np.percentile(nb_model_curves, 2.5, axis=0)
+            nb_model_hi = np.percentile(nb_model_curves, 97.5, axis=0)
+
+            nb_all_mean = np.mean(nb_all_curves, axis=0)
+            nb_none_mean = np.mean(nb_none_curves, axis=0)
+
+            thr = thresholds[: len(nb_model_mean)]
+
+            # Plot with confidence bands
+            ax.fill_between(
+                thr, nb_model_lo, nb_model_hi, color="steelblue", alpha=0.15, label="95% CI"
+            )
+            ax.fill_between(
+                thr,
+                np.maximum(0, nb_model_mean - nb_model_sd),
+                np.minimum(1, nb_model_mean + nb_model_sd),
+                color="steelblue",
+                alpha=0.30,
+                label="±1 SD",
+            )
+            ax.plot(
+                thr,
+                nb_model_mean,
+                color="steelblue",
+                linestyle="-",
+                linewidth=2,
+                label="Model",
+            )
+            ax.plot(thr, nb_all_mean, "r--", linewidth=1.5, label="Treat All")
+            ax.plot(thr, nb_none_mean, "k:", linewidth=1.5, label="Treat None")
+
+            # Shade region where model is better
+            ax.fill_between(
+                thr,
+                np.maximum(nb_all_mean, nb_none_mean),
+                nb_model_mean,
+                where=(nb_model_mean > np.maximum(nb_all_mean, nb_none_mean)),
+                alpha=0.2,
+                color="steelblue",
+                label="Model Benefit",
+            )
+        else:
+            # Fallback to single curve if all splits fail
+            dca_df = decision_curve_analysis(y, p, thresholds=thresholds)
+            if not dca_df.empty:
+                thr = dca_df["threshold"].values
+                ax.plot(
+                    thr,
+                    dca_df["net_benefit_model"].values,
+                    color="steelblue",
+                    linestyle="-",
+                    linewidth=2,
+                    label="Model",
+                )
+                ax.plot(
+                    thr,
+                    dca_df["net_benefit_all"].values,
+                    "r--",
+                    linewidth=1.5,
+                    label="Treat All",
+                )
+                ax.plot(
+                    thr,
+                    dca_df["net_benefit_none"].values,
+                    "k:",
+                    linewidth=1.5,
+                    label="Treat None",
+                )
+                ax.fill_between(
+                    thr,
+                    np.maximum(
+                        dca_df["net_benefit_all"].values, dca_df["net_benefit_none"].values
+                    ),
+                    dca_df["net_benefit_model"].values,
+                    where=(
+                        dca_df["net_benefit_model"].values
+                        > np.maximum(
+                            dca_df["net_benefit_all"].values,
+                            dca_df["net_benefit_none"].values,
+                        )
+                    ),
+                    alpha=0.2,
+                    color="steelblue",
+                    label="Model Benefit",
+                )
+    else:
+        # Single split or no split_ids
+        dca_df = decision_curve_analysis(y, p, thresholds=thresholds)
+        if not dca_df.empty:
+            thr = dca_df["threshold"].values
+            ax.plot(
+                thr,
+                dca_df["net_benefit_model"].values,
+                color="steelblue",
+                linestyle="-",
+                linewidth=2,
+                label="Model",
+            )
+            ax.plot(
+                thr,
+                dca_df["net_benefit_all"].values,
+                "r--",
+                linewidth=1.5,
+                label="Treat All",
+            )
+            ax.plot(
+                thr,
+                dca_df["net_benefit_none"].values,
+                "k:",
+                linewidth=1.5,
+                label="Treat None",
+            )
+            ax.fill_between(
+                thr,
+                np.maximum(
+                    dca_df["net_benefit_all"].values, dca_df["net_benefit_none"].values
+                ),
+                dca_df["net_benefit_model"].values,
+                where=(
+                    dca_df["net_benefit_model"].values
+                    > np.maximum(
+                        dca_df["net_benefit_all"].values,
+                        dca_df["net_benefit_none"].values,
+                    )
+                ),
+                alpha=0.2,
+                color="steelblue",
+                label="Model Benefit",
+            )
+
+    # Compute y-range to include all curves (treat all, treat none, model)
+    y_min = 0
+    y_max = 0
+
+    if len(unique_splits) > 1 and len(nb_model_curves) > 0:
+        y_min = min(
+            y_min,
+            np.nanmin(nb_model_lo),
+            np.nanmin(nb_all_mean),
+            np.nanmin(nb_none_mean),
+        )
+        y_max = max(
+            y_max,
+            np.nanmax(nb_model_hi),
+            np.nanmax(nb_all_mean),
+            np.nanmax(nb_none_mean),
+        )
+    elif not dca_df.empty:
+        y_min = min(
+            y_min,
+            dca_df["net_benefit_model"].min(),
+            dca_df["net_benefit_all"].min(),
+            dca_df["net_benefit_none"].min(),
+        )
+        y_max = max(
+            y_max,
+            dca_df["net_benefit_model"].max(),
+            dca_df["net_benefit_all"].max(),
+            dca_df["net_benefit_none"].max(),
+        )
+
+    # Add 10% padding
+    y_range = y_max - y_min
+    if y_range > 0:
+        y_min_padded = y_min - 0.1 * y_range
+        y_max_padded = y_max + 0.1 * y_range
+    else:
+        y_min_padded = -0.1
+        y_max_padded = 0.1
+    ax.set_ylim([y_min_padded, y_max_padded])
+
+    ax.set_xlabel("Threshold Probability", fontsize=12)
+    ax.set_ylabel("Net Benefit", fontsize=12)
+    if subtitle:
+        ax.set_title(f"{title}\n{subtitle}", fontsize=12)
+    else:
+        ax.set_title(title, fontsize=12)
+    ax.legend(loc="upper right", fontsize=9)
+    ax.grid(True, alpha=0.3)
+    ax.axhline(y=0, color="gray", linestyle="-", linewidth=0.5, alpha=0.5)
+
+    bottom_margin = apply_plot_metadata(fig, meta_lines)
+    plt.subplots_adjust(left=0.15, right=0.9, top=0.8, bottom=bottom_margin)
+    plt.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.8)
+    plt.close()

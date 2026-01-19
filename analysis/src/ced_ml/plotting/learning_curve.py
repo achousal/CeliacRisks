@@ -1,0 +1,531 @@
+"""Learning curve computation and plotting.
+
+This module provides functions for generating learning curves that show
+model performance as a function of training set size.
+
+Functions:
+    compute_learning_curve: Compute learning curve data using sklearn's learning_curve
+    save_learning_curve_csv: Compute and save learning curve data to CSV
+    plot_learning_curve: Generate single-run learning curve plot
+    aggregate_learning_curve_runs: Aggregate learning curves across multiple runs
+    plot_learning_curve_summary: Plot aggregated learning curve with CIs
+"""
+
+from pathlib import Path
+from typing import Optional, Sequence, List
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import learning_curve, StratifiedKFold
+
+from ..utils.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+def compute_learning_curve(
+    estimator,
+    X: np.ndarray,
+    y: np.ndarray,
+    scoring: str,
+    cv: int = 5,
+    min_frac: float = 0.3,
+    n_points: int = 5,
+    seed: int = 0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute learning curve using sklearn's learning_curve.
+
+    Args:
+        estimator: Sklearn estimator (pipeline or model)
+        X: Feature matrix (n_samples, n_features)
+        y: Target vector (n_samples,)
+        scoring: Scoring metric (e.g., 'neg_brier_score', 'roc_auc')
+        cv: Number of CV folds
+        min_frac: Minimum fraction of training set (e.g., 0.3 = 30%)
+        n_points: Number of points on learning curve
+        seed: Random seed for reproducibility
+
+    Returns:
+        Tuple of (train_sizes, train_scores, val_scores)
+        - train_sizes: (n_points,) array of training set sizes
+        - train_scores: (n_points, cv) array of train scores
+        - val_scores: (n_points, cv) array of validation scores
+    """
+    train_sizes = np.linspace(float(min_frac), 1.0, int(n_points))
+
+    sizes, train_scores, val_scores = learning_curve(
+        estimator,
+        X,
+        y,
+        train_sizes=train_sizes,
+        cv=StratifiedKFold(n_splits=int(cv), shuffle=True, random_state=int(seed)),
+        scoring=scoring,
+        n_jobs=1,
+        shuffle=True,
+        random_state=int(seed),
+    )
+
+    return sizes, train_scores, val_scores
+
+
+def _normalize_metric_scores(
+    scoring: str,
+    train_scores: np.ndarray,
+    val_scores: np.ndarray,
+) -> tuple[str, bool, np.ndarray, np.ndarray]:
+    """Normalize metric scores and extract metric metadata.
+
+    Args:
+        scoring: Scoring metric name
+        train_scores: Training scores
+        val_scores: Validation scores
+
+    Returns:
+        Tuple of (metric_label, metric_is_error, train_scores_norm, val_scores_norm)
+    """
+    metric_label = scoring
+    metric_is_error = False
+
+    if str(scoring).startswith("neg_"):
+        metric_label = str(scoring).replace("neg_", "", 1)
+        metric_is_error = True
+        train_scores = -train_scores
+        val_scores = -val_scores
+
+    if (train_scores < 0).any() or (val_scores < 0).any():
+        logger.warning(
+            f"[learning_curve] WARNING: negative values remain after metric normalization ({scoring})."
+        )
+
+    return metric_label, metric_is_error, train_scores, val_scores
+
+
+def save_learning_curve_csv(
+    estimator,
+    X: np.ndarray,
+    y: np.ndarray,
+    out_csv: Path,
+    scoring: str,
+    cv: int = 5,
+    min_frac: float = 0.3,
+    n_points: int = 5,
+    seed: int = 0,
+    out_plot: Optional[Path] = None,
+    meta_lines: Optional[Sequence[str]] = None,
+) -> None:
+    """Compute learning curve and save results to CSV.
+
+    Args:
+        estimator: Sklearn estimator (pipeline or model)
+        X: Feature matrix (n_samples, n_features)
+        y: Target vector (n_samples,)
+        out_csv: Output CSV path
+        scoring: Scoring metric (e.g., 'neg_brier_score', 'roc_auc')
+        cv: Number of CV folds
+        min_frac: Minimum fraction of training set
+        n_points: Number of points on learning curve
+        seed: Random seed
+        out_plot: Optional output path for plot
+        meta_lines: Optional metadata lines for plot annotation
+    """
+    sizes, train_scores, val_scores = compute_learning_curve(
+        estimator, X, y, scoring, cv, min_frac, n_points, seed
+    )
+
+    metric_label, metric_is_error, train_scores, val_scores = _normalize_metric_scores(
+        scoring, train_scores, val_scores
+    )
+
+    train_mean = train_scores.mean(axis=1)
+    train_sd = train_scores.std(axis=1)
+    val_mean = val_scores.mean(axis=1)
+    val_sd = val_scores.std(axis=1)
+
+    n_sizes, n_splits = val_scores.shape
+    rows = []
+    for i in range(n_sizes):
+        for split_idx in range(n_splits):
+            rows.append(
+                {
+                    "train_size": int(sizes[i]),
+                    "cv_split": int(split_idx),
+                    "train_score": float(train_scores[i, split_idx]),
+                    "val_score": float(val_scores[i, split_idx]),
+                    "train_score_mean": float(train_mean[i]),
+                    "train_score_sd": float(train_sd[i]),
+                    "val_score_mean": float(val_mean[i]),
+                    "val_score_sd": float(val_sd[i]),
+                    "scoring": str(scoring),
+                    "error_metric": str(metric_label),
+                    "metric_direction": (
+                        "lower_is_better" if metric_is_error else "higher_is_better"
+                    ),
+                }
+            )
+
+    pd.DataFrame(rows).to_csv(out_csv, index=False)
+
+    if out_plot:
+        try:
+            plot_learning_curve(
+                sizes,
+                train_scores,
+                val_scores,
+                out_plot,
+                metric_label,
+                metric_is_error,
+                meta_lines=meta_lines,
+            )
+            logger.info(f"[plot] Saved learning curve plot: {out_plot}")
+        except Exception as e:
+            logger.warning(
+                f"[plot] WARNING: Failed to generate learning curve plot: {e}"
+            )
+
+
+def plot_learning_curve(
+    train_sizes: np.ndarray,
+    train_scores: np.ndarray,
+    val_scores: np.ndarray,
+    out_path: Path,
+    metric_label: str,
+    metric_is_error: bool,
+    meta_lines: Optional[Sequence[str]] = None,
+) -> None:
+    """Generate a learning curve plot with per-split scatter and mean lines.
+
+    Args:
+        train_sizes: (n_points,) array of training set sizes
+        train_scores: (n_points, n_splits) array of train scores
+        val_scores: (n_points, n_splits) array of validation scores
+        out_path: Output plot path
+        metric_label: Metric name for y-axis
+        metric_is_error: Whether metric is error-based (lower is better)
+        meta_lines: Optional metadata lines for plot annotation
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    train_sizes = np.asarray(train_sizes)
+    train_scores = np.asarray(train_scores)
+    val_scores = np.asarray(val_scores)
+
+    if train_scores.ndim != 2 or val_scores.ndim != 2:
+        return
+
+    n_sizes, n_splits = val_scores.shape
+    if n_sizes == 0 or n_splits == 0:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Scatter validation scores across splits
+    for split_idx in range(n_splits):
+        label = "Validation split" if split_idx == 0 else None
+        ax.scatter(
+            train_sizes,
+            val_scores[:, split_idx],
+            color="tab:blue",
+            alpha=0.35,
+            s=25,
+            label=label,
+        )
+
+    # Mean lines + shaded variability
+    val_mean = val_scores.mean(axis=1)
+    val_sd = val_scores.std(axis=1)
+    train_mean = train_scores.mean(axis=1)
+    train_sd = train_scores.std(axis=1)
+
+    # Plot shaded regions (SD bands)
+    ax.fill_between(
+        train_sizes,
+        train_mean - train_sd,
+        train_mean + train_sd,
+        color="gray",
+        alpha=0.15,
+        label="Train ±1 SD",
+    )
+    ax.fill_between(
+        train_sizes,
+        val_mean - val_sd,
+        val_mean + val_sd,
+        color="tab:blue",
+        alpha=0.15,
+        label="Validation ±1 SD",
+    )
+
+    # Plot mean lines
+    ax.plot(
+        train_sizes,
+        train_mean,
+        color="gray",
+        linestyle="--",
+        linewidth=1.5,
+        label="Train mean",
+    )
+    ax.plot(train_sizes, val_mean, "b-", linewidth=2, label="Validation mean")
+
+    metric_text = metric_label.replace("_", " ").upper()
+    if metric_is_error:
+        metric_text += " (LOWER IS BETTER)"
+
+    ax.set_xlabel("Training samples", fontsize=12)
+    ax.set_ylabel(metric_text, fontsize=12)
+    ax.set_title("Learning Curve", fontsize=14)
+    ax.grid(True, alpha=0.3)
+
+    # Set x-axis ticks and labels to training sizes
+    ax.set_xticks(train_sizes)
+    ax.set_xticklabels(
+        [str(int(size)) for size in train_sizes], rotation=45, ha="right", fontsize=9
+    )
+
+    ax.legend(loc="best", fontsize=10)
+
+    # Apply metadata annotation to bottom of figure
+    if meta_lines:
+        lines = [str(line) for line in meta_lines if line]
+        if lines:
+            fig.text(0.5, 0.005, "\n".join(lines), ha="center", va="bottom", fontsize=8, wrap=True)
+            bottom_margin = 0.10 + (0.018 * len(lines))
+        else:
+            bottom_margin = 0.10
+    else:
+        bottom_margin = 0.10
+
+    plt.subplots_adjust(left=0.15, right=0.9, top=0.8, bottom=bottom_margin)
+    plt.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.8)
+    plt.close()
+
+
+def aggregate_learning_curve_runs(lc_frames: List[pd.DataFrame]) -> pd.DataFrame:
+    """Aggregate learning curves across multiple runs.
+
+    Args:
+        lc_frames: List of learning curve DataFrames from different runs
+
+    Returns:
+        Aggregated DataFrame with mean, SD, and 95% CI across runs
+    """
+    if not lc_frames:
+        return pd.DataFrame()
+
+    per_run = []
+    metric_label = ""
+    metric_direction = ""
+    scoring = ""
+
+    for df in lc_frames:
+        if df is None or df.empty or "train_size" not in df.columns:
+            continue
+        run_id = df.get("run_dir")
+        run_label = run_id.iloc[0] if run_id is not None else "run"
+
+        if "train_score_mean" in df.columns and "val_score_mean" in df.columns:
+            agg = df.groupby("train_size", as_index=False).agg(
+                train_mean=("train_score_mean", "mean"),
+                val_mean=("val_score_mean", "mean"),
+            )
+        elif "train_score" in df.columns and "val_score" in df.columns:
+            agg = df.groupby("train_size", as_index=False).agg(
+                train_mean=("train_score", "mean"), val_mean=("val_score", "mean")
+            )
+        else:
+            continue
+
+        agg["run"] = run_label
+        per_run.append(agg)
+
+        if not metric_label and "error_metric" in df.columns:
+            metric_label = str(df["error_metric"].iloc[0])
+        if not metric_direction and "metric_direction" in df.columns:
+            metric_direction = str(df["metric_direction"].iloc[0])
+        if not scoring and "scoring" in df.columns:
+            scoring = str(df["scoring"].iloc[0])
+
+    if not per_run:
+        return pd.DataFrame()
+
+    all_df = pd.concat(per_run, ignore_index=True)
+
+    def _ci_lo(x):
+        return float(np.percentile(x, 2.5)) if len(x) > 1 else np.nan
+
+    def _ci_hi(x):
+        return float(np.percentile(x, 97.5)) if len(x) > 1 else np.nan
+
+    summary = all_df.groupby("train_size", as_index=False).agg(
+        train_mean=("train_mean", "mean"),
+        train_sd=("train_mean", "std"),
+        train_ci_lo=("train_mean", _ci_lo),
+        train_ci_hi=("train_mean", _ci_hi),
+        val_mean=("val_mean", "mean"),
+        val_sd=("val_mean", "std"),
+        val_ci_lo=("val_mean", _ci_lo),
+        val_ci_hi=("val_mean", _ci_hi),
+        n_runs=("run", "nunique"),
+    )
+    summary["metric_label"] = metric_label or scoring
+    summary["metric_direction"] = metric_direction
+    summary["scoring"] = scoring
+    return summary
+
+
+def plot_learning_curve_summary(
+    df: pd.DataFrame,
+    out_path: Path,
+    title: str,
+    meta_lines: Optional[Sequence[str]] = None,
+) -> None:
+    """Plot aggregated learning curve with confidence intervals.
+
+    Args:
+        df: Aggregated learning curve DataFrame (from aggregate_learning_curve_runs)
+        out_path: Output plot path
+        title: Plot title
+        meta_lines: Optional metadata lines for plot annotation
+    """
+    if df is None or df.empty:
+        return
+
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as e:
+        logger.error(f"[PLOT] Learning curve failed to import dependencies: {e}")
+        return
+
+    x = df["train_size"].to_numpy()
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    # Helper function to safely plot confidence/uncertainty bands
+    def _plot_band(
+        mean_col: str,
+        sd_col: str,
+        ci_lo_col: str,
+        ci_hi_col: str,
+        color: str,
+        label: str,
+        alpha_ci: float = 0.12,
+        alpha_sd: float = 0.20,
+    ):
+        mean = np.asarray(df[mean_col], dtype=float)
+        sd = np.asarray(df[sd_col], dtype=float)
+        ci_lo = np.asarray(df[ci_lo_col], dtype=float)
+        ci_hi = np.asarray(df[ci_hi_col], dtype=float)
+
+        # Plot 95% CI band if available
+        if np.isfinite(ci_lo).any() and np.isfinite(ci_hi).any():
+            valid = np.isfinite(ci_lo) & np.isfinite(ci_hi)
+            if valid.sum() > 1:
+                ax.fill_between(
+                    x[valid],
+                    ci_lo[valid],
+                    ci_hi[valid],
+                    color=color,
+                    alpha=alpha_ci,
+                    label=f"{label} 95% CI",
+                )
+
+        # Plot ±1 SD band if available
+        if np.isfinite(sd).any() and np.isfinite(mean).any():
+            valid = np.isfinite(mean) & np.isfinite(sd)
+            if valid.sum() > 1:
+                ax.fill_between(
+                    x[valid],
+                    (mean - sd)[valid],
+                    (mean + sd)[valid],
+                    color=color,
+                    alpha=alpha_sd,
+                    label=f"{label} ±1 SD",
+                )
+
+    # Plot bands (train first, then val to layer properly)
+    _plot_band(
+        "train_mean", "train_sd", "train_ci_lo", "train_ci_hi", "steelblue", "Train"
+    )
+    _plot_band(
+        "val_mean", "val_sd", "val_ci_lo", "val_ci_hi", "darkorange", "Val"
+    )
+
+    # Plot individual validation data points if available
+    if "val_score" in df.columns:
+        val_scores = np.asarray(df["val_score"], dtype=float)
+        valid_val = np.isfinite(val_scores)
+        if valid_val.any():
+            ax.scatter(
+                x[valid_val],
+                val_scores[valid_val],
+                color="darkorange",
+                alpha=0.35,
+                s=20,
+                label="Val points",
+            )
+
+    # Plot mean lines with markers
+    ax.plot(
+        x,
+        df["train_mean"],
+        color="steelblue",
+        linewidth=2.5,
+        linestyle="--",
+        label="Train mean",
+        marker="o",
+        markersize=6,
+        markerfacecolor="steelblue",
+        markeredgecolor="steelblue",
+    )
+    ax.plot(
+        x,
+        df["val_mean"],
+        color="darkorange",
+        linewidth=2.5,
+        label="Val mean",
+        marker="s",
+        markersize=6,
+        markerfacecolor="darkorange",
+        markeredgecolor="darkorange",
+    )
+
+    # Format axis labels with metric direction
+    metric_label = (
+        str(df["metric_label"].iloc[0])
+        if "metric_label" in df.columns and len(df)
+        else "Score"
+    )
+    metric_direction = (
+        str(df["metric_direction"].iloc[0])
+        if "metric_direction" in df.columns and len(df)
+        else ""
+    )
+    ylabel = metric_label.replace("_", " ").upper()
+    if metric_direction == "lower_is_better":
+        ylabel += " (lower is better)"
+    elif metric_direction == "higher_is_better":
+        ylabel += " (higher is better)"
+
+    ax.set_xlabel("Training examples", fontsize=12)
+    ax.set_ylabel(ylabel, fontsize=12)
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.grid(True, alpha=0.2)
+
+    ax.legend(fontsize=8, loc="best")
+
+    # Apply metadata annotation to bottom of figure
+    if meta_lines:
+        lines = [str(line) for line in meta_lines if line]
+        if lines:
+            fig.text(0.5, 0.005, "\n".join(lines), ha="center", va="bottom", fontsize=8, wrap=True)
+            bottom_margin = 0.10 + (0.018 * len(lines))
+        else:
+            bottom_margin = 0.10
+    else:
+        bottom_margin = 0.10
+
+    plt.subplots_adjust(left=0.15, right=0.9, top=0.8, bottom=bottom_margin)
+    plt.savefig(out_path, dpi=150, pad_inches=0.1)
+    plt.close()

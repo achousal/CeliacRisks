@@ -1,0 +1,149 @@
+############################################
+# OS / Editor
+############################################
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+.idea/
+.vscode/
+
+############################################
+# Claude (local settings)
+############################################
+.claude/
+**/.claude/
+
+############################################
+# Python build / packaging
+############################################
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+wheels/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.pytype/
+.ruff_cache/
+.hypothesis/
+
+############################################
+# Environments
+############################################
+.venv/
+venv/
+env/
+ENV/
+.conda/
+conda-meta/
+*.conda
+.env
+.env.*
+
+############################################
+# Jupyter
+############################################
+.ipynb_checkpoints/
+*.ipynb
+
+############################################
+# R
+############################################
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+
+############################################
+# Logs / HPC
+############################################
+*.log
+*.out
+*.err
+nohup.out
+core.*
+
+############################################
+# Project outputs (ignore anywhere)
+############################################
+results/
+**/results/
+output/
+outputs/
+**/output/
+**/outputs/
+logs/
+**/logs/
+archive/
+**/archive/
+misc/
+**/misc/
+papers/
+**/papers/
+
+# Common ML tooling artifacts
+mlruns/
+**/mlruns/
+wandb/
+**/wandb/
+lightning_logs/
+**/lightning_logs/
+ray_results/
+**/ray_results/
+optuna/
+**/optuna/
+checkpoints/
+**/checkpoints/
+tensorboard/
+**/tensorboard/
+
+############################################
+# Data policy
+# - keep README, ignore heavy data by default
+############################################
+data/**
+!data/README.md
+!data/README.txt
+!data/.gitkeep
+
+# Also ignore typical large data formats anywhere
+*.csv
+*.tsv
+*.parquet
+*.feather
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.hdf5
+*.h5ad
+*.loom
+*.rds
+*.RDS
+*.npz
+
+############################################
+# Figures / reports
+# - ignore generated reports broadly
+# - keep curated figures in analysis/figures
+############################################
+*.html
+*.pdf
+*.png
+*.svg
+
+!/analysis/figures/
+!/analysis/figures/**
+.gitignore_global

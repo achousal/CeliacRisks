@@ -1,0 +1,200 @@
+"""
+Default configuration values matching current implementation exactly.
+
+This module serves as the single source of truth for all default parameter values,
+ensuring behavioral equivalence with the legacy codebase.
+"""
+
+from typing import Dict, Any
+
+# Valid scenario names
+VALID_SCENARIOS = [
+    "IncidentOnly",
+    "PrevalentOnly",
+    "IncidentPlusPrevalent",
+]
+
+# Valid model names
+VALID_MODELS = [
+    "LR",
+    "LR_L1",
+    "LR_L2",
+    "LR_EN",
+    "LinSVM",
+    "LinSVM_cal",
+    "SVM_rbf",
+    "SVM_rbf_cal",
+    "RF",
+    "XGBoost",
+]
+
+# Default split configuration (matches save_splits.py)
+DEFAULT_SPLITS_CONFIG: Dict[str, Any] = {
+    "mode": "development",
+    "scenarios": ["IncidentOnly"],
+    "n_splits": 1,
+    "val_size": 0.0,
+    "test_size": 0.30,
+    "holdout_size": 0.30,
+    "seed_start": 0,
+    "prevalent_train_only": False,
+    "prevalent_train_frac": 1.0,
+    "train_control_per_case": None,
+    "eval_control_per_case": None,
+    "temporal_split": False,
+    "temporal_col": "CeD_date",
+    "temporal_cutoff": None,
+    "outdir": "splits",
+    "save_indices_only": False,
+}
+
+# Default CV configuration (matches celiacML_faith.py)
+DEFAULT_CV_CONFIG: Dict[str, Any] = {
+    "folds": 5,
+    "repeats": 3,
+    "inner_folds": 5,
+    "scoring": "average_precision",
+    "n_iter": 30,
+    "random_state": 0,
+    "tune_n_jobs": "auto",
+    "error_score": "nan",
+    "grid_randomize": False,
+}
+
+# Default feature selection configuration
+DEFAULT_FEATURE_CONFIG: Dict[str, Any] = {
+    "feature_select": "none",
+    "screen_method": "mannwhitney",
+    "screen_top_n": 0,
+    "kbest_scope": "protein",
+    "kbest_max": 500,
+    "k_grid": [50, 100, 200, 500],
+    "stability_thresh": 0.70,
+    "stable_corr_thresh": 0.80,
+    "l1_c_grid": [0.001, 0.01, 0.1, 1.0],
+    "l1_stability_thresh": 0.70,
+    "hybrid_kbest_first": True,
+    "hybrid_k_for_stability": 200,
+}
+
+# Default panel building configuration
+DEFAULT_PANEL_CONFIG: Dict[str, Any] = {
+    "build_panels": False,
+    "panel_sizes": [10, 25, 50, 100],
+    "panel_corr_thresh": 0.80,
+    "panel_corr_method": "pearson",
+    "panel_rep_tiebreak": "first",
+    "panel_refit": True,
+    "panel_stability_mode": "frequency",
+}
+
+# Default threshold configuration
+DEFAULT_THRESHOLD_CONFIG: Dict[str, Any] = {
+    "objective": "max_f1",
+    "fbeta": 1.0,
+    "fixed_spec": 0.90,
+    "fixed_ppv": 0.10,
+    "threshold_source": "val",
+    "target_prevalence_source": "test",
+    "target_prevalence_fixed": None,
+    "risk_prob_source": "test",
+}
+
+# Default evaluation configuration
+DEFAULT_EVALUATION_CONFIG: Dict[str, Any] = {
+    "test_ci_bootstrap": True,
+    "n_boot": 500,
+    "boot_random_state": 0,
+    "learning_curve": False,
+    "lc_train_sizes": [0.1, 0.25, 0.5, 0.75, 1.0],
+    "feature_reports": True,
+    "feature_report_max": 100,
+    "control_spec_targets": [0.90, 0.95, 0.99],
+    "toprisk_fracs": [0.01, 0.05, 0.10],
+}
+
+# Default DCA configuration
+DEFAULT_DCA_CONFIG: Dict[str, Any] = {
+    "compute_dca": False,
+    "dca_threshold_min": 0.0005,
+    "dca_threshold_max": 1.0,
+    "dca_threshold_step": 0.001,
+    "dca_report_points": [0.01, 0.05, 0.10, 0.20],
+}
+
+# Default output configuration
+DEFAULT_OUTPUT_CONFIG: Dict[str, Any] = {
+    "save_train_preds": False,
+    "save_val_preds": True,
+    "save_test_preds": True,
+    "save_calibration": True,
+    "calib_bins": 10,
+    "save_feature_importance": True,
+    "save_plots": True,
+    "plot_format": "png",
+    "plot_dpi": 300,
+}
+
+# Default strictness configuration
+DEFAULT_STRICTNESS_CONFIG: Dict[str, Any] = {
+    "level": "warn",
+    "check_split_overlap": True,
+    "check_prevalent_in_eval": True,
+    "check_threshold_source": True,
+    "check_prevalence_adjustment": True,
+    "check_feature_leakage": True,
+}
+
+# Model-specific hyperparameter defaults (matching celiacML_faith.py get_param_distributions)
+DEFAULT_LR_CONFIG: Dict[str, Any] = {
+    "penalty": ["l1", "l2", "elasticnet"],
+    "C": [0.001, 0.01, 0.1, 1.0, 10.0],
+    "l1_ratio": [0.1, 0.5, 0.9],
+    "solver": "saga",
+    "max_iter": 1000,
+    "class_weight": "balanced",
+    "random_state": 0,
+}
+
+DEFAULT_SVM_CONFIG: Dict[str, Any] = {
+    "C": [0.01, 0.1, 1.0, 10.0],
+    "kernel": ["linear", "rbf"],
+    "gamma": ["scale", "auto", 0.001, 0.01],
+    "class_weight": "balanced",
+    "max_iter": 5000,
+    "probability": True,
+    "random_state": 0,
+}
+
+DEFAULT_RF_CONFIG: Dict[str, Any] = {
+    "n_estimators": [100, 300, 500],
+    "max_depth": [None, 10, 20, 30],
+    "min_samples_split": [2, 5, 10],
+    "min_samples_leaf": [1, 2, 4],
+    "max_features": ["sqrt", "log2", 0.5],
+    "class_weight": "balanced",
+    "n_jobs": -1,
+    "random_state": 0,
+}
+
+DEFAULT_XGBOOST_CONFIG: Dict[str, Any] = {
+    "n_estimators": [100, 300, 500],
+    "max_depth": [3, 5, 7, 10],
+    "learning_rate": [0.01, 0.05, 0.1, 0.3],
+    "min_child_weight": [1, 3, 5],
+    "gamma": [0.0, 0.1, 0.2],
+    "subsample": [0.7, 0.8, 1.0],
+    "colsample_bytree": [0.7, 0.8, 1.0],
+    "reg_alpha": [0.0, 0.1, 1.0],
+    "reg_lambda": [1.0, 5.0, 10.0],
+    "scale_pos_weight": "auto",
+    "tree_method": "hist",
+    "n_jobs": -1,
+    "random_state": 0,
+}
+
+DEFAULT_CALIBRATION_CONFIG: Dict[str, Any] = {
+    "method": "sigmoid",
+    "cv": 5,
+    "ensemble": False,
+}
