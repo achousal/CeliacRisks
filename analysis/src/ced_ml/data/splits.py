@@ -73,23 +73,24 @@ def make_strata(df: pd.DataFrame, scheme: str) -> pd.Series:
     - "outcome": Outcome only
 
     Args:
-        df: DataFrame with TARGET_COL, "sex", and "age" columns
+        df: DataFrame with TARGET_COL, and optionally "sex" and "age" columns
         scheme: Stratification scheme
 
     Returns:
         Series of stratification labels (strings)
 
     Raises:
-        ValueError: If scheme is unknown
+        ValueError: If scheme is unknown or required columns are missing
     """
     outcome = df[TARGET_COL].astype(str).fillna("UnknownOutcome")
-    sex = df["sex"].astype(str).fillna("UnknownSex")
 
     if scheme == "outcome+sex+age3":
+        sex = df["sex"].astype(str).fillna("UnknownSex")
         ageb = age_bins(df["age"], "age3")
         return (outcome + "_" + sex + "_" + ageb).astype(str)
 
     if scheme == "outcome+sex+age2":
+        sex = df["sex"].astype(str).fillna("UnknownSex")
         ageb = age_bins(df["age"], "age2")
         return (outcome + "_" + sex + "_" + ageb).astype(str)
 
@@ -98,6 +99,7 @@ def make_strata(df: pd.DataFrame, scheme: str) -> pd.Series:
         return (outcome + "_" + ageb).astype(str)
 
     if scheme == "outcome+sex":
+        sex = df["sex"].astype(str).fillna("UnknownSex")
         return (outcome + "_" + sex).astype(str)
 
     if scheme == "outcome":
