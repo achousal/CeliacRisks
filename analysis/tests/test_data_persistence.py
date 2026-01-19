@@ -200,7 +200,7 @@ def test_check_split_files_exist_none(temp_outdir):
 
 def test_check_split_files_exist_train_only(temp_outdir):
     """Test detects existing train file."""
-    train_path = os.path.join(temp_outdir, "IncidentOnly_train_idx.csv")
+    train_path = os.path.join(temp_outdir, "IncidentOnly_train_idx_seed42.csv")
     Path(train_path).touch()
 
     exists, paths = check_split_files_exist(
@@ -217,8 +217,8 @@ def test_check_split_files_exist_train_only(temp_outdir):
 def test_check_split_files_exist_all_splits(temp_outdir):
     """Test detects all split files including metadata."""
     for fname in [
-        "IncidentOnly_train_idx.csv",
-        "IncidentOnly_test_idx.csv",
+        "IncidentOnly_train_idx_seed42.csv",
+        "IncidentOnly_test_idx_seed42.csv",
         "IncidentOnly_split_meta_seed42.json",
     ]:
         Path(os.path.join(temp_outdir, fname)).touch()

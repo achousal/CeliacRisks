@@ -130,7 +130,7 @@ def check_split_files_exist(
     Returns:
         Tuple of (files_exist, existing_paths)
     """
-    suffix = f"_seed{seed}" if n_splits > 1 else ""
+    suffix = f"_seed{seed if seed is not None else 0}"
 
     expected_files = [
         os.path.join(outdir, f"{scenario}_train_idx{suffix}.csv"),
@@ -203,7 +203,7 @@ def save_split_indices(
         )
 
     # Build file paths
-    suffix = f"_seed{seed}" if n_splits > 1 else ""
+    suffix = f"_seed{seed if seed is not None else 0}"
     paths = {
         "train": os.path.join(outdir, f"{scenario}_train_idx{suffix}.csv"),
         "test": os.path.join(outdir, f"{scenario}_test_idx{suffix}.csv"),

@@ -5,7 +5,7 @@ A modular, reproducible ML pipeline for predicting incident Celiac Disease
 risk from proteomics biomarkers.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 __author__ = "Andres Chousal"
 __license__ = "MIT"
 

@@ -53,7 +53,7 @@ ced train \
   --config configs/training_config.yaml \
   --model LR_EN \
   --infile ../Celiac_dataset_proteomics.csv \
-  --splits-dir splits_production
+  --split-dir splits_production
 
 # HPC (4 models in parallel)
 bsub < CeD_production.lsf

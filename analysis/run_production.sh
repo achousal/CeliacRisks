@@ -36,7 +36,7 @@ QUEUE="${QUEUE:-premium}"
 
 # Paths
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INFILE="${INFILE:-${BASE_DIR}/../Celiac_dataset_proteomics.csv}"
+INFILE="${INFILE:-${BASE_DIR}/../data/Celiac_dataset_proteomics.csv}"
 SPLITS_DIR="${SPLITS_DIR:-${BASE_DIR}/splits_production}"
 RESULTS_DIR="${RESULTS_DIR:-${BASE_DIR}/results_production}"
 LOGS_DIR="${LOGS_DIR:-${BASE_DIR}/logs}"
@@ -93,9 +93,9 @@ log "============================================"
 #==============================================================
 log "Step 1/3: Generate splits"
 
-# Check if splits exist
+# Check if splits exist (check for any scenario splits)
 SPLITS_EXIST=0
-if [[ -f "${SPLITS_DIR}/IncidentPlusPrevalent_train_idx_seed0.csv" ]]; then
+if ls "${SPLITS_DIR}"/*_train_idx_seed0.csv 1>/dev/null 2>&1; then
   SPLITS_EXIST=1
 fi
 
@@ -106,12 +106,18 @@ else
     log "[DRY RUN] Would run: ced save-splits"
   else
     log "Generating splits..."
+    OVERWRITE_FLAG=""
+    if [[ ${OVERWRITE_SPLITS} -eq 1 ]]; then
+      OVERWRITE_FLAG="--overwrite"
+    fi
+
     ced save-splits \
       --config "${SPLITS_CONFIG}" \
       --infile "${INFILE}" \
       --outdir "${SPLITS_DIR}" \
       --n-splits "${N_SPLITS}" \
-      --seed-start "${SEED_START}"
+      --seed-start "${SEED_START}" \
+      ${OVERWRITE_FLAG}
 
     log "✓ Splits generated"
   fi
@@ -152,7 +158,7 @@ else
         -oo "${LOGS_DIR}/${JOB_NAME}.%J.out" \
         -eo "${LOGS_DIR}/${JOB_NAME}.%J.err" \
         -env "MODEL=${MODEL},BASE_DIR=${BASE_DIR},INFILE=${INFILE},SPLITS_DIR=${SPLITS_DIR},RESULTS_DIR=${RESULTS_DIR},TRAINING_CONFIG=${TRAINING_CONFIG}" \
-        "ced train --config ${TRAINING_CONFIG} --model ${MODEL} --infile ${INFILE} --splits-dir ${SPLITS_DIR} --outdir ${RESULTS_DIR}" \
+        bash -c "source ${VENV_PATH} && ced train --config ${TRAINING_CONFIG} --model ${MODEL} --infile ${INFILE} --split-dir ${SPLITS_DIR} --outdir ${RESULTS_DIR}" \
         2>&1)
 
       JOB_ID=$(echo "${BSUB_OUT}" | grep -oE 'Job <[0-9]+>' | head -n1 | tr -cd '0-9')

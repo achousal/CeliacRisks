@@ -32,8 +32,7 @@ features:
 
 # Calibration and thresholding
 thresholds:
-  calibrate_final_models: true
-  threshold_objective: fixed_spec  # "max_f1", "max_fbeta", "youden", "fixed_spec", "fixed_ppv"
+  objective: fixed_spec  # "max_f1", "max_fbeta", "youden", "fixed_spec", "fixed_ppv"
   fixed_spec: 0.95  # Target 95% specificity
   threshold_source: val  # Select threshold on VAL set
   target_prevalence_source: test  # Use TEST prevalence for calibration
@@ -42,13 +41,6 @@ thresholds:
 evaluation:
   test_ci_bootstrap: true
   n_boot: 500
-  write_test_ci_files: true
-
-  # Decision curve analysis
-  compute_dca: true
-  dca_threshold_min: 0.0005
-  dca_threshold_max: 1.0
-  dca_threshold_step: 0.001
 
   # Learning curves
   learning_curve: true
@@ -56,13 +48,20 @@ evaluation:
   lc_min_frac: 0.30
   lc_points: 6
 
+# Decision curve analysis
+dca:
+  compute_dca: true
+  dca_threshold_min: 0.0005
+  dca_threshold_max: 1.0
+  dca_threshold_step: 0.001
+
 # Outputs
-outputs:
+output:
   save_controls_oof: true
   save_train_oof: true
   save_val_preds: true
   save_test_preds: true
   save_calibration: true
   calib_bins: 6
-  feature_reports: all  # "none", "best", "all"
+  feature_reports: true  # boolean: true or false
   feature_report_max: 200

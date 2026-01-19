@@ -123,7 +123,7 @@ ced save-splits --config configs/splits_config.yaml \
 ced train --config configs/training_config.yaml \
     --model LR_EN \
     --infile ../Celiac_dataset_proteomics.csv \
-    --splits-dir splits_production
+    --split-dir splits_production
 ```
 
 **What it does:** Trains models with nested CV, hyperparameter tuning, feature selection, calibration, and evaluation.
@@ -234,7 +234,7 @@ ced save-splits \
 ced train --config configs/training_config.yaml \
     --model LR_EN \
     --infile ../Celiac_dataset_proteomics.csv \
-    --splits-dir splits_production
+    --split-dir splits_production
 
 # HPC (4 models in parallel via LSF)
 bsub < CeD_production.lsf
@@ -375,7 +375,7 @@ ced train \
   --config configs/training_production.yaml \
   --model $MODEL \
   --infile ../Celiac_dataset_proteomics.csv \
-  --splits-dir splits_production
+  --split-dir splits_production
 ```
 
 **Submit:**

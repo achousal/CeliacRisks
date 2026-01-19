@@ -385,10 +385,10 @@ def _generate_repeated_splits(
         logger.info(f"  Final Test:  {len(idx_test):,} samples ({int(y_test.sum())} cases, {y_test.mean()*100:.3f}%)")
 
         # Save indices using persistence module
-        train_path, val_path, test_path = save_split_indices(
+        saved_paths = save_split_indices(
             outdir=str(outdir),
             scenario=scenario,
-            seed=seed if config.n_splits > 1 else None,
+            seed=seed,
             train_idx=idx_train,
             test_idx=idx_test,
             val_idx=idx_val if len(idx_val) > 0 else None,
@@ -396,10 +396,10 @@ def _generate_repeated_splits(
             overwrite=overwrite,
         )
 
-        logger.info(f"  [OK] Saved: {train_path}")
-        if val_path is not None:
-            logger.info(f"  [OK] Saved: {val_path}")
-        logger.info(f"  [OK] Saved: {test_path}")
+        logger.info(f"  [OK] Saved: {saved_paths['train']}")
+        if "val" in saved_paths:
+            logger.info(f"  [OK] Saved: {saved_paths['val']}")
+        logger.info(f"  [OK] Saved: {saved_paths['test']}")
 
         # Save metadata using persistence module
         meta_path = save_split_metadata(
