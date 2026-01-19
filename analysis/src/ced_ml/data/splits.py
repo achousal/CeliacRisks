@@ -184,12 +184,17 @@ def build_working_strata(
     last_reason: Optional[str] = None
 
     for sch in schemes:
-        strata = make_strata(df, sch)
-        strata = collapse_rare_strata(df, strata, min_count=min_count)
-        ok, reason = validate_strata(strata)
-        if ok:
-            return strata, sch
-        last_reason = f"{sch}: {reason}"
+        try:
+            strata = make_strata(df, sch)
+            strata = collapse_rare_strata(df, strata, min_count=min_count)
+            ok, reason = validate_strata(strata)
+            if ok:
+                return strata, sch
+            last_reason = f"{sch}: {reason}"
+        except KeyError as e:
+            # Missing column required for this scheme, try next
+            last_reason = f"{sch}: missing column {e}"
+            continue
 
     # Fallback to outcome-only
     strata = make_strata(df, "outcome")
