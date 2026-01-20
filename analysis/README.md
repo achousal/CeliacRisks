@@ -2,7 +2,7 @@
 
 **Status:** Phase D Complete - Production Ready ✅
 
-[![Tests](https://img.shields.io/badge/tests-832%20passing-success)]() [![Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-753%20passing-success)]() [![Coverage](https://img.shields.io/badge/coverage-82%25-brightgreen)]()
 
 A modular, reproducible ML pipeline for predicting incident Celiac Disease (CeD) risk from proteomics biomarkers.
 
@@ -196,27 +196,18 @@ Legacy/                           # Archived monolithic scripts
   save_splits.py                  # Original split generation
   postprocess_compare.py          # Original postprocessing
 
-tests/                            # 832 tests, 85% coverage
-  test_data_*.py                  # Data layer tests (111 tests)
-  test_features_*.py              # Features layer tests (128 tests)
-  test_models_*.py                # Models layer tests (103 tests)
-  test_metrics_*.py               # Metrics layer tests (163 tests)
-  test_evaluation_*.py            # Evaluation layer tests (81 tests)
-  test_plotting_*.py              # Plotting layer tests (122 tests)
-  test_cli_*.py                   # CLI integration tests (21 tests)
-  test_config*.py                 # Config system tests (29 tests)
+tests/                            # 753 tests, 82% coverage
+  test_data_*.py                  # Data layer tests
+  test_features_*.py              # Features layer tests
+  test_models_*.py                # Models layer tests
+  test_metrics_*.py               # Metrics layer tests
+  test_evaluation_*.py            # Evaluation layer tests
+  test_plotting_*.py              # Plotting layer tests
+  test_cli_*.py                   # CLI integration tests
+  test_config*.py                 # Config system tests
 ```
 
 ---
-
-## Behavioral Equivalence Guarantee
-
-**All defaults exactly match the current implementation** to ensure reproducibility:
-
-- Default split sizes: `val_size=0.0`, `test_size=0.30`
-- Default CV: `folds=5`, `repeats=3`, `scoring='average_precision'`
-- Default feature selection: `screen_method='mannwhitney'`, `stability_thresh=0.70`
-- Default model hyperparameters match `get_param_distributions()` in `celiacML_faith.py`
 
 ### Verification
 
@@ -229,7 +220,6 @@ ced save-splits --config docs/examples/splits_config.yaml --infile dummy.csv
 ```
 ### Next: Production Deployment
 
-- [ ] Update HPC batch scripts to use `ced` CLI
 - [ ] Performance benchmarking (training time, memory usage)
 - [ ] Documentation for external users
 - [ ] Publication-ready reproducibility artifacts
@@ -240,7 +230,7 @@ ced save-splits --config docs/examples/splits_config.yaml --infile dummy.csv
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run full test suite (832 tests)
+# Run full test suite (753 tests)
 pytest tests/ -v
 
 # Run tests with coverage report
@@ -260,8 +250,8 @@ ruff src/ced_ml/
 ```
 
 **Test Summary:**
-- 832 passing tests
-- 85% code coverage
+- 753 passing tests
+- 82% code coverage
 - All 6 layers tested (data, features, models, metrics, evaluation, plotting)
 - CLI integration verified (zero duplication)
 - Behavioral equivalence validated

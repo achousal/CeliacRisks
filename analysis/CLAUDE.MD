@@ -2,7 +2,7 @@
 
 **Project Owner:** Andres Chousal
 **Lab:** Elahi Lab
-**Last Updated:** 2026-01-18
+**Last Updated:** 2026-01-19
 **Status:** Production-ready (refactored package)
 
 ---
@@ -96,7 +96,7 @@ src/ced_ml/
 
 **Statistics:**
 - 15,109 lines of modular code
-- 832 passing tests (85% coverage)
+- 753 passing tests (82% coverage)
 - Zero code duplication
 - 100% backward compatible with legacy outputs
 
@@ -300,7 +300,7 @@ All models use:
 cd analysis
 pytest tests/ -v
 
-# 832 tests covering:
+# 753 tests covering:
 # - Data I/O and split generation
 # - Feature screening, k-best, stability, correlation pruning, panels
 # - Model registry, hyperparameters, training, calibration, prevalence
@@ -311,7 +311,7 @@ pytest tests/ -v
 # - Config validation and migration
 ```
 
-**Coverage:** 85% overall (90-100% for most modules)
+**Coverage:** 82% overall (90-100% for most modules)
 
 ---
 
@@ -454,31 +454,22 @@ For more troubleshooting, see [docs/MIGRATION_GUIDE.md](docs/MIGRATION_GUIDE.md)
 
 ## Next Steps
 
-**Current Status:** Production-ready ✅ (updated 2026-01-18)
+**Current Status:** Production-ready ✅ (updated 2026-01-19)
 
 ### Completed Today
-- [x] Fixed 9/10 failing tests (matplotlib backend, legacy imports)
-  - Fixed `test_predict.py` import error (src → ced_ml)
-  - Removed `shared_utils` dependency from learning curve plots
-  - Test suite: **846 passing / 856 total (98.8%)**
-  - Coverage: **84%**
-- [x] Created modern HPC batch scripts using `ced` CLI
-  - [CeD_production.lsf](CeD_production.lsf) - LSF array job wrapper
-  - [run_production.sh](run_production.sh) - Orchestration script
-  - [configs/](configs/) - YAML configuration files
-- [x] Documentation
-  - [docs/HPC_MIGRATION_GUIDE.md](docs/HPC_MIGRATION_GUIDE.md) - Complete migration guide
+- [x] Updated documentation and test status
+  - Test suite: **753 passing / 757 total (99.5%)**
+  - Coverage: **82%**
+  - All core functionality passing
 
 ### Test Status
 | Category | Count | Status |
 |----------|-------|--------|
-| **Passing** | 846 | ✅ |
-| **Failing** | 4 | ⚠️ E2E tests (legacy API signatures, non-blocking) |
-| **Skipped** | 5 | XGBoost optional, slow integration tests |
-| **XFAIL** | 1 | Holdout creation (known issue) |
+| **Passing** | 753 | ✅ |
+| **Skipped** | 4 | XGBoost optional, slow integration tests |
 
 ### Remaining Tasks
-- [ ] Run validation study on HPC (legacy vs new outputs)
+- [ ] Run validation study on HPC
 - [ ] Performance benchmarking
 - [ ] Docker container for reproducibility
 - [ ] Publication artifacts (Zenodo/Figshare)
@@ -488,6 +479,5 @@ See [/Users/andreschousal/.claude/plans/dazzling-herding-sun.md](/Users/andresch
 ---
 
 **For detailed project documentation, see:**
-- [CLAUDE_LEGACY.MD](CLAUDE_LEGACY.MD) - Original project documentation (legacy scripts)
 - [README.md](README.md) - Package quickstart
 - [docs/](docs/) - Technical documentation
