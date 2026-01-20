@@ -26,6 +26,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+import pandas as pd
+from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
+
 def load_data(file_path: Path) -> pd.DataFrame:
     """Load dataset from CSV file.
 
