@@ -31,8 +31,8 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 # CONFIGURATION
 #==============================================================
 # HPC settings
-PROJECT="${PROJECT:-acc_Chipuk_Laboratory}"
-QUEUE="${QUEUE:-premium}"
+PROJECT="${PROJECT:-YOUR_PROJECT_ALLOCATION}"
+QUEUE="${QUEUE:-normal}"
 
 # Paths
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -66,6 +66,10 @@ mkdir -p "${LOGS_DIR}" "${SPLITS_DIR}" "${RESULTS_DIR}"
 [[ -f "${INFILE}" ]] || die "Input file not found: ${INFILE}"
 [[ -f "${SPLITS_CONFIG}" ]] || die "Splits config not found: ${SPLITS_CONFIG}"
 [[ -f "${TRAINING_CONFIG}" ]] || die "Training config not found: ${TRAINING_CONFIG}"
+
+if [[ "${PROJECT}" == "YOUR_PROJECT_ALLOCATION" ]]; then
+  die "PROJECT not set. Update script or set env var: PROJECT=your_allocation ./run_production.sh"
+fi
 
 # Activate virtual environment
 VENV_PATH="${BASE_DIR}/venv/bin/activate"

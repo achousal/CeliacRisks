@@ -12,7 +12,6 @@ import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.feature_selection import SelectKBest
 from sklearn.pipeline import Pipeline
 
 from ced_ml.config.loader import load_training_config, save_config
@@ -43,6 +42,7 @@ from ced_ml.features.kbest import (
     compute_f_classif_scores,
     extract_selected_proteins_from_kbest,
     rank_features_by_score,
+    build_kbest_pipeline_step,
 )
 from ced_ml.features.stability import (
     compute_selection_frequencies,
@@ -187,9 +187,8 @@ def build_training_pipeline(
     steps = [("pre", preprocessor)]
 
     if config.features.feature_select and config.features.feature_select != "none":
-        from sklearn.feature_selection import f_classif
         k_val = config.features.kbest_max if hasattr(config.features, 'kbest_max') else 500
-        kbest = SelectKBest(score_func=f_classif, k=k_val)
+        kbest = build_kbest_pipeline_step(k=k_val)
         steps.append(("sel", kbest))
 
     steps.append(("clf", classifier))

@@ -220,7 +220,7 @@ def _generate_scenario_splits(
 
     # Handle holdout mode
     if config.mode == "holdout":
-        df_work, y_work, index_space = _create_holdout(
+        df_work, y_work, index_space, dev_to_global_map = _create_holdout(
             df_scenario, y_full, full_idx, scenario, positives, outdir, config, overwrite, rf_stats, logger
         )
     else:
@@ -228,11 +228,12 @@ def _generate_scenario_splits(
         df_work = df_scenario.copy()
         y_work = y_full
         index_space = "full"
+        dev_to_global_map = None
 
     # Generate repeated splits
     _generate_repeated_splits(
         df_work, y_work, scenario, positives, train_case_labels, eval_case_labels,
-        outdir, config, overwrite, rf_stats, index_space, logger
+        outdir, config, overwrite, rf_stats, index_space, dev_to_global_map, logger
     )
 
 
@@ -286,22 +287,19 @@ def _create_holdout(df_scenario, y_full, full_idx, scenario, positives, outdir, 
         scenario=scenario,
         holdout_idx=holdout_idx_global,
         y_holdout=y_holdout,
-        seed=42,
         strat_scheme=sch_full,
         row_filter_stats=rf_stats,
-        index_space="full",
         temporal_split=config.temporal_split,
         temporal_col=config.temporal_col if config.temporal_split else None,
-        overwrite=overwrite,
     )
     logger.info(f"  [OK] Saved holdout metadata: {holdout_meta_path}")
 
-    return df_dev, y_dev, "dev"
+    return df_dev, y_dev, "dev", dev_idx_global
 
 
 def _generate_repeated_splits(
     df_work, y_work, scenario, positives, train_case_labels, eval_case_labels,
-    outdir, config, overwrite, rf_stats, index_space, logger
+    outdir, config, overwrite, rf_stats, index_space, dev_to_global_map, logger
 ):
     """Generate repeated train/val/test splits."""
     # Base set for splitting
@@ -383,6 +381,13 @@ def _generate_repeated_splits(
         if len(idx_val) > 0:
             logger.info(f"  Final Val:   {len(idx_val):,} samples ({int(y_val.sum())} cases, {y_val.mean()*100:.3f}%)")
         logger.info(f"  Final Test:  {len(idx_test):,} samples ({int(y_test.sum())} cases, {y_test.mean()*100:.3f}%)")
+
+        # Convert dev-local indices to global indices if in holdout mode
+        if dev_to_global_map is not None:
+            idx_train = dev_to_global_map[idx_train]
+            idx_test = dev_to_global_map[idx_test]
+            if len(idx_val) > 0:
+                idx_val = dev_to_global_map[idx_val]
 
         # Save indices using persistence module
         saved_paths = save_split_indices(

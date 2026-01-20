@@ -9,11 +9,11 @@ Key functions:
 - rank_features_by_score: Rank features by score (descending)
 """
 
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Any
 
 import numpy as np
 import pandas as pd
-from sklearn.feature_selection import f_classif
+from sklearn.feature_selection import f_classif, SelectKBest
 
 
 def select_kbest_features(
@@ -328,3 +328,23 @@ def compute_protein_statistics(
         "cohens_d": cohens_d,
         "p_ttest": p_ttest,
     }
+
+
+def build_kbest_pipeline_step(k: int) -> Any:
+    """Build SelectKBest pipeline step for feature selection.
+
+    Creates a sklearn SelectKBest transformer configured with F-test scoring.
+    This isolates sklearn implementation details from CLI code.
+
+    Args:
+        k: Number of features to select
+
+    Returns:
+        Unfitted SelectKBest transformer
+
+    Example:
+        >>> from sklearn.pipeline import Pipeline
+        >>> kbest = build_kbest_pipeline_step(k=100)
+        >>> pipe = Pipeline([("sel", kbest), ("clf", classifier)])
+    """
+    return SelectKBest(score_func=f_classif, k=k)

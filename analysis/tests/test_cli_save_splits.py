@@ -257,7 +257,6 @@ class TestSaveSplitsDevelopmentMode:
 class TestSaveSplitsHoldoutMode:
     """Test holdout mode (TRAIN/VAL/TEST + HOLDOUT)."""
 
-    @pytest.mark.xfail(reason="Exit code issue to investigate - functionality works based on logs")
     def test_holdout_creation(self, toy_proteomics_csv, tmp_path):
         """Test holdout set creation."""
         outdir = tmp_path / "splits_holdout"
