@@ -403,7 +403,7 @@ src/ced_ml/
 
 **Statistics:**
 - 15,109 lines of code
-- 846 passing tests (85% coverage)
+- 753 passing tests (82% coverage)
 - Zero code duplication
 - 10 random seeds × 4 models = 40 training runs per experiment
 
@@ -493,7 +493,7 @@ cd analysis
 pytest tests/ -v
 ```
 
-**Coverage:** 846 tests, 85% coverage
+**Coverage:** 753 tests, 82% coverage
 
 **Test modules:**
 - Data I/O, split generation
