@@ -1,259 +1,473 @@
-═══════════════════════════════════════════════════════════════════════════════
-CELIAC RISK ML - COMPLETE PARAMETERS REFERENCE
-═══════════════════════════════════════════════════════════════════════════════
++==============================================================================+
+|         CELIAC RISK ML - COMPLETE PARAMETERS REFERENCE (v2026-01)           |
++==============================================================================+
 
-RUN.SH PARAMETERS (Pipeline Orchestration)
-═══════════════════════════════════════════════════════════════════════════════
+This document provides a comprehensive reference for all configurable
+parameters in the Celiac Risk ML pipeline. For quick-start examples,
+see KNOBS_CHEATSHEET.txt.
 
-MODEL SELECTION:
-  RUN_MODELS              Which models to train. Comma/space-separated
-                          Options: RF, XGBoost (XGB), LinSVM_cal (SVM), LR_EN (LR)
-                          Default: "LR"
-                          Example: RUN_MODELS="RF,XGB,SVM,LR" ./run.sh
++------------------------------------------------------------------------------+
+| RUN.SH - PIPELINE ORCHESTRATION                                              |
++------------------------------------------------------------------------------+
 
-RESOURCE CONFIGURATION (per model):
-  RF_CPUS                 CPU cores for Random Forest. Default: 8
-  RF_MEM                  Memory per CPU (MB). Default: 8000 (64GB total)
-  RF_WALLTIME             Walltime limit. Default: "144:00" (6 days)
-  RF_EXTRA_RESOURCES      Extra LSF resource requests. Default: "select[mem>192000]"
-  
-  XGB_CPUS                CPU cores for XGBoost. Default: 8
-  XGB_MEM                 Memory per CPU (MB). Default: 4000 (32GB total)
-  XGB_WALLTIME            Walltime limit. Default: "144:00"
-  
-  SVM_CPUS                CPU cores for SVM. Default: 8
-  SVM_MEM                 Memory per CPU (MB). Default: 2000 (16GB total)
-  SVM_WALLTIME            Walltime limit. Default: "144:00"
-  
-  LR_CPUS                 CPU cores for Logistic Regression. Default: 8
-  LR_MEM                  Memory per CPU (MB). Default: 2000 (16GB total)
-  LR_WALLTIME             Walltime limit. Default: "144:00"
++-- MODEL SELECTION -----------------------------------------------------------+
+|                                                                              |
+| RUN_MODELS        Which models to train (comma/space-separated)              |
+|                   Options: RF, XGBoost (XGB), LinSVM_cal (SVM), LR_EN (LR)   |
+|                   Default: "LR"                                              |
+|                   Example: RUN_MODELS="RF,XGB,SVM,LR" ./run.sh               |
+|                                                                              |
++------------------------------------------------------------------------------+
 
-SPLIT CONFIGURATION:
-  MODE                    Split strategy. Options: "development", "holdout"
-                          Default: "development"
-                          
-  N_SPLITS                Number of repeated splits. Default: 10
-                          1 = single split (fast)
-                          10 = repeated splits (robust)
-                          
-  SEED_START              Starting seed for repeated splits. Default: 0
-                          Example: seeds 0-9 with SEED_START=0, N_SPLITS=10
-                          
-  TEST_SIZE               Fraction of working set for TEST. Default: 0.25 (25%)
-                          Incident-only in VAL/TEST (prospective validation)
-                          
-  VAL_SIZE                Fraction of working set for VAL. Default: 0.25 (25%)
-                          Used for threshold selection, early stopping, calibration
-                          
-  HOLDOUT_SIZE            Fraction of full data for holdout. Default: 0.30 (30%)
-                          Only used if MODE=holdout
-                          
-  TRAIN_INCIDENT_ONLY     Use only incident (not prevalent) in TRAIN. Default: 0
-                          
-  EVAL_CONTROL_PER_CASE   Downsample controls in VAL/TEST. Default: 5
-                          5 = keep 5 controls per incident case
++-- RESOURCE CONFIGURATION (Per Model) ---------------------------------------+
+|                                                                              |
+| Parameter           RF          XGB         SVM         LR                   |
+| ---------------------------------------------------------------------------- |
+| *_CPUS              8           8           8           8                    |
+| *_MEM (MB/CPU)      8000        4000        2000        2000                 |
+| *_WALLTIME          144:00      144:00      144:00      144:00               |
+| ---------------------------------------------------------------------------- |
+| Total Memory        64GB        32GB        16GB        16GB                 |
+|                                                                              |
+| RF_EXTRA_RESOURCES  Extra LSF resource requests                              |
+|                     Default: "select[mem>192000]"                            |
+|                                                                              |
++------------------------------------------------------------------------------+
 
-POSTPROCESSING CONTROL:
-  SKIP_MULTIPLE_POSTPROCESS   Skip postprocess_compare.py and compare_models_faith.R
-                              Default: 1
-                              
-  COMPARE_MODEL_SPLITS        Aggregate results across repeated splits per model
-                              Default: 1
-                              
-  POSTPROCESS_NOW             Run postprocessing immediately on completed jobs
-                              Default: 0
-                              
-  POSTPROCESS_ONLY            Skip job submission, only run postprocessing
-                              Default: 0
++-- DATA SPLIT CONFIGURATION --------------------------------------------------+
+|                                                                              |
+| MODE                Split strategy                                           |
+|                     Options: "development" (default), "holdout"              |
+|                                                                              |
+| N_SPLITS            Number of repeated splits                                |
+|                     1 = single split (fast, ~2-4 hours)                      |
+|                     10 = repeated splits (robust CIs, ~20-40 hours)          |
+|                     Default: 10                                              |
+|                                                                              |
+| SEED_START          Starting seed for repeated splits                        |
+|                     Default: 0 (seeds 0-9 with N_SPLITS=10)                  |
+|                                                                              |
+| ---------------------------------------------------------------------------- |
+|                                                                              |
+| TEST_SIZE           Fraction of working set for TEST                         |
+|                     Default: 0.25 (25%)                                      |
+|                     Note: Incident-only in VAL/TEST (prospective validation) |
+|                                                                              |
+| VAL_SIZE            Fraction of working set for VAL                          |
+|                     Default: 0.25 (25%)                                      |
+|                     Used for threshold selection, early stopping, calibration|
+|                                                                              |
+| HOLDOUT_SIZE        Fraction of full data for holdout (MODE=holdout only)    |
+|                     Default: 0.30 (30%)                                      |
+|                                                                              |
+| TRAIN_INCIDENT_ONLY Use only incident (not prevalent) in TRAIN               |
+|                     Default: 0 (use both)                                    |
+|                                                                              |
+| EVAL_CONTROL_PER_CASE  Downsample controls in VAL/TEST                       |
+|                        Default: 5 (keep 5 controls per incident case)        |
+|                                                                              |
++------------------------------------------------------------------------------+
 
-DCA PARAMETERS:
-  DCA_THRESHOLD_MIN       Min threshold for DCA curve. Default: 0.0005 (0.05%)
-  DCA_THRESHOLD_MAX       Max threshold for DCA curve. Default: 1.0 (100%)
-  DCA_THRESHOLD_STEP      Step size for DCA sweep. Default: 0.001 (0.1%)
-  DCA_REPORT_POINTS       Key thresholds for DCA reports. Default: "0.005,0.01,0.02,0.05"
-  DCA_MAX_PT              Max threshold for visualization. Default: 1.0
-  DCA_STEP                Step size for visualization. Default: 0.005 (0.5%)
++-- POSTPROCESSING CONTROL ----------------------------------------------------+
+|                                                                              |
+| SKIP_MULTIPLE_POSTPROCESS   Skip postprocess_compare.py, compare_models.R   |
+|                             Default: 1                                       |
+|                                                                              |
+| COMPARE_MODEL_SPLITS        Aggregate results across repeated splits         |
+|                             Default: 1                                       |
+|                                                                              |
+| POSTPROCESS_NOW             Run postprocessing immediately                   |
+|                             Default: 0                                       |
+|                                                                              |
+| POSTPROCESS_ONLY            Skip job submission, only run postprocessing     |
+|                             Default: 0                                       |
+|                                                                              |
++------------------------------------------------------------------------------+
 
-OTHER:
-  OVERWRITE_SPLITS        Regenerate splits if they exist. Default: 0 (reuse)
-  DRY_RUN                 Print commands without executing. Default: 0
++-- DCA (DECISION CURVE ANALYSIS) ---------------------------------------------+
+|                                                                              |
+| DCA_THRESHOLD_MIN   Min threshold for DCA curve        Default: 0.0005      |
+| DCA_THRESHOLD_MAX   Max threshold for DCA curve        Default: 1.0         |
+| DCA_THRESHOLD_STEP  Step size for DCA sweep            Default: 0.001       |
+| DCA_REPORT_POINTS   Key thresholds for reports         Default: "0.005,     |
+|                                                        0.01,0.02,0.05"       |
+| DCA_MAX_PT          Max threshold for visualization    Default: 1.0         |
+| DCA_STEP            Step size for visualization        Default: 0.005       |
+|                                                                              |
++------------------------------------------------------------------------------+
 
-═══════════════════════════════════════════════════════════════════════════════
-CED_OPTIMIZED.LSF PARAMETERS (Model Training Configuration)
-═══════════════════════════════════════════════════════════════════════════════
++-- OTHER RUN.SH OPTIONS ------------------------------------------------------+
+|                                                                              |
+| OVERWRITE_SPLITS    Regenerate splits if they exist    Default: 0 (reuse)   |
+| DRY_RUN             Print commands without executing   Default: 0           |
+|                                                                              |
++------------------------------------------------------------------------------+
 
-CORE CROSS-VALIDATION:
-  FOLDS                   Outer CV folds per repeat. Default: 2 (production: 5)
-  REPEATS                 Repeats of outer CV. Default: 3 (production: 10)
-                          Total OOF predictions = FOLDS × REPEATS per sample
-                          
-  TEST_SIZE               Fraction for TEST set. Default: 0.25
-  VAL_SIZE                Fraction for VAL set. Default: 0.25
-                          
-  RANDOM_STATE            Base random state. Default: 0 (overridden per seed)
-  TEMPORAL_SPLIT          Split by date column? Default: 0 (no)
-  TEMPORAL_COL            Date column for temporal split. Default: "CeD_date"
-  
-  SPLIT_SEED_START        First seed for repeated splits. Default: 0
-  SPLIT_SEED_END          Last seed (inclusive). Default: 9 (seeds 0-9 = 10 total)
 
-HYPERPARAMETER TUNING (Inner CV):
-  SCORING                 Metric for inner CV. Options: "roc_auc", "average_precision", "neg_brier_score"
-                          Default: "roc_auc" (production: "neg_brier_score")
-                          
-  INNER_FOLDS             Folds for inner CV. Default: 2 (production: 5)
-  N_ITER                  RandomizedSearchCV iterations. Default: 3 (production: 200)
-  TUNE_N_JOBS             Parallel jobs for tuning. Default: $CPUS
-  ERROR_SCORE             Score if fold fails. Default: "nan" (ignore)
-  GRID_RANDOMIZE          Use RandomizedSearchCV? Default: 1 (yes)
-  GRID_RANDOMIZE_K        Advanced: K for partial grid expansion. Default: 0
++------------------------------------------------------------------------------+
+| CED_OPTIMIZED.LSF - MODEL TRAINING CONFIGURATION                             |
++------------------------------------------------------------------------------+
 
-PREPROCESSING:
-  VAR_PREFILTER           Filter low-variance features? Default: 0 (no)
-  MIN_VAR                 Minimum variance threshold. Default: 0.001
-  VAR_STRICT              Strict variance filtering? Default: 0
++-- OUTER CROSS-VALIDATION (Performance Estimation) ---------------------------+
+|                                                                              |
+| FOLDS               Outer CV folds per repeat                                |
+|                     Default: 2 (quick) / Production: 5                       |
+|                                                                              |
+| REPEATS             Repeats of outer CV                                      |
+|                     Default: 3 (quick) / Production: 10                      |
+|                     Total OOF predictions = FOLDS x REPEATS per sample       |
+|                                                                              |
+| ---------------------------------------------------------------------------- |
+| Quick test:  FOLDS=2, REPEATS=3   ->   6 OOF predictions per sample         |
+| Production:  FOLDS=5, REPEATS=10  ->  50 OOF predictions per sample         |
+| ---------------------------------------------------------------------------- |
+|                                                                              |
+| RANDOM_STATE        Base random state (overridden per seed)                  |
+|                     Default: 0                                               |
+|                                                                              |
+| TEMPORAL_SPLIT      Split by date column?                                    |
+|                     Default: 0 (no)                                          |
+|                                                                              |
+| TEMPORAL_COL        Date column for temporal split                           |
+|                     Default: "CeD_date"                                      |
+|                                                                              |
+| SPLIT_SEED_START    First seed for repeated splits     Default: 0           |
+| SPLIT_SEED_END      Last seed (inclusive)              Default: 9           |
+|                                                                              |
++------------------------------------------------------------------------------+
 
-FEATURE SELECTION:
-  FEATURE_SELECT          Strategy. Options: "none", "kbest", "l1_stability", "hybrid"
-                          Default: "hybrid" (recommended)
-                          
-  KBEST_SCOPE             Select from: "protein" or "transformed". Default: "protein"
-  KBEST_MAX               Maximum K value. Default: 800
-  K_GRID                  K values to test. Default: "25,50,100,200,300,400,600,800"
-  STABILITY_THRESH        Minimum fold frequency (0-1). Default: 0.75 (≥75% folds)
-  COEF_THRESH             Coefficient threshold for L1. Default: 1e-12
-  
-  SCREEN_METHOD           Pre-screening test. Default: "mannwhitney"
-                          Options: "mannwhitney", "f_classif"
-                          
-  SCREEN_TOP_N            Top N features after pre-screening. Default: 1000 (0=keep all)
-  SCREEN_MIN_N_PER_GROUP  Min samples per class. Default: 20
-  STABLE_CORR_THRESH      Remove correlated features > threshold. Default: 0.85
++-- INNER CROSS-VALIDATION (Hyperparameter Tuning) ----------------------------+
+|                                                                              |
+| SCORING             Metric for inner CV optimization                         |
+|                     Options: "roc_auc", "average_precision", "neg_brier_score|
+|                     Default: "roc_auc"                                       |
+|                     Production: "neg_brier_score" (calibration-focused)      |
+|                                                                              |
+| INNER_FOLDS         Folds for inner CV                                       |
+|                     Default: 2 (quick) / Production: 5                       |
+|                                                                              |
+| N_ITER              RandomizedSearchCV iterations                            |
+|                     Default: 3 (quick) / Production: 200                     |
+|                                                                              |
+| TUNE_N_JOBS         Parallel jobs for tuning                                 |
+|                     Default: $CPUS                                           |
+|                                                                              |
+| ERROR_SCORE         Score if fold fails                                      |
+|                     Default: "nan" (ignore failed folds)                     |
+|                                                                              |
+| GRID_RANDOMIZE      Use RandomizedSearchCV?            Default: 1 (yes)     |
+| GRID_RANDOMIZE_K    Advanced: K for partial expansion  Default: 0           |
+|                                                                              |
++------------------------------------------------------------------------------+
 
-PANEL BUILDING:
-  BUILD_PANELS            Build multi-size panels? Default: 1 (yes)
-  PANEL_SIZES             Sizes to construct. Default: "10,25,50,100,200,400,800"
-  PANEL_CORR_THRESH       Correlation threshold within panel. Default: 0.85
-  PANEL_CORR_METHOD       Correlation metric. Default: "spearman"
-  PANEL_REP_TIEBREAK      Tiebreaker. Default: "freq_then_univariate"
-  PANEL_REFIT             Refit model on panel? Default: 1 (yes)
-  PANEL_SOURCE            Panel source. Default: "auto"
-  PANEL_RULE              Selection rule. Default: "topN"
-  PANEL_FREQ_TAU          Frequency threshold. Default: 0.70
-  PANEL_POOL_FACTOR       Pool factor for selection. Default: 10
-  PANEL_PROTEINS_CSV      Predefined proteins CSV. Default: ""
-  PANEL_TAG               Custom panel tag. Default: ""
-  PANEL_STABILITY_MODE    Stability assessment. Default: "rskf"
-                          Options: "rskf" (thorough), "audit" (fast)
-                          
-  PANEL_AUDIT_FRAC        Audit fraction. Default: 0.20
-  PANEL_AUDIT_SEED        Audit random seed. Default: 2026
++-- PREPROCESSING -------------------------------------------------------------+
+|                                                                              |
+| VAR_PREFILTER       Filter low-variance features?      Default: 0 (no)      |
+| MIN_VAR             Minimum variance threshold         Default: 0.001       |
+| VAR_STRICT          Strict variance filtering?         Default: 0           |
+|                                                                              |
++------------------------------------------------------------------------------+
 
-MODEL-SPECIFIC: LOGISTIC REGRESSION (LR_EN)
-  LR_MAX_ITER             Max iterations. Default: 20000
-  LR_TOL                  Convergence tolerance. Default: 1e-4
-  LR_C_MIN                Min regularization (strong). Default: 1e-4
-  LR_C_MAX                Max regularization (weak). Default: 1e1
-  LR_C_POINTS             Number of C values. Default: 20
-  LR_L1_RATIO_GRID        L1 ratio grid. Default: "0.01,0.05,0.10,0.20,0.25,0.40,0.50,0.60"
-                          0 = L2 (Ridge), 1 = L1 (Lasso)
-                          
-  LR_CLASS_WEIGHT_OPTIONS Class weight options. Default: "balanced"
++-- FEATURE SELECTION ---------------------------------------------------------+
+|                                                                              |
+| FEATURE_SELECT      Strategy for feature selection                           |
+|                     Options: "none", "kbest", "l1_stability", "hybrid"       |
+|                     Default: "hybrid" (recommended)                          |
+|                                                                              |
+| ---------------------------------------------------------------------------- |
+| K-Best Configuration                                                         |
+| ---------------------------------------------------------------------------- |
+| KBEST_SCOPE         Select from: "protein" or "transformed"                  |
+|                     Default: "protein"                                       |
+|                                                                              |
+| KBEST_MAX           Maximum K value                    Default: 800         |
+|                                                                              |
+| K_GRID              K values to test in grid search                          |
+|                     Default: "25,50,100,200,300,400,600,800"                 |
+|                                                                              |
+| ---------------------------------------------------------------------------- |
+| Pre-Screening (before k-best)                                                |
+| ---------------------------------------------------------------------------- |
+| SCREEN_METHOD       Pre-screening statistical test                           |
+|                     Options: "mannwhitney", "f_classif"                      |
+|                     Default: "mannwhitney"                                   |
+|                                                                              |
+| SCREEN_TOP_N        Top N features after pre-screening                       |
+|                     Default: 1000 (0 = keep all)                             |
+|                                                                              |
+| SCREEN_MIN_N_PER_GROUP  Min samples per class          Default: 20          |
+|                                                                              |
+| ---------------------------------------------------------------------------- |
+| Stability Selection (L1)                                                     |
+| ---------------------------------------------------------------------------- |
+| STABILITY_THRESH    Min fold frequency (0-1)                                 |
+|                     Default: 0.75 (feature must appear in >=75% of folds)    |
+|                                                                              |
+| COEF_THRESH         Coefficient threshold for L1       Default: 1e-12       |
+|                                                                              |
+| STABLE_CORR_THRESH  Remove correlated features > threshold                   |
+|                     Default: 0.85                                            |
+|                                                                              |
++------------------------------------------------------------------------------+
 
-MODEL-SPECIFIC: LINEAR SVM (LinSVM_cal)
-  SVM_MAX_ITER            Max iterations. Default: 15000
-  SVM_C_MIN               Min regularization. Default: 1e-4
-  SVM_C_MAX               Max regularization. Default: 1e4
-  SVM_C_POINTS            Number of C values. Default: 10
-  SVM_CLASS_WEIGHT_OPTIONS Class weight. Default: "balanced"
-  CALIBRATION_METHOD      Probability calibration. Default: "sigmoid"
-                          Options: "sigmoid" (Platt), "isotonic"
-                          
-  CALIBRATION_CV          CV folds for calibration. Default: 5
++-- PANEL BUILDING (Clinical Biomarker Panels) --------------------------------+
+|                                                                              |
+| BUILD_PANELS        Build multi-size panels?           Default: 1 (yes)     |
+|                                                                              |
+| PANEL_SIZES         Sizes to construct                                       |
+|                     Default: "10,25,50,100,200,400,800"                      |
+|                                                                              |
+| PANEL_CORR_THRESH   Correlation threshold within panel Default: 0.85        |
+| PANEL_CORR_METHOD   Correlation metric                 Default: "spearman"  |
+|                                                                              |
+| PANEL_REP_TIEBREAK  Tiebreaker for selection                                 |
+|                     Default: "freq_then_univariate"                          |
+|                                                                              |
+| PANEL_REFIT         Refit model on panel?              Default: 1 (yes)     |
+| PANEL_SOURCE        Panel source                       Default: "auto"      |
+| PANEL_RULE          Selection rule                     Default: "topN"      |
+|                                                                              |
+| PANEL_FREQ_TAU      Frequency threshold                Default: 0.70        |
+| PANEL_POOL_FACTOR   Pool factor for selection          Default: 10          |
+|                                                                              |
+| PANEL_PROTEINS_CSV  Predefined proteins CSV            Default: ""          |
+| PANEL_TAG           Custom panel tag                   Default: ""          |
+|                                                                              |
+| PANEL_STABILITY_MODE  Stability assessment mode                              |
+|                       Options: "rskf" (thorough), "audit" (fast)             |
+|                       Default: "rskf"                                        |
+|                                                                              |
+| PANEL_AUDIT_FRAC    Audit fraction                     Default: 0.20        |
+| PANEL_AUDIT_SEED    Audit random seed                  Default: 2026        |
+|                                                                              |
++------------------------------------------------------------------------------+
 
-MODEL-SPECIFIC: RANDOM FOREST (RF)
-  RF_N_ESTIMATORS_GRID    Number of trees. Default: "100,200,400"
-  RF_MAX_DEPTH_GRID       Tree depth. Default: "8,10,12,14"
-  RF_MIN_SAMPLES_LEAF_GRID Samples per leaf. Default: "2,4,6"
-  RF_MAX_FEATURES_GRID    Features per split fraction. Default: "0.2,0.3"
-  RF_BOOTSTRAP            Use bootstrap? Default: 1 (yes)
-  RF_MAX_SAMPLES          Bootstrap fraction. Default: "0.8"
-  RF_CLASS_WEIGHT_OPTIONS Class weight. Default: "balanced,balanced_subsample"
 
-MODEL-SPECIFIC: XGBOOST
-  XGB_N_ESTIMATORS_GRID   Boosting rounds. Default: "500,1000"
-  XGB_MAX_DEPTH_GRID      Tree depth. Default: "3,7"
-  XGB_LEARNING_RATE_GRID  Step size. Default: "0.01,0.1"
-  XGB_SUBSAMPLE_GRID      Row sub-sampling. Default: "0.7,1.0"
-  XGB_COLSAMPLE_BYTREE_GRID Column sub-sampling. Default: "0.7,1.0"
-  XGB_SCALE_POS_WEIGHT    Positive class weight. Default: "auto"
-                          auto = n_negative / n_positive ≈ 295
-                          
-  XGB_SCALE_POS_WEIGHT_GRID Weight grid. Default: ""
-  XGB_REG_ALPHA           L1 regularization. Default: 0.0
-  XGB_REG_LAMBDA          L2 regularization. Default: 1.0
-  XGB_MIN_CHILD_WEIGHT    Min child weight. Default: 1
-  XGB_GAMMA               Pruning parameter. Default: 0
-  XGB_TREE_METHOD         Tree construction. Default: "hist"
-                          Options: "hist" (CPU-optimized), "exact"
++------------------------------------------------------------------------------+
+| MODEL-SPECIFIC HYPERPARAMETER GRIDS                                          |
++------------------------------------------------------------------------------+
 
-EVALUATION & ANALYSIS:
-  TEST_CI                 Compute bootstrap CIs? Default: 1 (yes)
-  WRITE_TEST_CI_FILES     Save individual bootstrap samples? Default: 1
-  N_BOOT                  Bootstrap iterations. Default: 500
-  
-  LEARNING_CURVE          Generate learning curves? Default: 1
-  LC_CV                   CV folds for learning curves. Default: 3
-  LC_MIN_FRAC             Min training fraction. Default: 0.30
-  LC_POINTS               Points along training axis. Default: 6
-  LEARNING_CURVE_SCOPE    Scope: "best" or "all". Default: "best"
-  
-  FEATURE_REPORTS         Report importance. Default: "all"
-                          Options: "none", "best", "all"
-                          
-  FEATURE_REPORT_MAX      Max features to report. Default: 200
++-- LOGISTIC REGRESSION (LR_EN) -----------------------------------------------+
+|                                                                              |
+| LR_MAX_ITER         Max iterations                     Default: 20000       |
+| LR_TOL              Convergence tolerance              Default: 1e-4        |
+|                                                                              |
+| LR_C_MIN            Min regularization (strong)        Default: 1e-4        |
+| LR_C_MAX            Max regularization (weak)          Default: 1e1         |
+| LR_C_POINTS         Number of C values                 Default: 20          |
+|                                                                              |
+| LR_L1_RATIO_GRID    L1 ratio grid (0=Ridge, 1=Lasso)                         |
+|                     Default: "0.01,0.05,0.10,0.20,0.25,0.40,0.50,0.60"       |
+|                                                                              |
+| LR_CLASS_WEIGHT_OPTIONS   Class weight options                               |
+|                           Default: "balanced"                                |
+|                                                                              |
+| Best for: interpretable coefficients, probability calibration               |
+|                                                                              |
++------------------------------------------------------------------------------+
 
-CLINICAL UTILITY & THRESHOLDING:
-  CONTROL_SPEC_TARGETS    Report sensitivity at these specificities. Default: "0.95,0.995,0.99"
-  TOPRISK_FRACS           Top risk fractions. Default: "0.01,0.05"
-  RISK_PLOT_SPEC          Risk plot target specificity. Default: 0.95
-  ALPHA_SPECIFICITY       Alpha threshold target specificity. Default: 0.90
-  
-  COMPUTE_DCA             Compute DCA during training? Default: 1 (yes, legacy)
-  DCA_THRESHOLD_MIN       DCA curve min. Default: 0.0005
-  DCA_THRESHOLD_MAX       DCA curve max. Default: 1.0
-  DCA_THRESHOLD_STEP      DCA step size. Default: 0.001
-  DCA_REPORT_POINTS       DCA report points. Default: "0.005,0.01,0.02,0.05"
-  
-  CALIBRATE_FINAL_MODELS  Fit calibration curve? Default: 1
-  SAVE_CALIBRATION        Save calibration artifacts? Default: 1
-  CALIB_BINS              Calibration histogram bins. Default: 6
-  
-  THRESHOLD_OBJECTIVE     Threshold selection. Default: "fixed_spec"
-                          Options: "max_f1", "max_fbeta", "youden", "fixed_spec", "fixed_ppv"
-                          
-  FBETA                   Beta for F-beta metric. Default: 1.0
-  FIXED_SPEC              Target specificity. Default: 0.95
-  FIXED_PPV               Target precision. Default: 0.10
-  THRESHOLD_SOURCE        Select on "val" or "test". Default: "val"
-  TARGET_PREVALENCE_SOURCE Calibrate to "val" or "test". Default: "test"
-  RISK_PROB_SOURCE        Use "raw" or "adjusted" probs. Default: "raw"
++-- LINEAR SVM (LinSVM_cal) ---------------------------------------------------+
+|                                                                              |
+| SVM_MAX_ITER        Max iterations                     Default: 15000       |
+|                                                                              |
+| SVM_C_MIN           Min regularization                 Default: 1e-4        |
+| SVM_C_MAX           Max regularization                 Default: 1e4         |
+| SVM_C_POINTS        Number of C values                 Default: 10          |
+|                                                                              |
+| SVM_CLASS_WEIGHT_OPTIONS   Class weight                Default: "balanced"  |
+|                                                                              |
+| CALIBRATION_METHOD  Probability calibration method                           |
+|                     Options: "sigmoid" (Platt scaling), "isotonic"           |
+|                     Default: "sigmoid"                                       |
+|                                                                              |
+| CALIBRATION_CV      CV folds for calibration           Default: 5           |
+|                                                                              |
+| Best for: high-dimensional data, margin-based separation                    |
+|                                                                              |
++------------------------------------------------------------------------------+
 
-OUTPUT & LOGGING:
-  Various internal: FOLDS, REPEATS for output naming, seed suffix handling
++-- RANDOM FOREST (RF) --------------------------------------------------------+
+|                                                                              |
+| RF_N_ESTIMATORS_GRID    Number of trees                Default: "100,200,400|
+| RF_MAX_DEPTH_GRID       Tree depth                     Default: "8,10,12,14"|
+| RF_MIN_SAMPLES_LEAF_GRID  Samples per leaf             Default: "2,4,6"     |
+| RF_MAX_FEATURES_GRID    Features per split (fraction)  Default: "0.2,0.3"   |
+|                                                                              |
+| RF_BOOTSTRAP        Use bootstrap?                     Default: 1 (yes)     |
+| RF_MAX_SAMPLES      Bootstrap fraction                 Default: "0.8"       |
+|                                                                              |
+| RF_CLASS_WEIGHT_OPTIONS   Class weight                                       |
+|                           Default: "balanced,balanced_subsample"             |
+|                                                                              |
+| Best for: non-linear, feature importance, robust to outliers                |
+| Note: Requires high memory for permutation importance                       |
+|                                                                              |
++------------------------------------------------------------------------------+
 
-═══════════════════════════════════════════════════════════════════════════════
++-- XGBOOST ---------------------------------------------------------------+
+|                                                                              |
+| XGB_N_ESTIMATORS_GRID     Boosting rounds              Default: "500,1000"  |
+| XGB_MAX_DEPTH_GRID        Tree depth                   Default: "3,7"       |
+| XGB_LEARNING_RATE_GRID    Step size                    Default: "0.01,0.1"  |
+| XGB_SUBSAMPLE_GRID        Row sub-sampling             Default: "0.7,1.0"   |
+| XGB_COLSAMPLE_BYTREE_GRID Column sub-sampling          Default: "0.7,1.0"   |
+|                                                                              |
+| XGB_SCALE_POS_WEIGHT      Positive class weight        Default: "auto"      |
+|                           auto = n_negative / n_positive (approx 295)        |
+|                                                                              |
+| XGB_SCALE_POS_WEIGHT_GRID   Weight grid                Default: ""          |
+| XGB_REG_ALPHA               L1 regularization          Default: 0.0         |
+| XGB_REG_LAMBDA              L2 regularization          Default: 1.0         |
+| XGB_MIN_CHILD_WEIGHT        Min child weight           Default: 1           |
+| XGB_GAMMA                   Pruning parameter          Default: 0           |
+|                                                                              |
+| XGB_TREE_METHOD       Tree construction method                               |
+|                       Options: "hist" (CPU-optimized), "exact"               |
+|                       Default: "hist"                                        |
+|                                                                              |
+| Best for: predictive power, speed, nonlinear interactions                   |
+|                                                                              |
++------------------------------------------------------------------------------+
 
-ENVIRONMENT VARIABLES SET BY run.sh (for LSF):
-  ROOT                    Working directory
-  INFILE                  Input CSV path
-  SPLITS_DIR              Splits directory
-  RESULTS_ROOT/RESULTS_DIR Results directory
-  LOGS_DIR                Logs directory
-  PY_SCRIPT               Main training script
-  TEST_SIZE, VAL_SIZE     Passed to ensure consistency
-  SPLIT_SEED_START, SPLIT_SEED_END  For repeated splits
-  CURRENT_SPLIT_SEED      Current seed for this job
 
-═══════════════════════════════════════════════════════════════════════════════
++------------------------------------------------------------------------------+
+| EVALUATION & ANALYSIS                                                        |
++------------------------------------------------------------------------------+
+
++-- BOOTSTRAP CONFIDENCE INTERVALS --------------------------------------------+
+|                                                                              |
+| TEST_CI             Compute bootstrap CIs?             Default: 1 (yes)     |
+| WRITE_TEST_CI_FILES Save individual bootstrap samples? Default: 1           |
+| N_BOOT              Bootstrap iterations               Default: 500         |
+|                                                                              |
++------------------------------------------------------------------------------+
+
++-- LEARNING CURVES -----------------------------------------------------------+
+|                                                                              |
+| LEARNING_CURVE      Generate learning curves?          Default: 1           |
+| LC_CV               CV folds for learning curves       Default: 3           |
+| LC_MIN_FRAC         Min training fraction              Default: 0.30        |
+| LC_POINTS           Points along training axis         Default: 6           |
+| LEARNING_CURVE_SCOPE  Scope: "best" or "all"           Default: "best"      |
+|                                                                              |
++------------------------------------------------------------------------------+
+
++-- FEATURE IMPORTANCE REPORTING ----------------------------------------------+
+|                                                                              |
+| FEATURE_REPORTS     Report importance                                        |
+|                     Options: "none", "best", "all"                           |
+|                     Default: "all"                                           |
+|                                                                              |
+| FEATURE_REPORT_MAX  Max features to report             Default: 200         |
+|                                                                              |
++------------------------------------------------------------------------------+
+
+
++------------------------------------------------------------------------------+
+| CLINICAL UTILITY & THRESHOLDING                                              |
++------------------------------------------------------------------------------+
+
++-- THRESHOLD SELECTION -------------------------------------------------------+
+|                                                                              |
+| THRESHOLD_OBJECTIVE   Threshold selection method                             |
+|                       Options: "max_f1", "max_fbeta", "youden",              |
+|                                "fixed_spec", "fixed_ppv"                     |
+|                       Default: "fixed_spec"                                  |
+|                                                                              |
+| FIXED_SPEC          Target specificity                 Default: 0.95        |
+| FIXED_PPV           Target precision (for fixed_ppv)   Default: 0.10        |
+| FBETA               Beta for F-beta metric             Default: 1.0         |
+|                                                                              |
+| THRESHOLD_SOURCE    Select threshold on "val" or "test"                      |
+|                     Default: "val" (recommended, no leakage)                 |
+|                                                                              |
++------------------------------------------------------------------------------+
+
++-- CLINICAL METRICS ----------------------------------------------------------+
+|                                                                              |
+| CONTROL_SPEC_TARGETS    Report sensitivity at these specificities            |
+|                         Default: "0.95,0.995,0.99"                           |
+|                                                                              |
+| TOPRISK_FRACS           Top risk fractions to analyze                        |
+|                         Default: "0.01,0.05" (top 1%, 5%)                    |
+|                                                                              |
+| RISK_PLOT_SPEC          Risk plot target specificity   Default: 0.95        |
+| ALPHA_SPECIFICITY       Alpha threshold specificity    Default: 0.90        |
+|                                                                              |
++------------------------------------------------------------------------------+
+
++-- CALIBRATION ---------------------------------------------------------------+
+|                                                                              |
+| CALIBRATE_FINAL_MODELS  Fit calibration curve?         Default: 1           |
+| SAVE_CALIBRATION        Save calibration artifacts?    Default: 1           |
+| CALIB_BINS              Calibration histogram bins     Default: 6           |
+|                                                                              |
+| TARGET_PREVALENCE_SOURCE  Calibrate to "val" or "test"                       |
+|                           Default: "test"                                    |
+|                                                                              |
+| RISK_PROB_SOURCE        Use "raw" or "adjusted" probs  Default: "raw"       |
+|                                                                              |
++------------------------------------------------------------------------------+
+
++-- DECISION CURVE ANALYSIS ---------------------------------------------------+
+|                                                                              |
+| COMPUTE_DCA         Compute DCA during training?       Default: 1           |
+| DCA_THRESHOLD_MIN   DCA curve minimum                  Default: 0.0005      |
+| DCA_THRESHOLD_MAX   DCA curve maximum                  Default: 1.0         |
+| DCA_THRESHOLD_STEP  DCA step size                      Default: 0.001       |
+| DCA_REPORT_POINTS   Key thresholds for DCA reports                           |
+|                     Default: "0.005,0.01,0.02,0.05"                          |
+|                                                                              |
++------------------------------------------------------------------------------+
+
+
++------------------------------------------------------------------------------+
+| ENVIRONMENT VARIABLES (Set by run.sh for LSF jobs)                           |
++------------------------------------------------------------------------------+
+|                                                                              |
+| ROOT                Working directory                                        |
+| INFILE              Input CSV path                                           |
+| SPLITS_DIR          Splits directory                                         |
+| RESULTS_ROOT        Results root directory                                   |
+| RESULTS_DIR         Results directory for current run                        |
+| LOGS_DIR            Logs directory                                           |
+| PY_SCRIPT           Main training script                                     |
+|                                                                              |
+| TEST_SIZE           Passed to ensure consistency with splits                 |
+| VAL_SIZE            Passed to ensure consistency with splits                 |
+|                                                                              |
+| SPLIT_SEED_START    First seed for repeated splits                           |
+| SPLIT_SEED_END      Last seed for repeated splits                            |
+| CURRENT_SPLIT_SEED  Current seed for this job                                |
+|                                                                              |
++------------------------------------------------------------------------------+
+
+
++------------------------------------------------------------------------------+
+| QUICK REFERENCE: PRODUCTION DEFAULTS                                         |
++------------------------------------------------------------------------------+
+|                                                                              |
+| Cross-validation:                                                            |
+|   FOLDS=5  REPEATS=10  INNER_FOLDS=5  N_ITER=200                             |
+|                                                                              |
+| Feature selection:                                                           |
+|   FEATURE_SELECT="hybrid"  SCREEN_TOP_N=1000  STABILITY_THRESH=0.75          |
+|                                                                              |
+| Scoring:                                                                     |
+|   SCORING="neg_brier_score"  (calibration-focused)                           |
+|                                                                              |
+| Clinical thresholds:                                                         |
+|   THRESHOLD_OBJECTIVE="fixed_spec"  FIXED_SPEC=0.95  THRESHOLD_SOURCE="val"  |
+|                                                                              |
+| Repeated splits (for robust CIs):                                            |
+|   N_SPLITS=10  SEED_START=0  RUN_MODELS="RF,XGB,SVM,LR"                      |
+|                                                                              |
++------------------------------------------------------------------------------+
+
+Related files:
+  run.sh                  Pipeline orchestration (LSF job submission)
+  CeD_optimized.lsf       Model training configuration
+  KNOBS_CHEATSHEET.txt    Quick reference with workflow examples
+  training_config.yaml    YAML config for common settings
+
++==============================================================================+

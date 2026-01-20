@@ -55,23 +55,9 @@ ced train --config docs/examples/training_config.yaml \
 
 ---
 
-## Features
-
-### Refactoring Complete (Phase D) ✅
-
-**15,000+ lines of monolithic code transformed into a professional Python package:**
-
-- **Modular architecture**: Clean separation across 6 layers (data, features, models, metrics, evaluation, plotting)
-- **Configuration system**: Pydantic-based schema (~200 parameters) with YAML + CLI override support
-- **CLI interface**: Production-ready `ced` command with 4 subcommands
-- **Comprehensive testing**: 832 passing tests with 85% coverage
-- **Zero duplication**: CLI delegates to library modules exclusively
-- **Behavioral equivalence**: 100% backward compatible with legacy implementation
-- **HPC ready**: Batch-safe, deterministic, reproducible
-
 ### Configuration Schema (~200 Parameters)
 
-All current pipeline parameters are now organized into typed configuration classes:
+All current pipeline parameters are organized into typed configuration classes:
 
 - **SplitsConfig**: Data split generation (17 params)
 - **CVConfig**: Cross-validation structure (8 params)
@@ -244,7 +230,6 @@ ced save-splits --config docs/examples/splits_config.yaml --infile dummy.csv
 ### Next: Production Deployment
 
 - [ ] Update HPC batch scripts to use `ced` CLI
-- [ ] Run validation study comparing legacy vs new outputs
 - [ ] Performance benchmarking (training time, memory usage)
 - [ ] Documentation for external users
 - [ ] Publication-ready reproducibility artifacts
