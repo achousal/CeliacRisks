@@ -14,6 +14,20 @@ MODE:
   mode: holdout         Creates 30% holdout for final external validation.
                         Use ONLY for final reporting.
 
+SCENARIOS (case type inclusion):
+  scenarios: [IncidentOnly]              Prospective prediction only.
+                                         Train on incident, test on incident.
+
+  scenarios: [PrevalentOnly]             Prevalent cases only.
+                                         Train on prevalent, test on prevalent.
+
+  scenarios: [IncidentPlusPrevalent]     Both case types.
+                                         Train on both (or incident + sampled prevalent),
+                                         test on incident only (if prevalent_train_only=true).
+
+  Note: Can specify multiple scenarios to generate splits for each.
+        Example: scenarios: [IncidentOnly, IncidentPlusPrevalent]
+
 REPEATED SPLITS (for confidence intervals):
   n_splits: 1           Single split (fast iteration)
   n_splits: 10          10 repeated splits (robust CIs)
@@ -45,7 +59,11 @@ CROSS-VALIDATION (Outer CV):
 HYPERPARAMETER SEARCH (Inner CV):
   inner_folds: 5        Folds for inner CV
   n_iter: 200           RandomizedSearchCV iterations
-  scoring: roc_auc      Options: roc_auc, average_precision, neg_brier_score
+  scoring: roc_auc      Metric for hyperparameter optimization
+                        Options:
+                          roc_auc             - Area under ROC curve (discrimination)
+                          average_precision   - Area under PR curve (precision-recall)
+                          neg_brier_score     - Calibration quality (negative Brier score)
                         Production: neg_brier_score (optimizes calibration)
 
 FEATURE SELECTION PIPELINE:

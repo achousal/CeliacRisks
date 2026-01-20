@@ -56,64 +56,67 @@ def cli(ctx, verbose):
 @click.option(
     "--mode",
     type=click.Choice(["development", "holdout"]),
-    default="development",
+    default=None,
     help="Split mode: development (TRAIN/VAL/TEST) or holdout (TRAIN/VAL/TEST + HOLDOUT)",
 )
 @click.option(
     "--scenarios",
     multiple=True,
-    default=["IncidentOnly"],
+    default=None,
     help="Scenarios to generate (can be repeated)",
 )
 @click.option(
     "--n-splits",
     type=int,
-    default=1,
+    default=None,
     help="Number of repeated splits with different seeds",
 )
 @click.option(
     "--val-size",
     type=float,
-    default=0.0,
+    default=None,
     help="Validation set proportion (0-1)",
 )
 @click.option(
     "--test-size",
     type=float,
-    default=0.30,
+    default=None,
     help="Test set proportion (0-1)",
 )
 @click.option(
     "--holdout-size",
     type=float,
-    default=0.30,
+    default=None,
     help="Holdout set proportion (only if mode=holdout)",
 )
 @click.option(
     "--seed-start",
     type=int,
-    default=0,
+    default=None,
     help="Starting random seed",
 )
 @click.option(
     "--prevalent-train-only",
     is_flag=True,
+    default=None,
     help="Restrict prevalent cases to TRAIN set only (prevents reverse causality)",
 )
 @click.option(
     "--prevalent-train-frac",
     type=float,
-    default=1.0,
+    default=None,
     help="Fraction of prevalent cases to include in TRAIN (0-1)",
 )
 @click.option(
     "--train-control-per-case",
     type=float,
+    default=None,
     help="Downsample TRAIN controls to N per case (e.g., 5 for 1:5 ratio)",
 )
 @click.option(
     "--eval-control-per-case",
     type=float,
+    default=None,
     help="Downsample VAL/TEST controls to N per case",
 )
 @click.option(
@@ -164,7 +167,7 @@ def save_splits(ctx, config, **kwargs):
 )
 @click.option(
     "--scenario",
-    default="IncidentOnly",
+    default=None,
     help="Scenario name (must match split scenario)",
 )
 @click.option(

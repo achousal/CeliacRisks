@@ -1,13 +1,13 @@
 # Training Configuration
 # Model training for Celiac Disease risk prediction
 
-scenario: IncidentPlusPrevalent
+scenario: IncidentPlusPrevalent  # Options: IncidentOnly, PrevalentOnly, IncidentPlusPrevalent
 
 # Cross-validation
 cv:
   folds: 5
   repeats: 10
-  scoring: roc_auc  # Optimizes calibration
+  scoring: roc_auc  # Options: roc_auc, average_precision, neg_brier_score
   n_iter: 200  # RandomizedSearchCV iterations
   inner_folds: 5
   n_jobs: -1  # Use all available CPUs
@@ -65,3 +65,39 @@ output:
   calib_bins: 6
   feature_reports: true  # boolean: true or false
   feature_report_max: 200
+
+# Advanced options (uncomment to override defaults)
+# cv:
+#   random_state: 0
+#   tune_n_jobs: auto
+#   error_score: nan
+#   grid_randomize: false
+
+# features:
+#   l1_c_grid: [0.001, 0.01, 0.1, 1.0]  # For l1_stability method
+#   l1_stability_thresh: 0.70
+#   hybrid_kbest_first: true
+#   hybrid_k_for_stability: 200
+
+# thresholds:
+#   fbeta: 1.0  # Beta parameter for max_fbeta objective
+#   fixed_ppv: 0.10  # Target PPV for fixed_ppv objective
+#   target_prevalence_fixed: null  # Override prevalence for calibration
+#   risk_prob_source: test  # Options: test, val
+
+# evaluation:
+#   boot_random_state: 0
+#   lc_train_sizes: [0.1, 0.25, 0.5, 0.75, 1.0]
+#   control_spec_targets: [0.90, 0.95, 0.99]
+#   toprisk_fracs: [0.01, 0.05, 0.10]
+#   feature_report_max: 100
+
+# dca:
+#   dca_report_points: [0.01, 0.05, 0.10, 0.20]
+
+# output:
+#   save_train_preds: false
+#   save_feature_importance: true
+#   save_plots: true
+#   plot_format: png  # Options: png, pdf, svg
+#   plot_dpi: 300

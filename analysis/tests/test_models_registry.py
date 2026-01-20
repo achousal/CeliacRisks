@@ -133,7 +133,7 @@ def test_build_models_rf(training_config):
 def test_build_models_xgboost(training_config):
     """Test build_models for XGBoost."""
     model = build_models("XGBoost", training_config, random_state=42, n_jobs=1)
-    assert model.n_estimators == training_config.hyperparameters.xgb_n_estimators
+    assert model.n_estimators == training_config.xgboost.n_estimators[0]
 
 
 def test_build_models_unknown():

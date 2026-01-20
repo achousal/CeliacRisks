@@ -50,7 +50,7 @@ DRY_RUN="${DRY_RUN:-0}"
 POSTPROCESS_ONLY="${POSTPROCESS_ONLY:-0}"
 OVERWRITE_SPLITS="${OVERWRITE_SPLITS:-0}"
 
-# Split configuration
+# Split configuration (config holds priority)
 N_SPLITS="${N_SPLITS:-10}"
 SEED_START="${SEED_START:-0}"
 
@@ -97,9 +97,10 @@ log "============================================"
 #==============================================================
 log "Step 1/3: Generate splits"
 
-# Check if splits exist (check for any scenario splits)
+# Check if splits exist (check for train AND val splits)
 SPLITS_EXIST=0
-if ls "${SPLITS_DIR}"/*_train_idx_seed0.csv 1>/dev/null 2>&1; then
+if ls "${SPLITS_DIR}"/*_train_idx_seed0.csv 1>/dev/null 2>&1 && \
+   ls "${SPLITS_DIR}"/*_val_idx_seed0.csv 1>/dev/null 2>&1; then
   SPLITS_EXIST=1
 fi
 

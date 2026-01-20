@@ -85,12 +85,12 @@ def expected_calibration_error(y_true: np.ndarray, y_pred: np.ndarray, n_bins: i
     Returns:
         ECE value (lower is better calibrated)
     """
-    y = np.asarray(y_true).astype(int)
+    y = np.asarray(y_true).astype(float)
     p = np.asarray(y_pred).astype(float)
 
-    # Filter valid
+    # Filter valid (remove NaN/inf before converting to int)
     mask = np.isfinite(p) & np.isfinite(y)
-    y = y[mask]
+    y = y[mask].astype(int)
     p = p[mask]
 
     if len(y) == 0:
