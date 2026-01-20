@@ -1,24 +1,22 @@
 #!/usr/bin/env bash
 #============================================================
-# run_production.sh
+# run_local.sh
 #
-# Production pipeline orchestration using `ced` CLI
+# Local pipeline orchestration using `ced` CLI
+# Runs models sequentially (no HPC job submission)
 #
 # Usage:
-#   # Standard run (4 models, 10 splits)
-#   ./run_production.sh
+#   # Quick smoke test (1 split, 1 model)
+#   ./run_local.sh
 #
-#   # Single split mode
-#   N_SPLITS=1 ./run_production.sh
+#   # Multiple splits and models
+#   N_SPLITS=3 RUN_MODELS="LR_EN,RF" ./run_local.sh
 #
 #   # Dry run
-#   DRY_RUN=1 ./run_production.sh
+#   DRY_RUN=1 ./run_local.sh
 #
-#   # Run subset of models
-#   RUN_MODELS="LR_EN,RF" ./run_production.sh
-#
-#   # Postprocess only (no new jobs)
-#   POSTPROCESS_ONLY=1 ./run_production.sh
+#   # Postprocess only
+#   POSTPROCESS_ONLY=1 ./run_local.sh
 #============================================================
 
 set -euo pipefail
@@ -30,32 +28,50 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 #==============================================================
 # CONFIGURATION
 #==============================================================
-# HPC settings
-PROJECT="${PROJECT:-YOUR_PROJECT_ALLOCATION}"
-QUEUE="${QUEUE:-normal}"
-
 # Paths
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INFILE="${INFILE:-${BASE_DIR}/../data/Celiac_dataset_proteomics.csv}"
-SPLITS_DIR="${SPLITS_DIR:-${BASE_DIR}/splits_production}"
-RESULTS_DIR="${RESULTS_DIR:-${BASE_DIR}/results_production}"
-LOGS_DIR="${LOGS_DIR:-${BASE_DIR}/logs}"
+INFILE="${INFILE:-${BASE_DIR}/../data/Celiac_dataset_proteomics_w_demo.csv}"
+SPLITS_DIR="${SPLITS_DIR:-${BASE_DIR}/splits_local}"
+RESULTS_DIR="${RESULTS_DIR:-${BASE_DIR}/results_local}"
+LOGS_DIR="${LOGS_DIR:-${BASE_DIR}/logs_local}"
 
 # Configs
-SPLITS_CONFIG="${SPLITS_CONFIG:-${BASE_DIR}/configs/splits_config.yaml}"
-TRAINING_CONFIG="${TRAINING_CONFIG:-${BASE_DIR}/configs/training_config.yaml}"
+SPLITS_CONFIG="${SPLITS_CONFIG:-${BASE_DIR}/configs/my_splits_config.yaml}"
+TRAINING_CONFIG="${TRAINING_CONFIG:-${BASE_DIR}/configs/my_training_config.yaml}"
 
 # Execution modes
 DRY_RUN="${DRY_RUN:-0}"
 POSTPROCESS_ONLY="${POSTPROCESS_ONLY:-0}"
 OVERWRITE_SPLITS="${OVERWRITE_SPLITS:-0}"
 
-# Split configuration (config holds priority)
-N_SPLITS="${N_SPLITS:-10}"
+# Local-friendly defaults (override with env vars)
+N_SPLITS="${N_SPLITS:-1}"           # 1 split for quick testing
 SEED_START="${SEED_START:-0}"
+N_BOOT="${N_BOOT:-100}"             # Fewer bootstraps for speed
 
 # Model selection (comma-separated: RF,XGBoost,LinSVM_cal,LR_EN)
-RUN_MODELS="${RUN_MODELS:-RF,XGBoost,LinSVM_cal,LR_EN}"
+# Default: just LR_EN for quick smoke test
+RUN_MODELS="${RUN_MODELS:-LR_EN}"
+
+#==============================================================
+# ENVIRONMENT DETECTION
+#==============================================================
+# Detect if we're in conda or need to activate venv
+if [[ -n "${CONDA_DEFAULT_ENV:-}" ]]; then
+  log "Detected conda environment: ${CONDA_DEFAULT_ENV}"
+  ENV_TYPE="conda"
+elif [[ -f "${BASE_DIR}/venv/bin/activate" ]]; then
+  log "Activating venv..."
+  source "${BASE_DIR}/venv/bin/activate"
+  ENV_TYPE="venv"
+else
+  die "No Python environment found. Either activate conda (conda activate ced_ml) or run: bash scripts/hpc_setup.sh"
+fi
+
+# Verify ced command is available
+if ! command -v ced &> /dev/null; then
+  die "ced command not found. Install package with: pip install -e ."
+fi
 
 #==============================================================
 # SETUP
@@ -67,28 +83,17 @@ mkdir -p "${LOGS_DIR}" "${SPLITS_DIR}" "${RESULTS_DIR}"
 [[ -f "${SPLITS_CONFIG}" ]] || die "Splits config not found: ${SPLITS_CONFIG}"
 [[ -f "${TRAINING_CONFIG}" ]] || die "Training config not found: ${TRAINING_CONFIG}"
 
-if [[ "${PROJECT}" == "YOUR_PROJECT_ALLOCATION" ]]; then
-  die "PROJECT not set. Update script or set env var: PROJECT=your_allocation ./run_production.sh"
-fi
-
-# Activate virtual environment
-VENV_PATH="${BASE_DIR}/venv/bin/activate"
-if [[ -f "${VENV_PATH}" ]]; then
-  source "${VENV_PATH}"
-  log "Virtual environment activated"
-else
-  die "Virtual environment not found at ${VENV_PATH}. Run: bash scripts/hpc_setup.sh"
-fi
-
 log "============================================"
-log "Celiac Disease ML Pipeline - Production"
+log "Celiac Disease ML Pipeline - Local"
 log "============================================"
+log "Environment: ${ENV_TYPE}"
 log "Base dir: ${BASE_DIR}"
 log "Input file: ${INFILE}"
 log "Splits dir: ${SPLITS_DIR}"
 log "Results dir: ${RESULTS_DIR}"
 log "Models: ${RUN_MODELS}"
 log "N splits: ${N_SPLITS}"
+log "N bootstraps: ${N_BOOT}"
 log "Dry run: ${DRY_RUN}"
 log "============================================"
 
@@ -129,17 +134,17 @@ else
 fi
 
 #==============================================================
-# STEP 2: SUBMIT TRAINING JOBS
+# STEP 2: TRAIN MODELS (SEQUENTIAL)
 #==============================================================
 if [[ ${POSTPROCESS_ONLY} -eq 1 ]]; then
-  log "POSTPROCESS_ONLY=1: Skipping job submission"
+  log "POSTPROCESS_ONLY=1: Skipping training"
 else
-  log "Step 2/3: Submit training jobs"
+  log "Step 2/3: Train models (sequential)"
 
   # Parse model list
   IFS=',' read -r -a MODEL_ARRAY <<< "${RUN_MODELS}"
 
-  SUBMITTED_JOBS=()
+  COMPLETED_MODELS=()
   for MODEL in "${MODEL_ARRAY[@]}"; do
     MODEL=$(echo "${MODEL}" | xargs)  # trim whitespace
     [[ -z "${MODEL}" ]] && continue
@@ -147,58 +152,34 @@ else
     JOB_NAME="CeD_${MODEL}"
 
     if [[ ${DRY_RUN} -eq 1 ]]; then
-      log "[DRY RUN] Would submit: ${JOB_NAME}"
-      SUBMITTED_JOBS+=("DRYRUN_${MODEL}")
+      log "[DRY RUN] Would train: ${MODEL}"
+      COMPLETED_MODELS+=("${MODEL}")
     else
-      log "Submitting ${MODEL}..."
+      log "Training ${MODEL}..."
+      START_TIME=$(date +%s)
 
-      # Submit LSF job
-      # Use .live logs to track running jobs
-      LOG_BASE="${LOGS_DIR}/${JOB_NAME}.%J"
+      # Run training and capture output
+      LOG_FILE="${LOGS_DIR}/${JOB_NAME}_$(date +%Y%m%d_%H%M%S).log"
 
-      BSUB_OUT=$(bsub \
-        -P "${PROJECT}" \
-        -q "${QUEUE}" \
-        -J "${JOB_NAME}" \
-        -n 8 \
-        -W 144:00 \
-        -R "span[hosts=1] rusage[mem=8000]" \
-        -oo "${LOG_BASE}.out.live" \
-        -eo "${LOG_BASE}.err.live" \
-        -env "MODEL=${MODEL},BASE_DIR=${BASE_DIR},INFILE=${INFILE},SPLITS_DIR=${SPLITS_DIR},RESULTS_DIR=${RESULTS_DIR},TRAINING_CONFIG=${TRAINING_CONFIG},LOG_BASE=${LOG_BASE}" \
-        bash -c "
-          set -euo pipefail
-          source ${VENV_PATH}
+      if ced train \
+        --config "${TRAINING_CONFIG}" \
+        --model "${MODEL}" \
+        --infile "${INFILE}" \
+        --split-dir "${SPLITS_DIR}" \
+        --outdir "${RESULTS_DIR}" \
+        2>&1 | tee "${LOG_FILE}"; then
 
-          # Run the training command
-          ced train --config ${TRAINING_CONFIG} --model ${MODEL} --infile ${INFILE} --split-dir ${SPLITS_DIR} --outdir ${RESULTS_DIR}
-          EXIT_CODE=\$?
-
-          # Finalize logs by renaming .live to final names
-          if [[ -f \"${LOG_BASE}.out.live\" ]]; then
-            mv \"${LOG_BASE}.out.live\" \"${LOG_BASE}.out\"
-          fi
-          if [[ -f \"${LOG_BASE}.err.live\" ]]; then
-            mv \"${LOG_BASE}.err.live\" \"${LOG_BASE}.err\"
-          fi
-
-          exit \$EXIT_CODE
-        " \
-        2>&1)
-
-      JOB_ID=$(echo "${BSUB_OUT}" | grep -oE 'Job <[0-9]+>' | head -n1 | tr -cd '0-9')
-
-      if [[ -n "${JOB_ID}" ]]; then
-        log "  ✓ ${MODEL}: Job ${JOB_ID}"
-        SUBMITTED_JOBS+=("${JOB_ID}")
+        END_TIME=$(date +%s)
+        ELAPSED=$((END_TIME - START_TIME))
+        log "  ✓ ${MODEL}: Complete (${ELAPSED}s)"
+        COMPLETED_MODELS+=("${MODEL}")
       else
-        log "  ✗ ${MODEL}: Submission failed"
-        echo "${BSUB_OUT}"
+        log "  ✗ ${MODEL}: Failed (see ${LOG_FILE})"
       fi
     fi
   done
 
-  log "Submitted ${#SUBMITTED_JOBS[@]} job(s): $(IFS=','; echo "${SUBMITTED_JOBS[*]}")"
+  log "Completed ${#COMPLETED_MODELS[@]} model(s): $(IFS=','; echo "${COMPLETED_MODELS[*]}")"
 fi
 
 #==============================================================
@@ -216,10 +197,10 @@ else
 
   if [[ ${COMPLETED_COUNT} -gt 0 ]]; then
     log "Running postprocessing..."
-    ced postprocess --results-dir "${RESULTS_DIR}" --n-boot 500
+    ced postprocess --results-dir "${RESULTS_DIR}" --n-boot "${N_BOOT}"
     log "✓ Postprocessing complete"
   else
-    log "No completed jobs found. Postprocessing will run when jobs complete."
+    log "No completed jobs found. Skipping postprocessing."
   fi
 fi
 
@@ -227,18 +208,17 @@ fi
 # SUMMARY
 #==============================================================
 log "============================================"
-log "Pipeline submission complete"
+log "Pipeline complete"
 log "============================================"
-log "Monitor jobs:"
-log "  bjobs -w | grep CeD_"
-log "  ls ${LOGS_DIR}/*.live     # Check for running jobs"
+log "Results directory:"
+log "  ${RESULTS_DIR}"
 log ""
 log "View results:"
-log "  ls ${RESULTS_DIR}"
+log "  ls -la ${RESULTS_DIR}"
 log ""
-log "Cleanup stale .live logs (if jobs crashed):"
-log "  for f in ${LOGS_DIR}/*.live; do mv \"\$f\" \"\${f%.live}\"; done"
-log ""
-log "Postprocess after completion:"
-log "  ced postprocess --results-dir ${RESULTS_DIR}"
+log "Next steps:"
+log "  - Check results: ced postprocess --results-dir ${RESULTS_DIR}"
+log "  - Run more models: RUN_MODELS='RF,XGBoost' ./run_local.sh"
+log "  - Run more splits: N_SPLITS=10 ./run_local.sh"
+log "  - Deploy to HPC: see ./run_production.sh and SETUP_README.md"
 log "============================================"

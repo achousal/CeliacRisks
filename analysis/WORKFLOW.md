@@ -311,7 +311,7 @@ Day 2
 | Data not found | Copy to `../data/Celiac_dataset_proteomics.csv` |
 | Import errors | Reinstall: `pip install -e .` |
 
-**Full troubleshooting:** [docs/HPC_SETUP.md](docs/HPC_SETUP.md)
+**Full troubleshooting:** [HPC_README.md](HPC_README.md) or [CLAUDE.MD](CLAUDE.MD)
 
 ---
 

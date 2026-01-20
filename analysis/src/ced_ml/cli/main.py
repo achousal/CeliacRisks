@@ -283,47 +283,8 @@ def eval_holdout(ctx, **kwargs):
 @cli.group("config")
 @click.pass_context
 def config_group(ctx):
-    """Configuration management tools (migrate, validate, diff)."""
+    """Configuration management tools (validate, diff)."""
     pass
-
-
-@config_group.command("migrate")
-@click.option(
-    "--input-file",
-    type=click.Path(exists=True),
-    help="File containing legacy CLI args (one per line)",
-)
-@click.option(
-    "--args",
-    multiple=True,
-    help="Legacy CLI arguments (can be repeated)",
-)
-@click.option(
-    "--command",
-    type=click.Choice(["save-splits", "train"]),
-    default="save-splits",
-    help="Command type (default: save-splits)",
-)
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(),
-    help="Output YAML file (default: <command>_config.yaml)",
-)
-@click.pass_context
-def config_migrate(ctx, input_file, args, command, output):
-    """Convert legacy CLI arguments to YAML config."""
-    from pathlib import Path
-
-    from ced_ml.cli.config_tools import run_config_migrate
-
-    run_config_migrate(
-        input_file=Path(input_file) if input_file else None,
-        args=list(args) if args else None,
-        command=command,
-        output_file=Path(output) if output else None,
-        verbose=ctx.obj.get("verbose", 0),
-    )
 
 
 @config_group.command("validate")

@@ -176,7 +176,7 @@ See [ADR-006: Hybrid Feature Selection](adr/ADR-006-hybrid-feature-selection.md)
 - `hyperparams.py` - Hyperparameter grids for RandomizedSearchCV
 - `training.py` - Nested CV orchestration, OOF predictions
 - `calibration.py` - Calibration wrappers, prevalence adjustment
-- `prevalence.py` - (Deprecated, merged into calibration.py)
+- `prevalence.py` - Prevalence adjustment utilities
 
 **Where in code:**
 - [models/registry.py](../src/ced_ml/models/registry.py) - `build_<model_name>` functions

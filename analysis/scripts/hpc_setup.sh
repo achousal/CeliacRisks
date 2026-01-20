@@ -2,18 +2,24 @@
 #
 # HPC Setup Script for CeliacRisks v1.0.0
 #
-# Purpose: Automated setup of Python environment and package installation on HPC
+# Purpose: Automated setup of Python environment and package installation
+#          Works for both LOCAL and HPC environments
 #
 # Usage:
 #   bash scripts/hpc_setup.sh
+#
+# For detailed setup instructions, see: SETUP_README.md
 #
 # Requirements:
 #   - Python 3.8+
 #   - Git (for version tracking)
 #   - ~2 GB disk space for virtual environment
 #
+# Note: For local development, you can also use conda (see SETUP_README.md)
+#       This script creates a venv which is required for my_run_production.sh
+#
 # Author: Andres Chousal
-# Date: 2026-01-19
+# Date: 2026-01-20
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable
@@ -211,19 +217,19 @@ echo ""
 echo "3. Check configuration files:"
 echo "   ls configs/*.yaml"
 echo ""
-echo "4. Run production pipeline:"
-echo "   Option A (Recommended): ./run_production.sh"
-echo "   Option B (Manual):"
-echo "     # Generate splits first:"
-echo "     ced save-splits --config configs/splits_config.yaml \\"
-echo "       --infile ../data/Celiac_dataset_proteomics.csv \\"
-echo "       --n-splits 10"
-echo "     # Then submit training:"
-echo "     bsub < CeD_production.lsf"
+echo "4. Choose your workflow:"
+echo "   Local testing:"
+echo "     ./my_run_local.sh"
+echo ""
+echo "   HPC production:"
+echo "     # Edit PROJECT allocation in my_run_production.sh first"
+echo "     ./my_run_production.sh"
 echo ""
 echo "Documentation:"
-echo "  - Setup guide: docs/HPC_SETUP.md"
-echo "  - Project overview: CLAUDE.md"
-echo "  - Migration guide: docs/HPC_MIGRATION_GUIDE.md"
+echo "  - Setup guide: SETUP_README.md (READ THIS FIRST)"
+echo "  - Quick start: HPC_README.md"
+echo "  - Project overview: CLAUDE.MD"
+echo "  - Architecture: docs/ARCHITECTURE.md"
+echo "  - Workflow guide: WORKFLOW.md"
 echo ""
 echo "=========================================="

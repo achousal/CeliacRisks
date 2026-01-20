@@ -207,7 +207,7 @@ KEY FILES
 configs/splits_config.yaml      Split configuration
 configs/training_config.yaml    Training configuration
 docs/txt/PARAMETERS_REFERENCE.txt   Full parameter reference
-docs/pipeline.md                Algorithm documentation
+docs/ARCHITECTURE.md            Algorithm documentation
 
 ===============================================================================
 PRODUCTION DEFAULTS (publication-ready)

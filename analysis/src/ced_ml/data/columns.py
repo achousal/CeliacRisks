@@ -149,6 +149,64 @@ def get_available_columns_from_file(filepath: str, nrows: int = 1) -> List[str]:
     -------
     List[str]
         Column names from the file.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the file does not exist.
+    ValueError
+        If the file is corrupted, incomplete, or not a valid Parquet file.
     """
-    df_head = pd.read_parquet(filepath, engine="pyarrow")
-    return df_head.columns.tolist()
+    from pathlib import Path
+
+    file_path = Path(filepath)
+
+    # Check file exists
+    if not file_path.exists():
+        raise FileNotFoundError(
+            f"Input file not found: {filepath}\n"
+            f"Ensure the file path is correct and accessible from the current environment."
+        )
+
+    # Check file size
+    file_size = file_path.stat().st_size
+    if file_size == 0:
+        raise ValueError(
+            f"Input file is empty (0 bytes): {filepath}\n"
+            f"The file may not have been created properly or transfer may have failed."
+        )
+
+    # Parquet files have magic bytes 'PAR1' at start and end
+    # Minimum valid Parquet file is ~200 bytes
+    if file_size < 200:
+        raise ValueError(
+            f"Input file is suspiciously small ({file_size} bytes): {filepath}\n"
+            f"Parquet files are typically at least 200 bytes. The file may be corrupted or incomplete."
+        )
+
+    try:
+        # Try using PyArrow's lower-level API for better error messages
+        import pyarrow.parquet as pq
+
+        # This will validate the file structure
+        parquet_file = pq.ParquetFile(filepath)
+        schema = parquet_file.schema_arrow
+        return schema.names
+
+    except Exception as e:
+        # Provide actionable diagnostics
+        error_msg = (
+            f"Failed to read Parquet file: {filepath}\n"
+            f"File size: {file_size:,} bytes\n"
+            f"Error: {str(e)}\n\n"
+            f"Common causes on HPC:\n"
+            f"  1. File transfer incomplete - verify full copy with: ls -lh {filepath}\n"
+            f"  2. Network filesystem caching - try: cat {filepath} > /dev/null\n"
+            f"  3. File corruption during write - regenerate the file\n"
+            f"  4. Not a Parquet file - verify format with: file {filepath}\n\n"
+            f"Diagnostic steps:\n"
+            f"  1. Check file integrity: python -c \"import pyarrow.parquet as pq; pq.read_metadata('{filepath}')\"\n"
+            f"  2. Check file size on source vs destination\n"
+            f"  3. Try reading with: parquet-tools inspect {filepath}\n"
+        )
+        raise ValueError(error_msg) from e

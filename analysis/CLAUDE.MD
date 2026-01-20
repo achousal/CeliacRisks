@@ -171,9 +171,6 @@ evaluation:
 
 **Config tools:**
 ```bash
-# Migrate legacy args to YAML
-ced config migrate --command train --args "--folds 10" -o config.yaml
-
 # Validate config
 ced config validate config.yaml --strict
 
@@ -301,7 +298,7 @@ pytest tests/ --cov=ced_ml --cov-report=term-missing
 - Prediction, reports, holdout evaluation
 - ROC/PR, calibration, risk distribution, DCA, learning curve plots
 - CLI integration (zero duplication verified)
-- Config validation and migration
+- Config validation and comparison
 
 **Coverage:** 82% overall (90-100% for most modules)
 
@@ -319,7 +316,7 @@ pytest tests/ --cov=ced_ml --cov-report=term-missing
 | `ced train` | `cli/train.py` | Model training |
 | `ced postprocess` | `cli/postprocess.py` | Results aggregation |
 | `ced eval-holdout` | `cli/eval_holdout.py` | Holdout evaluation |
-| `ced config` | `cli/config_tools.py` | Config migration/validation |
+| `ced config` | `cli/config_tools.py` | Config validation and diff |
 
 ### Library Modules
 | Layer | Modules | Purpose |
@@ -387,7 +384,7 @@ ced config validate config.yaml --strict
 - Matplotlib backend: Set `MPLBACKEND=Agg` for headless rendering
 - XGBoost: `pip install xgboost` (optional dependency)
 
-For more troubleshooting, see [docs/MIGRATION_GUIDE.md](docs/MIGRATION_GUIDE.md).
+For more troubleshooting, see [HPC_README.md](HPC_README.md) or [WORKFLOW.md](WORKFLOW.md).
 
 ---
 

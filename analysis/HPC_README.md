@@ -91,12 +91,24 @@ ced train \
 # Check job status
 bjobs -w | grep CeD
 
+# Check for running jobs (via .live logs)
+bash scripts/check_jobs.sh
+ls logs/*.live
+
 # View real-time logs
-tail -f logs/CeD_train_*.out
+tail -f logs/CeD_train_*.out.live   # While running
+tail -f logs/CeD_train_*.out         # After completion
 
 # Check for errors
 grep -i error logs/*.err
+
+# Clean up stale .live logs (if jobs crashed)
+bash scripts/check_jobs.sh --cleanup
 ```
+
+**Note:** Jobs write to `.live` log files while running. On successful completion,
+logs are automatically renamed to remove `.live` extension. This makes it easy to
+identify active jobs by looking for `.live` files.
 
 ---
 
@@ -140,16 +152,16 @@ CeliacRisks/analysis/
 ├── CeD_production.lsf.template # Generic template
 ├── run_production.sh          # Orchestration script
 └── docs/
-    └── HPC_SETUP.md           # Detailed setup guide
+    └── ARCHITECTURE.md        # Technical architecture
 ```
 
 ---
 
 ## Resources
 
-- **Detailed Setup Guide:** [docs/HPC_SETUP.md](docs/HPC_SETUP.md)
-- **Project Overview:** [CLAUDE.md](CLAUDE.md)
-- **Package Documentation:** [README.md](README.md)
+- **Project Overview:** [CLAUDE.MD](CLAUDE.MD)
+- **Architecture:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **Workflow Guide:** [WORKFLOW.md](WORKFLOW.md)
 
 ---
 
