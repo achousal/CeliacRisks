@@ -11,8 +11,6 @@ Tests cover:
 
 import numpy as np
 import pytest
-from conftest import make_mock_config
-
 from ced_ml.models.hyperparams import (
     _make_logspace,
     _parse_class_weight_options,
@@ -20,6 +18,7 @@ from ced_ml.models.hyperparams import (
     _randomize_int_list,
     get_param_distributions,
 )
+from conftest import make_mock_config
 
 
 @pytest.fixture

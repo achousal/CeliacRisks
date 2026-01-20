@@ -16,13 +16,6 @@ import json
 import numpy as np
 import pandas as pd
 import pytest
-from conftest import make_mock_config
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-
 from ced_ml.models.training import (
     _compute_xgb_scale_pos_weight,
     _extract_from_kbest_transformed,
@@ -31,6 +24,12 @@ from ced_ml.models.training import (
     _maybe_apply_calibration,
     oof_predictions_with_nested_cv,
 )
+from conftest import make_mock_config
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.compose import ColumnTransformer
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 
 @pytest.fixture

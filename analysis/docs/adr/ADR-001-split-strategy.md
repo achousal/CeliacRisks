@@ -1,8 +1,8 @@
 # ADR-001: Split Strategy (50/25/25 Three-Way)
 
-**Status:** Accepted  
-**Date:** 2026-01-20  
-**Decision Makers:** Elahi Lab + Computational Team  
+**Status:** Accepted
+**Date:** 2026-01-20
+**Decision Makers:** Elahi Lab + Computational Team
 
 ## Context
 

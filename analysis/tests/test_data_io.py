@@ -5,7 +5,6 @@ Tests for data I/O module.
 import numpy as np
 import pandas as pd
 import pytest
-
 from ced_ml.data.io import (
     coerce_numeric_columns,
     fill_missing_categorical,

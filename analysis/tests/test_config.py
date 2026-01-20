@@ -3,7 +3,6 @@ Tests for configuration system.
 """
 
 import pytest
-
 from ced_ml.config.defaults import DEFAULT_SPLITS_CONFIG
 from ced_ml.config.loader import apply_overrides
 from ced_ml.config.schema import CVConfig, SplitsConfig

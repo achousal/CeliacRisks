@@ -1,8 +1,8 @@
 # CeliacRisks Architecture
 
-**Version:** 1.0  
-**Date:** 2026-01-20  
-**Status:** Current-state documentation  
+**Version:** 1.0
+**Date:** 2026-01-20
+**Status:** Current-state documentation
 
 ---
 
@@ -1315,4 +1315,3 @@ These behaviors are enforced by the codebase and must not be violated:
 ---
 
 **End of ARCHITECTURE.md**
-

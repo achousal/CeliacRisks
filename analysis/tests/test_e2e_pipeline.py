@@ -12,7 +12,6 @@ import numpy as np
 import pandas as pd
 import pytest
 import yaml
-
 from ced_ml.data.schema import ID_COL, TARGET_COL
 
 

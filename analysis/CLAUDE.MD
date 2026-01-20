@@ -279,20 +279,34 @@ All models use:
 
 ```bash
 cd analysis
+
+# Run all tests
 pytest tests/ -v
 
-# 753 tests covering:
-# - Data I/O and split generation
-# - Feature screening, k-best, stability, correlation pruning, panels
-# - Model registry, hyperparameters, training, calibration, prevalence
-# - Discrimination, thresholds, DCA, bootstrap
-# - Prediction, reports, holdout evaluation
-# - ROC/PR, calibration, risk distribution, DCA, learning curve plots
-# - CLI integration (zero duplication verified)
-# - Config validation and migration
+# Run fast tests only (skip slow integration tests)
+pytest tests/ -m "not slow"
+
+# Run only slow tests
+pytest tests/ -m slow
+
+# With coverage
+pytest tests/ --cov=ced_ml --cov-report=term-missing
 ```
 
+**Test suite:** 768 tests covering:
+- Data I/O and split generation
+- Feature screening, k-best, stability, correlation pruning, panels
+- Model registry, hyperparameters, training, calibration, prevalence
+- Discrimination, thresholds, DCA, bootstrap
+- Prediction, reports, holdout evaluation
+- ROC/PR, calibration, risk distribution, DCA, learning curve plots
+- CLI integration (zero duplication verified)
+- Config validation and migration
+
 **Coverage:** 82% overall (90-100% for most modules)
+
+**Test markers:**
+- `slow`: Integration tests that train real models (10-20s each). Skip with `pytest -m "not slow"` for faster development.
 
 ---
 
@@ -390,15 +404,11 @@ For more troubleshooting, see [docs/MIGRATION_GUIDE.md](docs/MIGRATION_GUIDE.md)
 
 ### Completed Today
 - [x] Updated documentation and test status
-  - Test suite: **753 passing / 757 total (99.5%)**
+  - Test suite: **768 tests**
   - Coverage: **82%**
   - All core functionality passing
-
-### Test Status
-| Category | Count | Status |
-|----------|-------|--------|
-| **Passing** | 753 | ✅ |
-| **Skipped** | 4 | XGBoost optional, slow integration tests |
+  - Removed legacy tests
+  - Added test marker documentation for slow tests
 
 ### Remaining Tasks
 - [ ] Run validation study on HPC

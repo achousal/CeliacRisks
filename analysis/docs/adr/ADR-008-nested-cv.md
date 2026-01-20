@@ -1,8 +1,8 @@
 # ADR-008: Nested CV Structure (5x10x5)
 
-**Status:** Accepted  
-**Date:** 2026-01-20  
-**Decision Makers:** Elahi Lab + Computational Team  
+**Status:** Accepted
+**Date:** 2026-01-20
+**Decision Makers:** Elahi Lab + Computational Team
 
 ## Context
 

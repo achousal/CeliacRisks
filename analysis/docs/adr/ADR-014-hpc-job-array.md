@@ -1,8 +1,8 @@
 # ADR-014: HPC Job Array Pattern (4-Model Array)
 
-**Status:** Accepted  
-**Date:** 2026-01-20  
-**Decision Makers:** Elahi Lab + Computational Team  
+**Status:** Accepted
+**Date:** 2026-01-20
+**Decision Makers:** Elahi Lab + Computational Team
 
 ## Context
 

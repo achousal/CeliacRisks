@@ -9,7 +9,6 @@ Coverage:
 
 import numpy as np
 import pytest
-
 from ced_ml.metrics.thresholds import (
     binary_metrics_at_threshold,
     choose_threshold_objective,

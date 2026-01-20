@@ -12,7 +12,6 @@ import json
 import numpy as np
 import pandas as pd
 import pytest
-
 from ced_ml.features.stability import (
     build_frequency_panel,
     compute_selection_frequencies,

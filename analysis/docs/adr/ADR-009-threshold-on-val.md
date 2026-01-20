@@ -1,8 +1,8 @@
 # ADR-009: Threshold Selection on VAL
 
-**Status:** Accepted  
-**Date:** 2026-01-20  
-**Decision Makers:** Elahi Lab + Computational Team  
+**Status:** Accepted
+**Date:** 2026-01-20
+**Decision Makers:** Elahi Lab + Computational Team
 
 ## Context
 

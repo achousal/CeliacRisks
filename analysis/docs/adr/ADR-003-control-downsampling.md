@@ -1,8 +1,8 @@
 # ADR-003: Control Downsampling (1:5 Case:Control)
 
-**Status:** Accepted  
-**Date:** 2026-01-20  
-**Decision Makers:** Elahi Lab + Computational Team  
+**Status:** Accepted
+**Date:** 2026-01-20
+**Decision Makers:** Elahi Lab + Computational Team
 
 ## Context
 

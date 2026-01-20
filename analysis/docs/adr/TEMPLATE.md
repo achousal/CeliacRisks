@@ -1,8 +1,8 @@
 # ADR-XXX: Title
 
-**Status:** Accepted  
-**Date:** YYYY-MM-DD  
-**Decision Makers:** Elahi Lab + Computational Team  
+**Status:** Accepted
+**Date:** YYYY-MM-DD
+**Decision Makers:** Elahi Lab + Computational Team
 
 ## Context
 

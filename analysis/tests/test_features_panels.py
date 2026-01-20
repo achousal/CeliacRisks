@@ -9,7 +9,6 @@ Test coverage:
 
 import numpy as np
 import pandas as pd
-
 from ced_ml.features.panels import (
     build_multi_size_panels,
     compute_univariate_strength,

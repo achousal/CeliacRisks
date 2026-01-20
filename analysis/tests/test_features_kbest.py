@@ -3,10 +3,6 @@
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.feature_selection import SelectKBest, f_classif
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-
 from ced_ml.features.kbest import (
     compute_f_classif_scores,
     compute_protein_statistics,
@@ -14,6 +10,9 @@ from ced_ml.features.kbest import (
     rank_features_by_score,
     select_kbest_features,
 )
+from sklearn.feature_selection import SelectKBest, f_classif
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 
 @pytest.fixture

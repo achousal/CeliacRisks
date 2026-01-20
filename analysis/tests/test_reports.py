@@ -19,11 +19,10 @@ import tempfile
 import numpy as np
 import pandas as pd
 import pytest
+from ced_ml.evaluation.reports import OutputDirectories, ResultsWriter
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-
-from ced_ml.evaluation.reports import OutputDirectories, ResultsWriter
 
 # ========== Fixtures ==========
 

@@ -12,7 +12,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from ced_ml.cli.config_tools import (
     _map_to_nested_key,
     _parse_legacy_args,

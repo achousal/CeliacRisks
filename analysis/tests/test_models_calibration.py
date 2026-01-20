@@ -10,11 +10,6 @@ Coverage areas:
 """
 
 import numpy as np
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import LinearSVC
-
 from ced_ml.models.calibration import (
     PrevalenceAdjustedModel,
     adjust_probabilities_for_prevalence,
@@ -26,6 +21,10 @@ from ced_ml.models.calibration import (
     get_calibrated_estimator_param_name,
     maybe_calibrate_estimator,
 )
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import LinearSVC
 
 # ============================================================================
 # Calibration Metrics Tests
