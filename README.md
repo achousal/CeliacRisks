@@ -111,7 +111,7 @@ ced postprocess --results-dir results --n-boot 500
 Rscript scripts/compare_models.R --results_root results
 ```
 
-For detailed CLI usage, see [analysis/CLAUDE.md](analysis/CLAUDE.MD).
+For detailed CLI usage, see [analysis/CLAUDE.md](analysis/CLAUDE.md).
 
 ---
 

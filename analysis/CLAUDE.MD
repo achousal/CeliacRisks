@@ -400,12 +400,8 @@ For more troubleshooting, see [HPC_README.md](HPC_README.md) or [WORKFLOW.md](WO
 **Current Status:** Production-ready ✅ (updated 2026-01-19)
 
 ### Completed Today
-- [x] Updated documentation and test status
   - Test suite: **768 tests**
   - Coverage: **82%**
-  - All core functionality passing
-  - Removed legacy tests
-  - Added test marker documentation for slow tests
 
 ### Remaining Tasks
 - [ ] Run validation study on HPC
