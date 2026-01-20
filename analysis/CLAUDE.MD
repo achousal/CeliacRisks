@@ -213,6 +213,14 @@ ced --help
 
 ### Basic Workflow
 
+#### Option A: Orchestrated (Recommended for HPC)
+```bash
+# Handles all steps: generate splits, submit jobs, postprocess
+./run_production.sh
+```
+
+#### Option B: Manual (Step-by-step)
+
 **Step 1: Generate splits**
 ```bash
 ced save-splits \
@@ -237,6 +245,7 @@ ced train --config configs/training_config.yaml \
     --split-dir splits_production
 
 # HPC (4 models in parallel via LSF)
+# IMPORTANT: Requires Step 1 to be completed first
 bsub < CeD_production.lsf
 ```
 

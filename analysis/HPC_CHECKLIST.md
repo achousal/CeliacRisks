@@ -107,8 +107,33 @@ Use this checklist for first-time HPC deployment. Print or copy to track progres
 
 ## Production Run
 
-### Submit Jobs
+### Option A: Orchestrated Workflow (Recommended)
+- [ ] Review configuration:
+  ```bash
+  cat configs/splits_config.yaml
+  cat configs/training_config.yaml
+  ```
+- [ ] Run orchestration script:
+  ```bash
+  ./run_production.sh
+  ```
+- [ ] Monitor jobs: `bjobs -w | grep CeD_`
+
+### Option B: Manual Workflow
+
+#### 1. Generate Production Splits
 - [ ] Activate environment: `source venv/bin/activate`
+- [ ] Generate splits (10 seeds):
+  ```bash
+  ced save-splits \
+    --config configs/splits_config.yaml \
+    --infile ../Celiac_dataset_proteomics.csv \
+    --n-splits 10
+  ```
+- [ ] Verify splits created: `ls splits_production/*_seed{0..9}.csv | wc -l`
+- [ ] Expected: 30 files (train/val/test × 10 seeds)
+
+#### 2. Submit Training Jobs
 - [ ] Review submission command
 - [ ] Submit all models: `bsub < CeD_production.lsf`
 - [ ] Note job IDs from output
