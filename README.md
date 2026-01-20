@@ -220,7 +220,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and PR
 
 ```bibtex
 @software{chousal2026celiacriskml,
-  author = {Chousal, Andres and Elahi Lab},
+  author = {Chousal, Andres and Chowell Lab},
   title = {CeliacRiskML: Machine Learning Pipeline for Disease Risk Prediction},
   year = {2026},
   url = {https://github.com/achousal/CeliacRiskML}
