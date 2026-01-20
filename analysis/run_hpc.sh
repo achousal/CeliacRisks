@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
 #============================================================
-# run_production.sh
+# run_hpc.sh
 #
-# Production pipeline orchestration using `ced` CLI
+# HPC pipeline orchestration using `ced` CLI
 #
 # Usage:
 #   # Standard run (4 models, 10 splits)
-#   ./run_production.sh
+#   ./run_hpc.sh
 #
 #   # Single split mode
-#   N_SPLITS=1 ./run_production.sh
+#   N_SPLITS=1 ./run_hpc.sh
 #
 #   # Dry run
-#   DRY_RUN=1 ./run_production.sh
+#   DRY_RUN=1 ./run_hpc.sh
 #
 #   # Run subset of models
-#   RUN_MODELS="LR_EN,RF" ./run_production.sh
+#   RUN_MODELS="LR_EN,RF" ./run_hpc.sh
 #
 #   # Postprocess only (no new jobs)
-#   POSTPROCESS_ONLY=1 ./run_production.sh
+#   POSTPROCESS_ONLY=1 ./run_hpc.sh
 #============================================================
 
 set -euo pipefail
@@ -37,8 +37,8 @@ QUEUE="${QUEUE:-normal}"
 # Paths
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INFILE="${INFILE:-${BASE_DIR}/../data/Celiac_dataset_proteomics.csv}"
-SPLITS_DIR="${SPLITS_DIR:-${BASE_DIR}/splits_production}"
-RESULTS_DIR="${RESULTS_DIR:-${BASE_DIR}/results_production}"
+SPLITS_DIR="${SPLITS_DIR:-${BASE_DIR}/splits_hpc}"
+RESULTS_DIR="${RESULTS_DIR:-${BASE_DIR}/results_hpc}"
 LOGS_DIR="${LOGS_DIR:-${BASE_DIR}/logs}"
 
 # Configs
@@ -68,7 +68,7 @@ mkdir -p "${LOGS_DIR}" "${SPLITS_DIR}" "${RESULTS_DIR}"
 [[ -f "${TRAINING_CONFIG}" ]] || die "Training config not found: ${TRAINING_CONFIG}"
 
 if [[ "${PROJECT}" == "YOUR_PROJECT_ALLOCATION" ]]; then
-  die "PROJECT not set. Update script or set env var: PROJECT=your_allocation ./run_production.sh"
+  die "PROJECT not set. Update script or set env var: PROJECT=your_allocation ./run_hpc.sh"
 fi
 
 # Activate virtual environment
@@ -81,7 +81,7 @@ else
 fi
 
 log "============================================"
-log "Celiac Disease ML Pipeline - Production"
+log "Celiac Disease ML Pipeline - HPC"
 log "============================================"
 log "Base dir: ${BASE_DIR}"
 log "Input file: ${INFILE}"

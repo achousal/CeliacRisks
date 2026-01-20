@@ -3,7 +3,7 @@
 
 # Input data
 infile: ../../data/Celiac_dataset_proteomics.csv
-split_dir: splits_production
+split_dir: splits_hpc
 scenario: IncidentPlusPrevalent
 split_seed: 0
 
@@ -64,4 +64,4 @@ strictness:
   check_split_overlap: true
   check_prevalent_in_eval: true
 
-outdir: results_production
+outdir: results_hpc

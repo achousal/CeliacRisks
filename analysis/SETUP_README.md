@@ -50,10 +50,10 @@ bash scripts/hpc_setup.sh
 
 # 2. Edit production script with your HPC project allocation
 # Change PROJECT="acc_Chipuk_Laboratory" to your allocation
-nano my_run_production.sh
+nano my_run_hpc.sh
 
 # 3. Submit production run
-./my_run_production.sh
+./my_run_hpc.sh
 ```
 
 ---
@@ -136,7 +136,7 @@ This script will:
 **Advantages**:
 - Explicit dependency pinning
 - Matches HPC production environment exactly
-- Works with `my_run_production.sh` out of the box
+- Works with `my_run_hpc.sh` out of the box
 
 ---
 
@@ -149,7 +149,7 @@ This script will:
 | Jupyter integration | Excellent | Manual |
 | HPC compatibility | Good | Excellent |
 | Works with `my_run_local.sh` | ✓ | ✓ |
-| Works with `my_run_production.sh` | ✗ | ✓ |
+| Works with `my_run_hpc.sh` | ✗ | ✓ |
 | Reproducibility | Good | Excellent |
 
 ---
@@ -190,7 +190,7 @@ POSTPROCESS_ONLY=1 ./my_run_local.sh
 - `DRY_RUN`: Preview without execution (0 or 1)
 - `OVERWRITE_SPLITS`: Regenerate splits (0 or 1)
 
-### HPC Pipeline (`my_run_production.sh`)
+### HPC Pipeline (`my_run_hpc.sh`)
 
 **Features**:
 - Submits jobs to LSF scheduler via `bsub`
@@ -200,7 +200,7 @@ POSTPROCESS_ONLY=1 ./my_run_local.sh
 
 **Setup**:
 
-1. Edit `my_run_production.sh` to set your HPC project:
+1. Edit `my_run_hpc.sh` to set your HPC project:
    ```bash
    PROJECT="your_project_allocation"  # Line 34
    ```
@@ -212,23 +212,23 @@ POSTPROCESS_ONLY=1 ./my_run_local.sh
 
 3. Submit pipeline:
    ```bash
-   ./my_run_production.sh
+   ./my_run_hpc.sh
    ```
 
 **Examples**:
 
 ```bash
 # Standard production run
-./my_run_production.sh
+./my_run_hpc.sh
 
 # Single split test
-N_SPLITS=1 ./my_run_production.sh
+N_SPLITS=1 ./my_run_hpc.sh
 
 # Subset of models
-RUN_MODELS="LR_EN,RF" ./my_run_production.sh
+RUN_MODELS="LR_EN,RF" ./my_run_hpc.sh
 
 # Dry run
-DRY_RUN=1 ./my_run_production.sh
+DRY_RUN=1 ./my_run_hpc.sh
 
 # Monitor jobs
 bjobs -w | grep CeD_
@@ -329,7 +329,7 @@ analysis/
 ├── splits_local/          # Local CV splits
 ├── splits_1-10/           # Production CV splits
 ├── my_run_local.sh        # Local pipeline runner (NEW)
-├── my_run_production.sh   # HPC pipeline runner
+├── my_run_hpc.sh   # HPC pipeline runner
 ├── scripts/hpc_setup.sh   # Automated setup script
 ├── SETUP_README.md        # This file
 └── pyproject.toml         # Package configuration
@@ -400,18 +400,18 @@ python --version > python_version.txt
 
 2. **Dry run**:
    ```bash
-   DRY_RUN=1 ./my_run_production.sh
+   DRY_RUN=1 ./my_run_hpc.sh
    ```
 
 3. **Single split test**:
    ```bash
-   N_SPLITS=1 RUN_MODELS="LR_EN" ./my_run_production.sh
+   N_SPLITS=1 RUN_MODELS="LR_EN" ./my_run_hpc.sh
    bjobs -w
    ```
 
 4. **Full production**:
    ```bash
-   ./my_run_production.sh
+   ./my_run_hpc.sh
    ```
 
 ---

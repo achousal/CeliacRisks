@@ -137,7 +137,7 @@ WORKFLOW RECIPES
    # training_config.yaml (same as Quality Test)
 
    # Submit all 4 models x 10 seeds = 40 jobs
-   bsub < CeD_production.lsf
+   bsub < CeD_hpc.lsf
 
 4. HOLDOUT VALIDATION (final external validation):
    # splits_config.yaml
@@ -195,10 +195,10 @@ Check completed models:
   ls results_*/*/core/test_metrics.csv
 
 Postprocessing:
-  ced postprocess --results-dir results_production --n-boot 500
+  ced postprocess --results-dir results_hpc --n-boot 500
 
 Visualization:
-  Rscript compare_models_faith.R --results_root results_production
+  Rscript compare_models_faith.R --results_root results_hpc
 
 ===============================================================================
 KEY FILES

@@ -60,7 +60,7 @@ Use **LSF job array** with 4 array indices (1-4), one per model.
 ## Evidence
 
 ### Code Pointers
-- `CeD_production.lsf.template` - LSF batch script template
+- `CeD_hpc.lsf.template` - LSF batch script template
 - `scripts/hpc_setup.sh` - Environment setup script
 - `WORKFLOW.md` - Pipeline execution documentation
 

@@ -12,7 +12,7 @@ This document demonstrates the Phase C configuration management tools with real 
 ```bash
 python save_splits.py \
   --infile ../data/Celiac_dataset_proteomics.csv \
-  --outdir splits_production \
+  --outdir splits_hpc \
   --mode development \
   --scenarios IncidentPlusPrevalent \
   --n-splits 10 \
@@ -65,7 +65,7 @@ ced save-splits --config splits_config.yaml \
 ```bash
 python celiacML_faith.py \
   --infile ../data/Celiac_dataset_proteomics.csv \
-  --split-dir splits_production \
+  --split-dir splits_hpc \
   --scenario IncidentPlusPrevalent \
   --model LR_EN \
   --folds 5 \

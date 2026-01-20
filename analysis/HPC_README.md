@@ -35,9 +35,9 @@ cp /path/to/shared/Celiac_dataset_proteomics.csv ../data/
 ### 2. Customize Batch Script
 ```bash
 # Copy template
-cp CeD_production.lsf.template CeD_production.lsf
+cp CeD_hpc.lsf.template CeD_hpc.lsf
 
-# Edit these lines in CeD_production.lsf:
+# Edit these lines in CeD_hpc.lsf:
 #   #BSUB -P YOUR_PROJECT_ALLOCATION
 #   #BSUB -q normal
 #   BASE_DIR="/path/to/your/CeliacRisks/analysis"
@@ -58,13 +58,13 @@ vim configs/training_config.yaml
 
 ### Option A: Automated (Recommended)
 ```bash
-bash run_production.sh
+bash run_hpc.sh
 ```
 
 ### Option B: LSF Array Job
 ```bash
 # Submit all 4 models
-bsub < CeD_production.lsf
+bsub < CeD_hpc.lsf
 
 # Monitor
 bjobs -w
@@ -80,7 +80,7 @@ ced train \
   --config configs/training_config.yaml \
   --model LR_EN \
   --infile ../data/Celiac_dataset_proteomics.csv \
-  --splits-dir splits_production
+  --splits-dir splits_hpc
 ```
 
 ---
@@ -116,13 +116,13 @@ identify active jobs by looking for `.live` files.
 
 ```bash
 # Verify outputs
-ls results_production/IncidentPlusPrevalent__*/core/final_model.joblib
+ls results_hpc/IncidentPlusPrevalent__*/core/final_model.joblib
 
 # Post-process results
-ced postprocess --results-dir results_production --n-boot 500
+ced postprocess --results-dir results_hpc --n-boot 500
 
 # View aggregated metrics
-column -t -s, results_production/COMBINED/aggregated_metrics.csv
+column -t -s, results_hpc/COMBINED/aggregated_metrics.csv
 ```
 
 ---
@@ -148,9 +148,9 @@ CeliacRisks/analysis/
 ├── configs/
 │   ├── splits_config.yaml     # Split generation config
 │   └── training_config.yaml   # Model training config
-├── CeD_production.lsf         # LSF batch script (customize)
-├── CeD_production.lsf.template # Generic template
-├── run_production.sh          # Orchestration script
+├── CeD_hpc.lsf         # LSF batch script (customize)
+├── CeD_hpc.lsf.template # Generic template
+├── run_hpc.sh          # Orchestration script
 └── docs/
     └── ARCHITECTURE.md        # Technical architecture
 ```
@@ -175,13 +175,13 @@ bash scripts/hpc_setup.sh
 source venv/bin/activate
 
 # Submit
-bsub < CeD_production.lsf
+bsub < CeD_hpc.lsf
 
 # Monitor
 bjobs -w
 
 # Postprocess
-ced postprocess --results-dir results_production
+ced postprocess --results-dir results_hpc
 ```
 
 ---

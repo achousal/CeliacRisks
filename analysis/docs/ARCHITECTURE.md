@@ -99,8 +99,8 @@ analysis/
     ARCHITECTURE.md     # This file
     adr/                # Architecture Decision Records
   Legacy/               # Archived monolithic scripts
-splits_production/      # Persisted split indices
-results_production/     # Training outputs
+splits_hpc/      # Persisted split indices
+results_hpc/     # Training outputs
 ```
 
 **Where in code:**
@@ -509,7 +509,7 @@ row_idx
 
 **Directory Structure:**
 ```
-results_production/
+results_hpc/
   {model}_{scenario}_seed{N}/
     final_model.pkl            # PrevalenceAdjustedModel wrapper
     oof_predictions.csv        # OOF predictions (TRAIN set)
@@ -1102,11 +1102,11 @@ target_prevalence_source: str = "test"  # test | val | train | fixed
 
 ### 13.1 Directory Structure
 
-**Output Directory Pattern:** `results_production/{model}_{scenario}_seed{N}/`
+**Output Directory Pattern:** `results_hpc/{model}_{scenario}_seed{N}/`
 
 **Contents:**
 ```
-results_production/
+results_hpc/
   RF_IncidentPlusPrevalent_seed42/
     final_model.pkl               # PrevalenceAdjustedModel wrapper
     oof_predictions.csv           # OOF predictions (TRAIN set)
@@ -1203,7 +1203,7 @@ results_production/
 - 12-hour wall time
 
 **Where in code:**
-- `CeD_production.lsf.template` - LSF batch script template
+- `CeD_hpc.lsf.template` - LSF batch script template
 
 **See ADR:**
 - [ADR-014: HPC Job Array](adr/ADR-014-hpc-job-array.md)
@@ -1221,7 +1221,7 @@ results_production/
 
 **Steps:**
 1. Generate splits: `ced save-splits`
-2. Submit job array: `bsub < CeD_production.lsf`
+2. Submit job array: `bsub < CeD_hpc.lsf`
 3. Monitor jobs: `bjobs`
 4. Postprocess: `ced postprocess`
 5. Holdout evaluation: `ced eval-holdout` (run ONCE)

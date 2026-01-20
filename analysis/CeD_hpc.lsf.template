@@ -1,12 +1,12 @@
 #!/bin/bash
 #==============================================================
-# CeD_production.lsf.template
+# CeD_hpc.lsf.template
 #
 # LSF batch script template for Celiac Disease ML pipeline
 #
 # SETUP INSTRUCTIONS:
-# 1. Copy this file: cp CeD_production.lsf.template CeD_production.lsf
-# 2. Edit CeD_production.lsf:
+# 1. Copy this file: cp CeD_hpc.lsf.template CeD_hpc.lsf
+# 2. Edit CeD_hpc.lsf:
 #    - Update #BSUB -P (project allocation)
 #    - Update #BSUB -q (queue name)
 #    - Update BASE_DIR path
@@ -14,15 +14,15 @@
 # 3. Generate splits FIRST (required):
 #    ced save-splits --config configs/splits_config.yaml \
 #      --infile ../data/Celiac_dataset_proteomics.csv --n-splits 10
-#    OR use ./run_production.sh to handle all steps
-# 4. Submit: bsub < CeD_production.lsf
+#    OR use ./run_hpc.sh to handle all steps
+# 4. Submit: bsub < CeD_hpc.lsf
 #
 # Usage:
 #   # Submit all 4 models
-#   bsub < CeD_production.lsf
+#   bsub < CeD_hpc.lsf
 #
 #   # Submit specific model
-#   MODEL=LR_EN bsub -J "CeD_LR" < CeD_production.lsf
+#   MODEL=LR_EN bsub -J "CeD_LR" < CeD_hpc.lsf
 #
 # Array job mapping (LSB_JOBINDEX 1-4):
 #   1 → RF
@@ -50,7 +50,7 @@ BASE_DIR="/path/to/your/CeliacRisks/analysis"  # UPDATE THIS
 
 # Change to analysis directory and create output directories
 cd "${BASE_DIR}" || exit 1
-mkdir -p logs splits_production results_production
+mkdir -p logs splits_hpc results_hpc
 
 #==============================================================
 # ENVIRONMENT
@@ -68,8 +68,8 @@ echo "[$(date +'%F %T')] ced version: $(ced --version)"
 
 # Define remaining paths
 INFILE="${BASE_DIR}/../data/Celiac_dataset_proteomics.csv"
-SPLITS_DIR="${BASE_DIR}/splits_production"
-RESULTS_DIR="${BASE_DIR}/results_production"
+SPLITS_DIR="${BASE_DIR}/splits_hpc"
+RESULTS_DIR="${BASE_DIR}/results_hpc"
 LOGS_DIR="${BASE_DIR}/logs"
 CONFIG_FILE="${BASE_DIR}/configs/training_config.yaml"
 

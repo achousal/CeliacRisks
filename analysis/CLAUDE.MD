@@ -97,14 +97,14 @@ ced save-splits --config configs/splits_config.yaml \
 
 **What it does:** Creates stratified TRAIN/VAL/TEST splits with prevalent enrichment and control downsampling.
 
-**Output:** `splits_production/IncidentPlusPrevalent_train_idx_seed0.csv`, etc.
+**Output:** `splits_hpc/IncidentPlusPrevalent_train_idx_seed0.csv`, etc.
 
 ### 2. Model Training
 ```bash
 ced train --config configs/training_config.yaml \
     --model LR_EN \
     --infile ../data/Celiac_dataset_proteomics.csv \
-    --split-dir splits_production
+    --split-dir splits_hpc
 ```
 
 **What it does:** Trains models with nested CV, hyperparameter tuning, feature selection, calibration, and evaluation.
@@ -194,7 +194,7 @@ ced --help
 #### Option A: Orchestrated (Recommended for HPC)
 ```bash
 # Handles all steps: generate splits, submit jobs, postprocess
-./run_production.sh
+./run_hpc.sh
 ```
 
 #### Option B: Manual (Step-by-step)
@@ -203,7 +203,7 @@ ced --help
 ```bash
 ced save-splits \
     --infile ../data/Celiac_dataset_proteomics.csv \
-    --outdir splits_production \
+    --outdir splits_hpc \
     --mode development \
     --scenarios IncidentPlusPrevalent \
     --n-splits 10 \
@@ -220,21 +220,21 @@ ced save-splits \
 ced train --config configs/training_config.yaml \
     --model LR_EN \
     --infile ../data/Celiac_dataset_proteomics.csv \
-    --split-dir splits_production
+    --split-dir splits_hpc
 
 # HPC (4 models in parallel via LSF)
 # IMPORTANT: Requires Step 1 to be completed first
-bsub < CeD_production.lsf
+bsub < CeD_hpc.lsf
 ```
 
 **Step 3: Post-process**
 ```bash
-ced postprocess --results-dir results_production --n-boot 500
+ced postprocess --results-dir results_hpc --n-boot 500
 ```
 
 **Step 4: Visualize (R)**
 ```bash
-Rscript compare_models_faith.R --results_root results_production
+Rscript compare_models_faith.R --results_root results_hpc
 ```
 
 ---

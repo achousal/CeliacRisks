@@ -16,7 +16,7 @@
 #   - ~2 GB disk space for virtual environment
 #
 # Note: For local development, you can also use conda (see SETUP_README.md)
-#       This script creates a venv which is required for my_run_production.sh
+#       This script creates a venv which is required for my_run_hpc.sh
 #
 # Author: Andres Chousal
 # Date: 2026-01-20
@@ -151,8 +151,8 @@ fi
 # Create required directories
 info "Creating output directories..."
 mkdir -p logs
-mkdir -p splits_production
-mkdir -p results_production
+mkdir -p splits_hpc
+mkdir -p results_hpc
 success "Output directories created"
 
 # Check for data file
@@ -222,8 +222,8 @@ echo "   Local testing:"
 echo "     ./my_run_local.sh"
 echo ""
 echo "   HPC production:"
-echo "     # Edit PROJECT allocation in my_run_production.sh first"
-echo "     ./my_run_production.sh"
+echo "     # Edit PROJECT allocation in my_run_hpc.sh first"
+echo "     ./my_run_hpc.sh"
 echo ""
 echo "Documentation:"
 echo "  - Setup guide: SETUP_README.md (READ THIS FIRST)"

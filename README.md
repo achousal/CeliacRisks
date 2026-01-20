@@ -67,6 +67,30 @@ ced --help
 
 ## Quick Start
 
+### Recommended: Run Complete Pipeline
+
+**Local testing (1 split, 1 model):**
+```bash
+cd analysis
+./run_local.sh
+```
+
+**HPC deployment (10 splits, 4 models):**
+```bash
+cd analysis
+PROJECT=your_allocation ./run_hpc.sh
+```
+
+These scripts handle the entire pipeline: splits generation, model training, and postprocessing.
+
+For customization options and detailed setup, see [analysis/HPC_README.md](analysis/HPC_README.md) and [analysis/WORKFLOW.md](analysis/WORKFLOW.md).
+
+---
+
+## Manual Pipeline Execution
+
+For granular control over individual pipeline steps, use the `ced` CLI directly:
+
 ### 1. Generate Train/Val/Test Splits
 ```bash
 ced save-splits --config configs/splits_config.yaml --infile data/your_dataset.csv

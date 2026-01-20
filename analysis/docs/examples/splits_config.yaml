@@ -17,4 +17,4 @@ prevalent_train_frac: 0.5
 # Control downsampling (1:5 case:control ratio)
 train_control_per_case: 5.0
 
-outdir: splits_production
+outdir: splits_hpc

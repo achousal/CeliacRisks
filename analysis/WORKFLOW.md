@@ -67,8 +67,8 @@ du -h ../data/Celiac_dataset_proteomics.csv
 # Expected: ~2.5 GB
 
 # Customize batch script
-cp CeD_production.lsf.template CeD_production.lsf
-vim CeD_production.lsf
+cp CeD_hpc.lsf.template CeD_hpc.lsf
+vim CeD_hpc.lsf
 # Edit: PROJECT, QUEUE, BASE_DIR
 ```
 
@@ -87,13 +87,13 @@ ced save-splits \
   --n-splits 1
 
 # Check output
-ls splits_production/
+ls splits_hpc/
 # ↓ IncidentPlusPrevalent_train_idx_seed0.csv
 # ↓ IncidentPlusPrevalent_val_idx_seed0.csv
 # ↓ IncidentPlusPrevalent_test_idx_seed0.csv
 
 # Test single model
-MODEL=LR_EN bsub -J "CeD_test" -W 2:00 < CeD_production.lsf
+MODEL=LR_EN bsub -J "CeD_test" -W 2:00 < CeD_hpc.lsf
 
 # Monitor
 bjobs -w
@@ -117,7 +117,7 @@ ced save-splits \
   --n-splits 10
 
 # Verify
-ls splits_production/ | wc -l
+ls splits_hpc/ | wc -l
 # Expected: 30 files (3 files × 10 splits)
 ```
 
@@ -127,13 +127,13 @@ ls splits_production/ | wc -l
 
 ```bash
 # Submit all 4 models as array job
-bsub < CeD_production.lsf
+bsub < CeD_hpc.lsf
 
 # Or submit individually
-MODEL=LR_EN bsub -J "CeD_LR" < CeD_production.lsf
-MODEL=RF bsub -J "CeD_RF" < CeD_production.lsf
-MODEL=XGBoost bsub -J "CeD_XGB" < CeD_production.lsf
-MODEL=LinSVM_cal bsub -J "CeD_SVM" < CeD_production.lsf
+MODEL=LR_EN bsub -J "CeD_LR" < CeD_hpc.lsf
+MODEL=RF bsub -J "CeD_RF" < CeD_hpc.lsf
+MODEL=XGBoost bsub -J "CeD_XGB" < CeD_hpc.lsf
+MODEL=LinSVM_cal bsub -J "CeD_SVM" < CeD_hpc.lsf
 ```
 
 **Time required:** 4-8 hours (model-dependent)
@@ -148,7 +148,7 @@ bjobs -w | grep CeD
 tail -f logs/CeD_train_*.out
 
 # Count completed models
-find results_production -name "final_model.joblib" | wc -l
+find results_hpc -name "final_model.joblib" | wc -l
 # Target: 4 (one per model)
 
 # Check for errors
@@ -177,22 +177,22 @@ All jobs complete
 
 ```bash
 # Verify all models completed
-ls results_production/IncidentPlusPrevalent__*/core/final_model.joblib | wc -l
+ls results_hpc/IncidentPlusPrevalent__*/core/final_model.joblib | wc -l
 # Expected: 4
 
 # Aggregate results
 source venv/bin/activate
 ced postprocess \
-  --results-dir results_production \
+  --results-dir results_hpc \
   --n-boot 500
 
 # View top models
-head -n 5 results_production/COMBINED/aggregated_metrics.csv | column -t -s,
+head -n 5 results_hpc/COMBINED/aggregated_metrics.csv | column -t -s,
 ```
 
 **Output structure:**
 ```
-results_production/
+results_hpc/
 ├── IncidentPlusPrevalent__RF__5x10__val0.25__test0.25__hybrid/
 │   ├── core/
 │   │   ├── final_model.joblib      ← Trained model
@@ -220,7 +220,7 @@ results_production/
 ```bash
 # From LOCAL machine
 rsync -avz --progress \
-  your_username@hpc.cluster.edu:/path/to/CeliacRisks/analysis/results_production/ \
+  your_username@hpc.cluster.edu:/path/to/CeliacRisks/analysis/results_hpc/ \
   ~/Downloads/CeliacRisks_results/
 
 # Verify transfer
@@ -256,8 +256,8 @@ Rscript compare_models_faith.R \
 ```bash
 # Create archive (on HPC)
 tar -czf CeliacRisks_v1.0.0_$(date +%Y%m%d).tar.gz \
-  splits_production/ \
-  results_production/ \
+  splits_hpc/ \
+  results_hpc/ \
   configs/ \
   logs/
 
@@ -265,9 +265,9 @@ tar -czf CeliacRisks_v1.0.0_$(date +%Y%m%d).tar.gz \
 mv CeliacRisks_v1.0.0_*.tar.gz /labs/elahi/archives/
 
 # Record metadata
-pip freeze > results_production/requirements.txt
-git log -1 > results_production/git_version.txt
-cp configs/*.yaml results_production/
+pip freeze > results_hpc/requirements.txt
+git log -1 > results_hpc/git_version.txt
+cp configs/*.yaml results_hpc/
 ```
 
 ---
@@ -325,7 +325,7 @@ bash scripts/hpc_setup.sh
 source venv/bin/activate
 
 # Submit
-bsub < CeD_production.lsf
+bsub < CeD_hpc.lsf
 
 # Monitor
 bjobs -w
@@ -334,7 +334,7 @@ bjobs -w
 tail -f logs/CeD_train_*.out
 
 # Postprocess
-ced postprocess --results-dir results_production
+ced postprocess --results-dir results_hpc
 ```
 
 ---
