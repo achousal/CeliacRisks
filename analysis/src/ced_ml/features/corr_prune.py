@@ -9,7 +9,8 @@ This module implements correlation-based redundancy removal for feature panels:
 All correlation analysis is performed on TRAIN data only to prevent test leakage.
 """
 
-from typing import Dict, List, Optional, Tuple, Set, Literal
+from typing import Dict, List, Literal, Optional, Set, Tuple
+
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -98,11 +99,13 @@ def find_high_correlation_pairs(
         for j in range(i + 1, len(proteins)):
             corr_val = float(corr_matrix.iloc[i, j])
             if np.isfinite(corr_val) and corr_val >= float(threshold):
-                rows.append({
-                    "protein1": proteins[i],
-                    "protein2": proteins[j],
-                    "abs_corr": corr_val,
-                })
+                rows.append(
+                    {
+                        "protein1": proteins[i],
+                        "protein2": proteins[j],
+                        "abs_corr": corr_val,
+                    }
+                )
 
     if not rows:
         return pd.DataFrame(columns=["protein1", "protein2", "abs_corr"])
@@ -253,16 +256,11 @@ def compute_univariate_strength(
         try:
             try:
                 _, p_val = stats.mannwhitneyu(
-                    x_case, x_control,
-                    alternative="two-sided",
-                    method="asymptotic"
+                    x_case, x_control, alternative="two-sided", method="asymptotic"
                 )
             except TypeError:
                 # Older scipy version
-                _, p_val = stats.mannwhitneyu(
-                    x_case, x_control,
-                    alternative="two-sided"
-                )
+                _, p_val = stats.mannwhitneyu(x_case, x_control, alternative="two-sided")
             p_val = float(p_val)
         except Exception:
             p_val = np.nan
@@ -310,6 +308,7 @@ def select_component_representative(
     3. If p-value tied: largest absolute mean difference
     4. If all tied: alphabetical order (reproducible)
     """
+
     def sort_key(protein: str) -> Tuple:
         # Primary: higher selection frequency
         freq = selection_freq.get(protein, np.nan) if selection_freq else np.nan
@@ -378,10 +377,16 @@ def prune_correlated_proteins(
     """
     valid_prots = [p for p in proteins if p in df.columns]
     if len(valid_prots) == 0:
-        empty_df = pd.DataFrame(columns=[
-            "component_id", "protein", "selection_freq",
-            "kept", "rep_protein", "component_size"
-        ])
+        empty_df = pd.DataFrame(
+            columns=[
+                "component_id",
+                "protein",
+                "selection_freq",
+                "kept",
+                "rep_protein",
+                "component_size",
+            ]
+        )
         return empty_df, []
 
     # Compute correlation matrix
@@ -412,29 +417,26 @@ def prune_correlated_proteins(
         # Build mapping rows
         for protein in component:
             freq = selection_freq.get(protein, np.nan) if selection_freq else np.nan
-            rows.append({
-                "component_id": comp_id,
-                "protein": protein,
-                "selection_freq": freq,
-                "kept": (protein == representative),
-                "rep_protein": representative,
-                "component_size": len(component),
-            })
+            rows.append(
+                {
+                    "component_id": comp_id,
+                    "protein": protein,
+                    "selection_freq": freq,
+                    "kept": (protein == representative),
+                    "rep_protein": representative,
+                    "component_size": len(component),
+                }
+            )
 
     # Create mapping DataFrame
     df_map = pd.DataFrame(rows).sort_values(
-        ["kept", "selection_freq", "protein"],
-        ascending=[False, False, True],
-        na_position="last"
+        ["kept", "selection_freq", "protein"], ascending=[False, False, True], na_position="last"
     )
 
     # Sort kept proteins by selection frequency
     kept_sorted = sorted(
         set(kept_proteins),
-        key=lambda p: (
-            -(selection_freq.get(p, 0.0) if selection_freq else 0.0),
-            p
-        )
+        key=lambda p: (-(selection_freq.get(p, 0.0) if selection_freq else 0.0), p),
     )
 
     return df_map, kept_sorted
@@ -486,7 +488,7 @@ def refill_panel_to_target_size(
 
     # Build candidate pool
     valid_candidates = [p for p in ranked_candidates if p in df.columns]
-    pool = valid_candidates[:min(pool_limit, len(valid_candidates))]
+    pool = valid_candidates[: min(pool_limit, len(valid_candidates))]
 
     if not pool:
         return kept_proteins
@@ -579,7 +581,7 @@ def prune_and_refill_panel(
     """
     # Step 1: Take top-N and prune
     valid_ranked = [p for p in ranked_proteins if p in df.columns]
-    top_n = valid_ranked[:min(target_size, len(valid_ranked))]
+    top_n = valid_ranked[: min(target_size, len(valid_ranked))]
 
     df_map, kept = prune_correlated_proteins(
         df=df,
@@ -595,11 +597,7 @@ def prune_and_refill_panel(
     df_map = df_map.copy()
     if not df_map.empty:
         df_map["representative_flag"] = df_map["kept"].astype(bool)
-        df_map["removed_due_to_corr_with"] = np.where(
-            df_map["kept"],
-            "",
-            df_map["rep_protein"]
-        )
+        df_map["removed_due_to_corr_with"] = np.where(df_map["kept"], "", df_map["rep_protein"])
 
     # Step 2: Check if refill needed
     if len(kept) >= target_size:
@@ -619,20 +617,22 @@ def prune_and_refill_panel(
     # Step 4: Add refilled proteins to mapping
     if not df_map.empty and len(final_panel) > len(kept):
         max_comp_id = int(df_map["component_id"].max())
-        refilled = final_panel[len(kept):]
+        refilled = final_panel[len(kept) :]
 
         refill_rows = []
         for i, protein in enumerate(refilled, start=1):
-            refill_rows.append({
-                "component_id": max_comp_id + i,
-                "protein": protein,
-                "selection_freq": float(selection_freq.get(protein, np.nan)),
-                "kept": True,
-                "rep_protein": protein,
-                "component_size": 1,
-                "representative_flag": True,
-                "removed_due_to_corr_with": "",
-            })
+            refill_rows.append(
+                {
+                    "component_id": max_comp_id + i,
+                    "protein": protein,
+                    "selection_freq": float(selection_freq.get(protein, np.nan)),
+                    "kept": True,
+                    "rep_protein": protein,
+                    "component_size": 1,
+                    "representative_flag": True,
+                    "removed_due_to_corr_with": "",
+                }
+            )
 
         df_map = pd.concat([df_map, pd.DataFrame(refill_rows)], ignore_index=True)
 

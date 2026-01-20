@@ -16,22 +16,21 @@ import json
 import numpy as np
 import pandas as pd
 import pytest
+from conftest import make_mock_config
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from ced_ml.models.training import (
-    oof_predictions_with_nested_cv,
     _compute_xgb_scale_pos_weight,
     _extract_from_kbest_transformed,
     _extract_from_model_coefficients,
     _get_search_n_jobs,
     _maybe_apply_calibration,
+    oof_predictions_with_nested_cv,
 )
-from conftest import make_mock_config
 
 
 @pytest.fixture
@@ -43,7 +42,7 @@ def toy_data():
 
     X = pd.DataFrame(
         np.random.randn(n_samples, n_proteins),
-        columns=[f"prot_{i}_resid" for i in range(n_proteins)]
+        columns=[f"prot_{i}_resid" for i in range(n_proteins)],
     )
     # Add demographics
     X["age"] = np.random.uniform(20, 80, n_samples)
@@ -64,15 +63,12 @@ def simple_pipeline():
         transformers=[
             ("num", StandardScaler(), [f"prot_{i}_resid" for i in range(20)]),
         ],
-        remainder="drop"
+        remainder="drop",
     )
 
     clf = LogisticRegression(random_state=42, max_iter=100)
 
-    return Pipeline([
-        ("pre", preprocessor),
-        ("clf", clf)
-    ])
+    return Pipeline([("pre", preprocessor), ("clf", clf)])
 
 
 @pytest.fixture
@@ -83,18 +79,13 @@ def minimal_config():
 
 # ==================== OOF Predictions Tests ====================
 
+
 def test_oof_predictions_basic(toy_data, simple_pipeline, minimal_config):
     """Test basic OOF prediction generation."""
     X, y, protein_cols = toy_data
 
     preds, elapsed, best_params_df, selected_proteins_df = oof_predictions_with_nested_cv(
-        simple_pipeline,
-        "LR_EN",
-        X,
-        y,
-        protein_cols,
-        minimal_config,
-        random_state=42
+        simple_pipeline, "LR_EN", X, y, protein_cols, minimal_config, random_state=42
     )
 
     # Check shape
@@ -122,13 +113,7 @@ def test_oof_predictions_no_cv(toy_data, simple_pipeline, minimal_config):
     minimal_config.cv.folds = 1
 
     preds, elapsed, best_params_df, selected_proteins_df = oof_predictions_with_nested_cv(
-        simple_pipeline,
-        "LR_EN",
-        X,
-        y,
-        protein_cols,
-        minimal_config,
-        random_state=42
+        simple_pipeline, "LR_EN", X, y, protein_cols, minimal_config, random_state=42
     )
 
     # Should still return predictions
@@ -143,17 +128,12 @@ def test_oof_predictions_invalid_repeats(toy_data, simple_pipeline, minimal_conf
 
     with pytest.raises(ValueError, match="cv.repeats must be >= 1"):
         oof_predictions_with_nested_cv(
-            simple_pipeline,
-            "LR_EN",
-            X,
-            y,
-            protein_cols,
-            minimal_config,
-            random_state=42
+            simple_pipeline, "LR_EN", X, y, protein_cols, minimal_config, random_state=42
         )
 
 
 # ==================== XGBoost Scale Pos Weight Tests ====================
+
 
 def test_compute_xgb_scale_pos_weight_auto(minimal_config):
     """Test automatic computation of scale_pos_weight."""
@@ -165,6 +145,7 @@ def test_compute_xgb_scale_pos_weight_auto(minimal_config):
 def test_compute_xgb_scale_pos_weight_manual(minimal_config):
     """Test manual override of scale_pos_weight."""
     from types import SimpleNamespace
+
     minimal_config.models.xgboost = SimpleNamespace(scale_pos_weight=10.0)
     y_train = np.array([0, 0, 0, 0, 1])
     spw = _compute_xgb_scale_pos_weight(y_train, minimal_config)
@@ -179,6 +160,7 @@ def test_compute_xgb_scale_pos_weight_no_positives(minimal_config):
 
 
 # ==================== Search N Jobs Tests ====================
+
 
 def test_get_search_n_jobs_auto_lr(minimal_config):
     """Test auto n_jobs for LR (parallelize search)."""
@@ -201,6 +183,7 @@ def test_get_search_n_jobs_manual(minimal_config):
 
 # ==================== Calibration Tests ====================
 
+
 def test_maybe_apply_calibration_disabled(simple_pipeline, minimal_config, toy_data):
     """Test that calibration is skipped when disabled."""
     X, y, _ = toy_data
@@ -208,12 +191,7 @@ def test_maybe_apply_calibration_disabled(simple_pipeline, minimal_config, toy_d
 
     simple_pipeline.fit(X, y)
     calibrated = _maybe_apply_calibration(
-        simple_pipeline,
-        "LR_EN",
-        minimal_config,
-        X,
-        y,
-        random_state=42
+        simple_pipeline, "LR_EN", minimal_config, X, y, random_state=42
     )
 
     assert calibrated is simple_pipeline
@@ -227,12 +205,7 @@ def test_maybe_apply_calibration_enabled(simple_pipeline, minimal_config, toy_da
 
     simple_pipeline.fit(X, y)
     calibrated = _maybe_apply_calibration(
-        simple_pipeline,
-        "LR_EN",
-        minimal_config,
-        X,
-        y,
-        random_state=42
+        simple_pipeline, "LR_EN", minimal_config, X, y, random_state=42
     )
 
     assert isinstance(calibrated, CalibratedClassifierCV)
@@ -245,12 +218,7 @@ def test_maybe_apply_calibration_skip_svm(simple_pipeline, minimal_config, toy_d
 
     simple_pipeline.fit(X, y)
     calibrated = _maybe_apply_calibration(
-        simple_pipeline,
-        "LinSVM_cal",
-        minimal_config,
-        X,
-        y,
-        random_state=42
+        simple_pipeline, "LinSVM_cal", minimal_config, X, y, random_state=42
     )
 
     assert not isinstance(calibrated, CalibratedClassifierCV)
@@ -258,12 +226,10 @@ def test_maybe_apply_calibration_skip_svm(simple_pipeline, minimal_config, toy_d
 
 # ==================== Protein Extraction Tests ====================
 
+
 def test_extract_from_kbest_transformed_no_sel_step():
     """Test extraction when no 'sel' step exists."""
-    pipeline = Pipeline([
-        ("pre", StandardScaler()),
-        ("clf", LogisticRegression())
-    ])
+    pipeline = Pipeline([("pre", StandardScaler()), ("clf", LogisticRegression())])
     proteins = _extract_from_kbest_transformed(pipeline, ["prot_0_resid"])
     assert proteins == set()
 
@@ -278,14 +244,16 @@ def test_extract_from_kbest_transformed_with_sel(toy_data):
         transformers=[
             ("num", StandardScaler(), protein_cols),
         ],
-        remainder="drop"
+        remainder="drop",
     )
 
-    pipeline = Pipeline([
-        ("pre", preprocessor),
-        ("sel", SelectKBest(score_func=f_classif, k=5)),
-        ("clf", LogisticRegression(random_state=42))
-    ])
+    pipeline = Pipeline(
+        [
+            ("pre", preprocessor),
+            ("sel", SelectKBest(score_func=f_classif, k=5)),
+            ("clf", LogisticRegression(random_state=42)),
+        ]
+    )
 
     pipeline.fit(X, y)
 
@@ -304,22 +272,16 @@ def test_extract_from_model_coefficients(toy_data, minimal_config):
         transformers=[
             ("num", StandardScaler(), protein_cols),
         ],
-        remainder="drop"
+        remainder="drop",
     )
 
-    pipeline = Pipeline([
-        ("pre", preprocessor),
-        ("clf", LogisticRegression(random_state=42, C=0.01, max_iter=100))
-    ])
+    pipeline = Pipeline(
+        [("pre", preprocessor), ("clf", LogisticRegression(random_state=42, C=0.01, max_iter=100))]
+    )
 
     pipeline.fit(X, y)
 
-    proteins = _extract_from_model_coefficients(
-        pipeline,
-        "LR_EN",
-        protein_cols,
-        minimal_config
-    )
+    proteins = _extract_from_model_coefficients(pipeline, "LR_EN", protein_cols, minimal_config)
 
     # Should extract some proteins with non-zero coefficients
     assert isinstance(proteins, set)
@@ -334,32 +296,23 @@ def test_extract_from_model_coefficients_high_threshold(toy_data, minimal_config
         transformers=[
             ("num", StandardScaler(), protein_cols),
         ],
-        remainder="drop"
+        remainder="drop",
     )
 
-    pipeline = Pipeline([
-        ("pre", preprocessor),
-        ("clf", LogisticRegression(random_state=42, C=0.01, max_iter=100))
-    ])
+    pipeline = Pipeline(
+        [("pre", preprocessor), ("clf", LogisticRegression(random_state=42, C=0.01, max_iter=100))]
+    )
 
     pipeline.fit(X, y)
 
     # Low threshold
     minimal_config.features.selection.coef_threshold = 1e-12
-    proteins_low = _extract_from_model_coefficients(
-        pipeline,
-        "LR_EN",
-        protein_cols,
-        minimal_config
-    )
+    proteins_low = _extract_from_model_coefficients(pipeline, "LR_EN", protein_cols, minimal_config)
 
     # High threshold
     minimal_config.features.selection.coef_threshold = 10.0
     proteins_high = _extract_from_model_coefficients(
-        pipeline,
-        "LR_EN",
-        protein_cols,
-        minimal_config
+        pipeline, "LR_EN", protein_cols, minimal_config
     )
 
     # High threshold should return fewer proteins
@@ -367,6 +320,7 @@ def test_extract_from_model_coefficients_high_threshold(toy_data, minimal_config
 
 
 # ==================== Integration Tests ====================
+
 
 def test_oof_predictions_with_kbest(toy_data, minimal_config):
     """Test OOF predictions with K-best feature selection."""
@@ -382,23 +336,19 @@ def test_oof_predictions_with_kbest(toy_data, minimal_config):
         transformers=[
             ("num", StandardScaler(), protein_cols),
         ],
-        remainder="drop"
+        remainder="drop",
     )
 
-    pipeline = Pipeline([
-        ("pre", preprocessor),
-        ("sel", SelectKBest(score_func=f_classif, k=10)),
-        ("clf", LogisticRegression(random_state=42, max_iter=100))
-    ])
+    pipeline = Pipeline(
+        [
+            ("pre", preprocessor),
+            ("sel", SelectKBest(score_func=f_classif, k=10)),
+            ("clf", LogisticRegression(random_state=42, max_iter=100)),
+        ]
+    )
 
     preds, elapsed, best_params_df, selected_proteins_df = oof_predictions_with_nested_cv(
-        pipeline,
-        "LR_EN",
-        X,
-        y,
-        protein_cols,
-        minimal_config,
-        random_state=42
+        pipeline, "LR_EN", X, y, protein_cols, minimal_config, random_state=42
     )
 
     # Check that k was tuned
@@ -417,22 +367,23 @@ def test_oof_predictions_tracks_selected_proteins(toy_data, minimal_config):
         transformers=[
             ("num", StandardScaler(), protein_cols),
         ],
-        remainder="drop"
+        remainder="drop",
     )
 
-    pipeline = Pipeline([
-        ("pre", preprocessor),
-        ("clf", LogisticRegression(penalty="l1", solver="saga", C=0.1, random_state=42, max_iter=100))
-    ])
+    pipeline = Pipeline(
+        [
+            ("pre", preprocessor),
+            (
+                "clf",
+                LogisticRegression(
+                    penalty="l1", solver="saga", C=0.1, random_state=42, max_iter=100
+                ),
+            ),
+        ]
+    )
 
     preds, elapsed, best_params_df, selected_proteins_df = oof_predictions_with_nested_cv(
-        pipeline,
-        "LR_EN",
-        X,
-        y,
-        protein_cols,
-        minimal_config,
-        random_state=42
+        pipeline, "LR_EN", X, y, protein_cols, minimal_config, random_state=42
     )
 
     # Check that some proteins were selected
@@ -448,19 +399,14 @@ def test_oof_predictions_tracks_selected_proteins(toy_data, minimal_config):
 
 # ==================== Edge Cases ====================
 
+
 def test_oof_predictions_single_repeat(toy_data, simple_pipeline, minimal_config):
     """Test OOF with single repeat (edge case)."""
     X, y, protein_cols = toy_data
     minimal_config.cv.repeats = 1
 
     preds, elapsed, best_params_df, selected_proteins_df = oof_predictions_with_nested_cv(
-        simple_pipeline,
-        "LR_EN",
-        X,
-        y,
-        protein_cols,
-        minimal_config,
-        random_state=42
+        simple_pipeline, "LR_EN", X, y, protein_cols, minimal_config, random_state=42
     )
 
     assert preds.shape == (1, len(y))
@@ -473,13 +419,7 @@ def test_oof_predictions_no_inner_tuning(toy_data, simple_pipeline, minimal_conf
     minimal_config.cv.inner_folds = 1  # Disable tuning
 
     preds, elapsed, best_params_df, selected_proteins_df = oof_predictions_with_nested_cv(
-        simple_pipeline,
-        "LR_EN",
-        X,
-        y,
-        protein_cols,
-        minimal_config,
-        random_state=42
+        simple_pipeline, "LR_EN", X, y, protein_cols, minimal_config, random_state=42
     )
 
     # Should still work (no tuning, just CV)

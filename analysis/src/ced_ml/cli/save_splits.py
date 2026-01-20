@@ -5,38 +5,38 @@ Uses refactored data I/O and split generation modules.
 """
 
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
+
 import numpy as np
 import pandas as pd
 
 from ced_ml.config.loader import load_splits_config, save_config
 from ced_ml.config.validation import validate_splits_config
-from ced_ml.utils.logging import setup_logger, log_section
-from ced_ml.data.io import read_proteomics_csv
-from ced_ml.data.schema import (
-    ID_COL, TARGET_COL, CED_DATE_COL,
-    CONTROL_LABEL, INCIDENT_LABEL, PREVALENT_LABEL,
-    META_NUM_COLS, CAT_COLS,
-)
-from ced_ml.data.splits import (
-    build_working_strata,
-    stratified_train_val_test_split,
-    temporal_train_val_test_split,
-    downsample_controls,
-    add_prevalent_to_train,
-    compute_split_id,
-    temporal_order_indices,
-)
-from ced_ml.data.persistence import (
-    save_split_indices,
-    save_holdout_indices,
-    save_split_metadata,
-    save_holdout_metadata,
-)
 
 # Import row filtering logic from data layer
 from ced_ml.data.filters import apply_row_filters
-
+from ced_ml.data.io import read_proteomics_csv
+from ced_ml.data.persistence import (
+    save_holdout_indices,
+    save_holdout_metadata,
+    save_split_indices,
+    save_split_metadata,
+)
+from ced_ml.data.schema import (
+    CONTROL_LABEL,
+    INCIDENT_LABEL,
+    PREVALENT_LABEL,
+    TARGET_COL,
+)
+from ced_ml.data.splits import (
+    add_prevalent_to_train,
+    build_working_strata,
+    downsample_controls,
+    stratified_train_val_test_split,
+    temporal_order_indices,
+    temporal_train_val_test_split,
+)
+from ced_ml.utils.logging import log_section, setup_logger
 
 # Scenario definitions
 SCENARIO_DEFINITIONS = {
@@ -114,7 +114,9 @@ def run_save_splits(
     # Log config summary
     logger.info(f"Mode: {config.mode}")
     logger.info(f"Scenarios: {', '.join(config.scenarios)}")
-    logger.info(f"Splits: {config.n_splits} (seeds {config.seed_start} to {config.seed_start + config.n_splits - 1})")
+    logger.info(
+        f"Splits: {config.n_splits} (seeds {config.seed_start} to {config.seed_start + config.n_splits - 1})"
+    )
     logger.info(f"Val size: {config.val_size:.2%}")
     logger.info(f"Test size: {config.test_size:.2%}")
     if config.mode == "holdout":
@@ -140,7 +142,9 @@ def run_save_splits(
 
     # Extract flags from cli_args
     overwrite = cli_args.get("overwrite", False) if cli_args else False
-    train_controls_incident_only = cli_args.get("train_controls_incident_only", False) if cli_args else False
+    train_controls_incident_only = (
+        cli_args.get("train_controls_incident_only", False) if cli_args else False
+    )
 
     # Generate splits for each scenario
     for scenario in config.scenarios:
@@ -154,10 +158,10 @@ def run_save_splits(
             logger=logger,
         )
 
-    logger.info("\n" + "="*60)
+    logger.info("\n" + "=" * 60)
     logger.info("Split generation complete!")
     logger.info(f"Output directory: {outdir}")
-    logger.info("="*60)
+    logger.info("=" * 60)
 
 
 def _generate_scenario_splits(
@@ -221,7 +225,16 @@ def _generate_scenario_splits(
     # Handle holdout mode
     if config.mode == "holdout":
         df_work, y_work, index_space, dev_to_global_map = _create_holdout(
-            df_scenario, y_full, full_idx, scenario, positives, outdir, config, overwrite, rf_stats, logger
+            df_scenario,
+            y_full,
+            full_idx,
+            scenario,
+            positives,
+            outdir,
+            config,
+            overwrite,
+            rf_stats,
+            logger,
         )
     else:
         logger.info("\n=== Development mode (no holdout) ===")
@@ -232,16 +245,31 @@ def _generate_scenario_splits(
 
     # Generate repeated splits
     _generate_repeated_splits(
-        df_work, y_work, scenario, positives, train_case_labels, eval_case_labels,
-        outdir, config, overwrite, rf_stats, index_space, dev_to_global_map, logger
+        df_work,
+        y_work,
+        scenario,
+        positives,
+        train_case_labels,
+        eval_case_labels,
+        outdir,
+        config,
+        overwrite,
+        rf_stats,
+        index_space,
+        dev_to_global_map,
+        logger,
     )
 
 
-def _create_holdout(df_scenario, y_full, full_idx, scenario, positives, outdir, config, overwrite, rf_stats, logger):
+def _create_holdout(
+    df_scenario, y_full, full_idx, scenario, positives, outdir, config, overwrite, rf_stats, logger
+):
     """Create holdout set and return development set."""
     from sklearn.model_selection import train_test_split
 
-    logger.info(f"\n=== Creating holdout set ({config.holdout_size*100:.0f}% of post-filter scenario) ===")
+    logger.info(
+        f"\n=== Creating holdout set ({config.holdout_size*100:.0f}% of post-filter scenario) ==="
+    )
 
     if config.temporal_split:
         n_holdout = int(round(config.holdout_size * len(full_idx)))
@@ -298,8 +326,19 @@ def _create_holdout(df_scenario, y_full, full_idx, scenario, positives, outdir, 
 
 
 def _generate_repeated_splits(
-    df_work, y_work, scenario, positives, train_case_labels, eval_case_labels,
-    outdir, config, overwrite, rf_stats, index_space, dev_to_global_map, logger
+    df_work,
+    y_work,
+    scenario,
+    positives,
+    train_case_labels,
+    eval_case_labels,
+    outdir,
+    config,
+    overwrite,
+    rf_stats,
+    index_space,
+    dev_to_global_map,
+    logger,
 ):
     """Generate repeated train/val/test splits."""
     # Base set for splitting
@@ -322,7 +361,9 @@ def _generate_repeated_splits(
 
     logger.info(f"\n=== Stratification for train/val/test: {sch_work} ===")
     logger.info(f"[INFO] Split index space: {index_space}")
-    logger.info(f"\n=== Generating {config.n_splits} split(s) (test_size={config.test_size}, val_size={config.val_size}) ===")
+    logger.info(
+        f"\n=== Generating {config.n_splits} split(s) (test_size={config.test_size}, val_size={config.val_size}) ==="
+    )
 
     for i in range(config.n_splits):
         seed = config.seed_start + i
@@ -342,21 +383,32 @@ def _generate_repeated_splits(
         idx_val = np.sort(idx_val.astype(int))
         idx_test = np.sort(idx_test.astype(int))
 
-        logger.info(f"  Train: {len(idx_train):,} samples ({int(y_train.sum())} cases, {y_train.mean()*100:.3f}%)")
+        logger.info(
+            f"  Train: {len(idx_train):,} samples ({int(y_train.sum())} cases, {y_train.mean()*100:.3f}%)"
+        )
         if len(idx_val) > 0:
-            logger.info(f"  Val:   {len(idx_val):,} samples ({int(y_val.sum())} cases, {y_val.mean()*100:.3f}%)")
-        logger.info(f"  Test:  {len(idx_test):,} samples ({int(y_test.sum())} cases, {y_test.mean()*100:.3f}%)")
+            logger.info(
+                f"  Val:   {len(idx_val):,} samples ({int(y_val.sum())} cases, {y_val.mean()*100:.3f}%)"
+            )
+        logger.info(
+            f"  Test:  {len(idx_test):,} samples ({int(y_test.sum())} cases, {y_test.mean()*100:.3f}%)"
+        )
 
         rng = np.random.RandomState(seed + 1337)
 
         # Add prevalent to TRAIN only
         if config.prevalent_train_only and PREVALENT_LABEL in positives:
-            idx_train = add_prevalent_to_train(
-                idx_train, df_work, config.prevalent_train_frac, rng
+            idx_train = add_prevalent_to_train(idx_train, df_work, config.prevalent_train_frac, rng)
+            n_prev_added = len(idx_train) - len(
+                np.setdiff1d(
+                    idx_train,
+                    df_work.index[df_work[TARGET_COL] == PREVALENT_LABEL].to_numpy(dtype=int),
+                )
             )
-            n_prev_added = len(idx_train) - len(np.setdiff1d(idx_train, df_work.index[df_work[TARGET_COL] == PREVALENT_LABEL].to_numpy(dtype=int)))
             if n_prev_added > 0:
-                logger.info(f"  Train: added prevalent={n_prev_added:,} (frac={config.prevalent_train_frac:.2f})")
+                logger.info(
+                    f"  Train: added prevalent={n_prev_added:,} (frac={config.prevalent_train_frac:.2f})"
+                )
 
         # Downsample controls
         idx_train = downsample_controls(
@@ -374,13 +426,23 @@ def _generate_repeated_splits(
 
         # Recompute y arrays after modifications
         y_train = (df_work.loc[idx_train, TARGET_COL].isin(positives)).astype(int).to_numpy()
-        y_val = (df_work.loc[idx_val, TARGET_COL].isin(eval_case_labels)).astype(int).to_numpy() if len(idx_val) > 0 else np.array([], dtype=int)
+        y_val = (
+            (df_work.loc[idx_val, TARGET_COL].isin(eval_case_labels)).astype(int).to_numpy()
+            if len(idx_val) > 0
+            else np.array([], dtype=int)
+        )
         y_test = (df_work.loc[idx_test, TARGET_COL].isin(eval_case_labels)).astype(int).to_numpy()
 
-        logger.info(f"  Final Train: {len(idx_train):,} samples ({int(y_train.sum())} cases, {y_train.mean()*100:.3f}%)")
+        logger.info(
+            f"  Final Train: {len(idx_train):,} samples ({int(y_train.sum())} cases, {y_train.mean()*100:.3f}%)"
+        )
         if len(idx_val) > 0:
-            logger.info(f"  Final Val:   {len(idx_val):,} samples ({int(y_val.sum())} cases, {y_val.mean()*100:.3f}%)")
-        logger.info(f"  Final Test:  {len(idx_test):,} samples ({int(y_test.sum())} cases, {y_test.mean()*100:.3f}%)")
+            logger.info(
+                f"  Final Val:   {len(idx_val):,} samples ({int(y_val.sum())} cases, {y_val.mean()*100:.3f}%)"
+            )
+        logger.info(
+            f"  Final Test:  {len(idx_test):,} samples ({int(y_test.sum())} cases, {y_test.mean()*100:.3f}%)"
+        )
 
         # Convert dev-local indices to global indices if in holdout mode
         if dev_to_global_map is not None:

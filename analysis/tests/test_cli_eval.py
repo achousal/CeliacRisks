@@ -4,9 +4,9 @@ Integration tests for CLI eval-holdout command with evaluation modules.
 Ensures CLI properly imports and uses evaluation layer modules without duplication.
 """
 
-import pytest
 import inspect
-from pathlib import Path
+
+import pytest
 
 
 def test_cli_eval_holdout_imports_evaluation_module():
@@ -14,8 +14,9 @@ def test_cli_eval_holdout_imports_evaluation_module():
     from ced_ml.cli import eval_holdout
 
     # Verify imports from evaluation
-    assert hasattr(eval_holdout, 'evaluate_holdout'), \
-        "CLI should import evaluate_holdout from evaluation module"
+    assert hasattr(
+        eval_holdout, "evaluate_holdout"
+    ), "CLI should import evaluate_holdout from evaluation module"
 
 
 def test_evaluation_module_exports_all_functions():
@@ -23,16 +24,16 @@ def test_evaluation_module_exports_all_functions():
     from ced_ml import evaluation
 
     # Core prediction functions
-    assert hasattr(evaluation, 'generate_predictions')
-    assert hasattr(evaluation, 'generate_predictions_with_adjustment')
-    assert hasattr(evaluation, 'export_predictions')
-    assert hasattr(evaluation, 'predict_on_validation')
-    assert hasattr(evaluation, 'predict_on_test')
-    assert hasattr(evaluation, 'predict_on_holdout')
+    assert hasattr(evaluation, "generate_predictions")
+    assert hasattr(evaluation, "generate_predictions_with_adjustment")
+    assert hasattr(evaluation, "export_predictions")
+    assert hasattr(evaluation, "predict_on_validation")
+    assert hasattr(evaluation, "predict_on_test")
+    assert hasattr(evaluation, "predict_on_holdout")
 
     # Results management
-    assert hasattr(evaluation, 'OutputDirectories')
-    assert hasattr(evaluation, 'ResultsWriter')
+    assert hasattr(evaluation, "OutputDirectories")
+    assert hasattr(evaluation, "ResultsWriter")
 
 
 def test_no_duplicate_evaluate_holdout_function():
@@ -41,13 +42,15 @@ def test_no_duplicate_evaluate_holdout_function():
 
     # Get all functions defined in the CLI module
     cli_functions = [
-        name for name, obj in inspect.getmembers(eval_holdout, inspect.isfunction)
-        if obj.__module__ == 'ced_ml.cli.eval_holdout'
+        name
+        for name, obj in inspect.getmembers(eval_holdout, inspect.isfunction)
+        if obj.__module__ == "ced_ml.cli.eval_holdout"
     ]
 
     # Should NOT have evaluate_holdout (imported from evaluation.holdout)
-    assert 'evaluate_holdout' not in cli_functions, \
-        "CLI should import evaluate_holdout, not define it"
+    assert (
+        "evaluate_holdout" not in cli_functions
+    ), "CLI should import evaluate_holdout, not define it"
 
 
 def test_no_duplicate_prediction_functions():
@@ -56,23 +59,25 @@ def test_no_duplicate_prediction_functions():
 
     # Get all functions defined in the CLI module
     cli_functions = [
-        name for name, obj in inspect.getmembers(eval_holdout, inspect.isfunction)
-        if obj.__module__ == 'ced_ml.cli.eval_holdout'
+        name
+        for name, obj in inspect.getmembers(eval_holdout, inspect.isfunction)
+        if obj.__module__ == "ced_ml.cli.eval_holdout"
     ]
 
     # Should NOT have prediction functions (imported from evaluation.predict)
     prediction_funcs = [
-        'generate_predictions',
-        'generate_predictions_with_adjustment',
-        'export_predictions',
-        'predict_on_validation',
-        'predict_on_test',
-        'predict_on_holdout',
+        "generate_predictions",
+        "generate_predictions_with_adjustment",
+        "export_predictions",
+        "predict_on_validation",
+        "predict_on_test",
+        "predict_on_holdout",
     ]
 
     for func in prediction_funcs:
-        assert func not in cli_functions, \
-            f"CLI should not define {func} (should import from evaluation.predict)"
+        assert (
+            func not in cli_functions
+        ), f"CLI should not define {func} (should import from evaluation.predict)"
 
 
 def test_no_duplicate_results_writer_class():
@@ -81,15 +86,16 @@ def test_no_duplicate_results_writer_class():
 
     # Get all classes defined in the CLI module
     cli_classes = [
-        name for name, obj in inspect.getmembers(eval_holdout, inspect.isclass)
-        if obj.__module__ == 'ced_ml.cli.eval_holdout'
+        name
+        for name, obj in inspect.getmembers(eval_holdout, inspect.isclass)
+        if obj.__module__ == "ced_ml.cli.eval_holdout"
     ]
 
     # Should NOT have ResultsWriter (imported from evaluation.reports)
-    assert 'ResultsWriter' not in cli_classes, \
-        "CLI should import ResultsWriter, not define it"
-    assert 'OutputDirectories' not in cli_classes, \
-        "CLI should import OutputDirectories, not define it"
+    assert "ResultsWriter" not in cli_classes, "CLI should import ResultsWriter, not define it"
+    assert (
+        "OutputDirectories" not in cli_classes
+    ), "CLI should import OutputDirectories, not define it"
 
 
 def test_evaluate_holdout_identity():
@@ -98,14 +104,16 @@ def test_evaluate_holdout_identity():
     from ced_ml.evaluation.holdout import evaluate_holdout as lib_evaluate_holdout
 
     # Should be the exact same function object (not a copy)
-    assert cli_evaluate_holdout is lib_evaluate_holdout, \
-        "CLI should import the function directly, not copy it"
+    assert (
+        cli_evaluate_holdout is lib_evaluate_holdout
+    ), "CLI should import the function directly, not copy it"
 
 
 def test_cli_eval_holdout_no_inline_model_loading():
     """Test that CLI doesn't implement model loading logic inline."""
-    from ced_ml.cli import eval_holdout
     import ast
+
+    from ced_ml.cli import eval_holdout
 
     # Read the CLI module source
     source = inspect.getsource(eval_holdout)
@@ -118,22 +126,25 @@ def test_cli_eval_holdout_no_inline_model_loading():
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Attribute):
                 # joblib.load() pattern
-                if (hasattr(node.func, 'value') and
-                    hasattr(node.func.value, 'id') and
-                    node.func.value.id == 'joblib' and
-                    node.func.attr == 'load'):
+                if (
+                    hasattr(node.func, "value")
+                    and hasattr(node.func.value, "id")
+                    and node.func.value.id == "joblib"
+                    and node.func.attr == "load"
+                ):
                     pytest.fail("CLI should not call joblib.load directly, use load_model_artifact")
             elif isinstance(node.func, ast.Name):
                 # Direct load() call
-                if node.func.id == 'load':
+                if node.func.id == "load":
                     # Check if it's from joblib context
                     pytest.fail("CLI should use load_model_artifact from evaluation.holdout")
 
 
 def test_cli_eval_holdout_no_inline_metrics_computation():
     """Test that CLI doesn't compute metrics inline."""
-    from ced_ml.cli import eval_holdout
     import ast
+
+    from ced_ml.cli import eval_holdout
 
     # Read the CLI module source
     source = inspect.getsource(eval_holdout)
@@ -144,7 +155,7 @@ def test_cli_eval_holdout_no_inline_metrics_computation():
     # Check for inline sklearn.metrics imports (should use evaluation/metrics modules)
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
-            if node.module and 'sklearn.metrics' in node.module:
+            if node.module and "sklearn.metrics" in node.module:
                 pytest.fail("CLI should not import sklearn.metrics directly, use metrics module")
 
 
@@ -178,25 +189,26 @@ def test_cli_run_eval_holdout_signature():
     params = list(sig.parameters.keys())
 
     # Should have required parameters
-    assert 'infile' in params
-    assert 'holdout_idx' in params
-    assert 'model_artifact' in params
-    assert 'outdir' in params
+    assert "infile" in params
+    assert "holdout_idx" in params
+    assert "model_artifact" in params
+    assert "outdir" in params
 
     # Should have optional parameters
-    assert 'scenario' in params
-    assert 'compute_dca' in params
-    assert 'save_preds' in params
-    assert 'target_prevalence' in params
+    assert "scenario" in params
+    assert "compute_dca" in params
+    assert "save_preds" in params
+    assert "target_prevalence" in params
 
     # Should have kwargs for extensibility
-    assert 'kwargs' in params
+    assert "kwargs" in params
 
 
 def test_no_duplicate_code_patterns():
     """Test that CLI doesn't duplicate common code patterns."""
-    from ced_ml.cli import eval_holdout
     import ast
+
+    from ced_ml.cli import eval_holdout
 
     # Read the CLI module source
     source = inspect.getsource(eval_holdout)
@@ -207,8 +219,7 @@ def test_no_duplicate_code_patterns():
 
     # Should only have run_eval_holdout and maybe helpers
     func_names = [f.name for f in func_defs]
-    assert len(func_names) <= 3, \
-        f"CLI should have minimal functions (found: {func_names})"
+    assert len(func_names) <= 3, f"CLI should have minimal functions (found: {func_names})"
 
 
 def test_evaluation_module_no_missing_imports():
@@ -218,8 +229,7 @@ def test_evaluation_module_no_missing_imports():
 
     # All attributes should be importable without errors
     for attr in evaluation.__all__:
-        assert hasattr(evaluation, attr), \
-            f"evaluation.__all__ lists {attr} but it's not accessible"
+        assert hasattr(evaluation, attr), f"evaluation.__all__ lists {attr} but it's not accessible"
 
 
 def test_holdout_module_functions_exist():
@@ -227,13 +237,13 @@ def test_holdout_module_functions_exist():
     from ced_ml.evaluation import holdout
 
     # Core functions
-    assert hasattr(holdout, 'evaluate_holdout')
-    assert hasattr(holdout, 'load_holdout_indices')
-    assert hasattr(holdout, 'load_model_artifact')
-    assert hasattr(holdout, 'extract_holdout_data')
-    assert hasattr(holdout, 'compute_holdout_metrics')
-    assert hasattr(holdout, 'compute_top_risk_capture')
-    assert hasattr(holdout, 'save_holdout_predictions')
+    assert hasattr(holdout, "evaluate_holdout")
+    assert hasattr(holdout, "load_holdout_indices")
+    assert hasattr(holdout, "load_model_artifact")
+    assert hasattr(holdout, "extract_holdout_data")
+    assert hasattr(holdout, "compute_holdout_metrics")
+    assert hasattr(holdout, "compute_top_risk_capture")
+    assert hasattr(holdout, "save_holdout_predictions")
 
 
 def test_predict_module_functions_exist():
@@ -241,12 +251,12 @@ def test_predict_module_functions_exist():
     from ced_ml.evaluation import predict
 
     # Core functions
-    assert hasattr(predict, 'generate_predictions')
-    assert hasattr(predict, 'generate_predictions_with_adjustment')
-    assert hasattr(predict, 'export_predictions')
-    assert hasattr(predict, 'predict_on_validation')
-    assert hasattr(predict, 'predict_on_test')
-    assert hasattr(predict, 'predict_on_holdout')
+    assert hasattr(predict, "generate_predictions")
+    assert hasattr(predict, "generate_predictions_with_adjustment")
+    assert hasattr(predict, "export_predictions")
+    assert hasattr(predict, "predict_on_validation")
+    assert hasattr(predict, "predict_on_test")
+    assert hasattr(predict, "predict_on_holdout")
 
 
 def test_reports_module_classes_exist():
@@ -254,8 +264,8 @@ def test_reports_module_classes_exist():
     from ced_ml.evaluation import reports
 
     # Core classes
-    assert hasattr(reports, 'OutputDirectories')
-    assert hasattr(reports, 'ResultsWriter')
+    assert hasattr(reports, "OutputDirectories")
+    assert hasattr(reports, "ResultsWriter")
 
 
 def test_all_evaluation_modules_importable():

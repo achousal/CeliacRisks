@@ -11,11 +11,6 @@ Tests cover:
 - Full evaluation pipeline
 """
 
-import json
-import os
-import tempfile
-from pathlib import Path
-
 import joblib
 import numpy as np
 import pandas as pd
@@ -23,16 +18,16 @@ import pytest
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 
+from ced_ml.data.schema import TARGET_COL
 from ced_ml.evaluation.holdout import (
-    load_holdout_indices,
-    load_model_artifact,
-    extract_holdout_data,
     compute_holdout_metrics,
     compute_top_risk_capture,
-    save_holdout_predictions,
     evaluate_holdout,
+    extract_holdout_data,
+    load_holdout_indices,
+    load_model_artifact,
+    save_holdout_predictions,
 )
-from ced_ml.data.schema import TARGET_COL
 
 
 class TestLoadHoldoutIndices:
@@ -86,10 +81,12 @@ class TestExtractHoldoutData:
     """Tests for extracting holdout subsets."""
 
     def test_extract_valid_subset(self):
-        df = pd.DataFrame({
-            "A": [1, 2, 3, 4, 5],
-            "B": [10, 20, 30, 40, 50],
-        })
+        df = pd.DataFrame(
+            {
+                "A": [1, 2, 3, 4, 5],
+                "B": [10, 20, 30, 40, 50],
+            }
+        )
         X = df[["A", "B"]]
         y = np.array([0, 1, 0, 1, 0])
         holdout_idx = np.array([1, 3])
@@ -214,9 +211,11 @@ class TestSaveHoldoutPredictions:
 
     def test_save_predictions(self, tmp_path):
         holdout_idx = np.array([10, 20, 30])
-        df_holdout = pd.DataFrame({
-            TARGET_COL: ["Control", "Incident", "Control"],
-        })
+        df_holdout = pd.DataFrame(
+            {
+                TARGET_COL: ["Control", "Incident", "Control"],
+            }
+        )
         y_true = np.array([0, 1, 0])
         proba_eval = np.array([0.1, 0.8, 0.2])
         proba_adjusted = np.array([0.05, 0.75, 0.15])
@@ -273,7 +272,6 @@ class TestEvaluateHoldout:
     @pytest.fixture
     def mock_model_artifact(self, tmp_path):
         """Create a mock trained model artifact."""
-        from sklearn.ensemble import RandomForestClassifier
 
         model = RandomForestClassifier(n_estimators=10, random_state=42)
 
@@ -331,7 +329,7 @@ class TestEvaluateHoldout:
         # For now, we'll just test that the function signature works
         # Real integration test would need matching features
 
-        with pytest.raises(Exception):
+        with pytest.raises((ValueError, KeyError)):
             # Expected to fail due to feature mismatch, but validates API
             evaluate_holdout(
                 infile=str(mock_dataset),
@@ -348,7 +346,7 @@ class TestEvaluateHoldout:
         """Test holdout evaluation with DCA computation."""
         outdir = tmp_path / "holdout_results"
 
-        with pytest.raises(Exception):
+        with pytest.raises((ValueError, KeyError)):
             # Expected to fail due to feature mismatch, but validates API
             evaluate_holdout(
                 infile=str(mock_dataset),
@@ -395,9 +393,7 @@ class TestHoldoutEdgeCases:
             "prevalence": {"train_sample": 0.2, "target": 0.2},
         }
 
-        metrics = compute_holdout_metrics(
-            y_true, proba, bundle, "IncidentOnly", clinical_points=[]
-        )
+        metrics = compute_holdout_metrics(y_true, proba, bundle, "IncidentOnly", clinical_points=[])
 
         # Should handle gracefully (some metrics will be NaN)
         assert "AUROC_holdout" in metrics
@@ -421,9 +417,7 @@ class TestHoldoutEdgeCases:
             "prevalence": {},  # Missing prevalence info
         }
 
-        metrics = compute_holdout_metrics(
-            y_true, proba, bundle, "IncidentOnly", clinical_points=[]
-        )
+        metrics = compute_holdout_metrics(y_true, proba, bundle, "IncidentOnly", clinical_points=[])
 
         # Should compute sample prevalence
         assert metrics["target_prevalence"] == 0.5

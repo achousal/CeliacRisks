@@ -2,31 +2,30 @@
 Tests for data splitting module.
 """
 
-import pytest
-import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+import pandas as pd
+import pytest
 
+from ced_ml.data.schema import TARGET_COL
 from ced_ml.data.splits import (
-    age_bins,
-    make_strata,
-    collapse_rare_strata,
-    validate_strata,
-    build_working_strata,
-    downsample_controls,
-    temporal_order_indices,
     add_prevalent_to_train,
-    stratified_train_val_test_split,
-    temporal_train_val_test_split,
+    age_bins,
+    build_working_strata,
+    collapse_rare_strata,
     compute_split_id,
+    downsample_controls,
+    make_strata,
+    stratified_train_val_test_split,
     summarize_split,
+    temporal_order_indices,
+    temporal_train_val_test_split,
+    validate_strata,
 )
-from ced_ml.data.schema import TARGET_COL, CONTROL_LABEL, INCIDENT_LABEL, PREVALENT_LABEL
-
 
 # ============================================================================
 # Stratification Tests
 # ============================================================================
+
 
 class TestAgeBins:
     """Test age binning for stratification."""
@@ -62,11 +61,13 @@ class TestMakeStrata:
 
     def setup_method(self):
         """Create sample dataframe for tests."""
-        self.df = pd.DataFrame({
-            TARGET_COL: ["Controls", "Incident", "Controls"],
-            "sex": ["Male", "Female", "Male"],
-            "age": [25, 45, 65],
-        })
+        self.df = pd.DataFrame(
+            {
+                TARGET_COL: ["Controls", "Incident", "Controls"],
+                "sex": ["Male", "Female", "Male"],
+                "age": [25, 45, 65],
+            }
+        )
 
     def test_outcome_only(self):
         """Should stratify by outcome only."""
@@ -93,11 +94,13 @@ class TestMakeStrata:
 
     def test_missing_values_filled(self):
         """Should handle missing sex/outcome values."""
-        df = pd.DataFrame({
-            TARGET_COL: [None, "Incident"],
-            "sex": ["Male", None],
-            "age": [25, 30],
-        })
+        df = pd.DataFrame(
+            {
+                TARGET_COL: [None, "Incident"],
+                "sex": ["Male", None],
+                "age": [25, 30],
+            }
+        )
         strata = make_strata(df, "outcome+sex")
         # Pandas converts None to "None" string when using .astype(str)
         assert "None" in strata[0] or "UnknownOutcome" in strata[0]
@@ -114,9 +117,11 @@ class TestCollapseRareStrata:
 
     def test_collapse_rare_strata(self):
         """Should collapse strata with < min_count samples."""
-        df = pd.DataFrame({
-            TARGET_COL: ["Controls", "Controls", "Incident", "Controls"],
-        })
+        df = pd.DataFrame(
+            {
+                TARGET_COL: ["Controls", "Controls", "Incident", "Controls"],
+            }
+        )
         strata = pd.Series(["A", "B", "C", "A"])  # B and C are rare (count=1)
         result = collapse_rare_strata(df, strata, min_count=2)
         assert result[0] == "A"  # Not rare
@@ -156,11 +161,13 @@ class TestBuildWorkingStrata:
     def test_selects_most_granular_valid_scheme(self):
         """Should select most granular scheme that passes validation."""
         # Create data where outcome+sex+age3 works
-        df = pd.DataFrame({
-            TARGET_COL: ["Controls"] * 10 + ["Incident"] * 10,
-            "sex": ["Male"] * 10 + ["Female"] * 10,
-            "age": [25] * 10 + [65] * 10,
-        })
+        df = pd.DataFrame(
+            {
+                TARGET_COL: ["Controls"] * 10 + ["Incident"] * 10,
+                "sex": ["Male"] * 10 + ["Female"] * 10,
+                "age": [25] * 10 + [65] * 10,
+            }
+        )
         strata, scheme = build_working_strata(df, min_count=2)
         # Should use outcome+sex+age3 (most granular)
         assert "outcome+sex+age3" in scheme or "outcome+sex+age2" in scheme
@@ -168,11 +175,13 @@ class TestBuildWorkingStrata:
     def test_fallback_to_outcome_only(self):
         """Should fallback to simpler scheme when complex ones have rare strata."""
         # Create data where complex schemes produce rare strata
-        df = pd.DataFrame({
-            TARGET_COL: ["Controls", "Controls", "Incident", "Incident"],
-            "sex": ["Male", "Female", "Male", "Female"],  # Each outcome+sex combo appears once
-            "age": [25, 30, 35, 40],  # Different ages
-        })
+        df = pd.DataFrame(
+            {
+                TARGET_COL: ["Controls", "Controls", "Incident", "Incident"],
+                "sex": ["Male", "Female", "Male", "Female"],  # Each outcome+sex combo appears once
+                "age": [25, 30, 35, 40],  # Different ages
+            }
+        )
         strata, scheme = build_working_strata(df, min_count=2)
         # Should use a simpler scheme (outcome-only or outcome+sex+age with collapsing)
         # The key test is that it doesn't crash and produces valid strata
@@ -184,14 +193,17 @@ class TestBuildWorkingStrata:
 # Control Downsampling Tests
 # ============================================================================
 
+
 class TestDownsampleControls:
     """Test control downsampling."""
 
     def setup_method(self):
         """Create sample dataframe."""
-        self.df = pd.DataFrame({
-            TARGET_COL: ["Controls"] * 10 + ["Incident"] * 2,
-        })
+        self.df = pd.DataFrame(
+            {
+                TARGET_COL: ["Controls"] * 10 + ["Incident"] * 2,
+            }
+        )
         self.rng = np.random.RandomState(42)
 
     def test_downsample_to_target_ratio(self):
@@ -234,6 +246,7 @@ class TestDownsampleControls:
 # Temporal Ordering Tests
 # ============================================================================
 
+
 class TestTemporalOrderIndices:
     """Test temporal index ordering."""
 
@@ -267,14 +280,17 @@ class TestTemporalOrderIndices:
 # Prevalent Enrichment Tests
 # ============================================================================
 
+
 class TestAddPrevalentToTrain:
     """Test prevalent case enrichment."""
 
     def setup_method(self):
         """Create sample dataframe."""
-        self.df = pd.DataFrame({
-            TARGET_COL: ["Controls"] * 5 + ["Incident"] * 2 + ["Prevalent"] * 4,
-        })
+        self.df = pd.DataFrame(
+            {
+                TARGET_COL: ["Controls"] * 5 + ["Incident"] * 2 + ["Prevalent"] * 4,
+            }
+        )
         self.rng = np.random.RandomState(42)
 
     def test_add_all_prevalent(self):
@@ -311,6 +327,7 @@ class TestAddPrevalentToTrain:
 # Three-Way Split Tests
 # ============================================================================
 
+
 class TestStratifiedTrainValTestSplit:
     """Test stratified three-way splitting."""
 
@@ -323,8 +340,7 @@ class TestStratifiedTrainValTestSplit:
     def test_three_way_split_sizes(self):
         """Should produce correct split sizes."""
         idx_tr, idx_val, idx_te, y_tr, y_val, y_te = stratified_train_val_test_split(
-            self.indices, self.y, self.strata,
-            val_size=0.25, test_size=0.25, random_state=42
+            self.indices, self.y, self.strata, val_size=0.25, test_size=0.25, random_state=42
         )
         # 50% train, 25% val, 25% test
         assert len(idx_tr) == 50
@@ -334,8 +350,7 @@ class TestStratifiedTrainValTestSplit:
     def test_two_way_split_no_val(self):
         """Should handle val_size=0."""
         idx_tr, idx_val, idx_te, y_tr, y_val, y_te = stratified_train_val_test_split(
-            self.indices, self.y, self.strata,
-            val_size=0.0, test_size=0.30, random_state=42
+            self.indices, self.y, self.strata, val_size=0.0, test_size=0.30, random_state=42
         )
         assert len(idx_tr) == 70
         assert len(idx_val) == 0
@@ -344,12 +359,10 @@ class TestStratifiedTrainValTestSplit:
     def test_reproducible_with_seed(self):
         """Should produce same splits with same seed."""
         result1 = stratified_train_val_test_split(
-            self.indices, self.y, self.strata,
-            val_size=0.25, test_size=0.25, random_state=42
+            self.indices, self.y, self.strata, val_size=0.25, test_size=0.25, random_state=42
         )
         result2 = stratified_train_val_test_split(
-            self.indices, self.y, self.strata,
-            val_size=0.25, test_size=0.25, random_state=42
+            self.indices, self.y, self.strata, val_size=0.25, test_size=0.25, random_state=42
         )
         assert (result1[0] == result2[0]).all()  # Same train indices
 
@@ -406,6 +419,7 @@ class TestTemporalTrainValTestSplit:
 # ============================================================================
 # Utility Tests
 # ============================================================================
+
 
 class TestComputeSplitId:
     """Test split ID generation."""

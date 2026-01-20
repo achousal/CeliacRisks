@@ -2,54 +2,54 @@
 Tests for data filtering module.
 """
 
-import pytest
 import pandas as pd
-import numpy as np
+import pytest
 
 from ced_ml.data.filters import apply_row_filters
 from ced_ml.data.schema import (
-    ID_COL,
-    TARGET_COL,
     CED_DATE_COL,
-    META_NUM_COLS,
     CONTROL_LABEL,
+    ID_COL,
     INCIDENT_LABEL,
     PREVALENT_LABEL,
+    TARGET_COL,
 )
 
 
 @pytest.fixture
 def sample_data():
     """Create sample data with various filtering scenarios."""
-    return pd.DataFrame({
-        ID_COL: range(10),
-        TARGET_COL: [
-            CONTROL_LABEL,  # 0: Normal control
-            CONTROL_LABEL,  # 1: Uncertain control (has CeD_date)
-            CONTROL_LABEL,  # 2: Control with missing age
-            CONTROL_LABEL,  # 3: Control with missing BMI
-            INCIDENT_LABEL,  # 4: Normal incident
-            INCIDENT_LABEL,  # 5: Incident with missing age
-            PREVALENT_LABEL,  # 6: Normal prevalent
-            PREVALENT_LABEL,  # 7: Prevalent with CeD_date (expected)
-            CONTROL_LABEL,  # 8: Normal control
-            CONTROL_LABEL,  # 9: Uncertain control with missing metadata
-        ],
-        CED_DATE_COL: [
-            None,  # 0: No date (normal control)
-            "2020-01-01",  # 1: Uncertain control
-            None,  # 2
-            None,  # 3
-            "2021-05-15",  # 4: Normal incident
-            "2021-08-20",  # 5
-            "2019-03-10",  # 6: Normal prevalent
-            "2018-11-22",  # 7: Normal prevalent
-            None,  # 8: Normal control
-            "2022-02-14",  # 9: Uncertain control
-        ],
-        "age": [45, 50, None, 55, 60, None, 65, 70, 75, None],
-        "BMI": [22.5, 25.0, 27.5, None, 30.0, 32.5, 35.0, 37.5, 40.0, 42.5],
-    })
+    return pd.DataFrame(
+        {
+            ID_COL: range(10),
+            TARGET_COL: [
+                CONTROL_LABEL,  # 0: Normal control
+                CONTROL_LABEL,  # 1: Uncertain control (has CeD_date)
+                CONTROL_LABEL,  # 2: Control with missing age
+                CONTROL_LABEL,  # 3: Control with missing BMI
+                INCIDENT_LABEL,  # 4: Normal incident
+                INCIDENT_LABEL,  # 5: Incident with missing age
+                PREVALENT_LABEL,  # 6: Normal prevalent
+                PREVALENT_LABEL,  # 7: Prevalent with CeD_date (expected)
+                CONTROL_LABEL,  # 8: Normal control
+                CONTROL_LABEL,  # 9: Uncertain control with missing metadata
+            ],
+            CED_DATE_COL: [
+                None,  # 0: No date (normal control)
+                "2020-01-01",  # 1: Uncertain control
+                None,  # 2
+                None,  # 3
+                "2021-05-15",  # 4: Normal incident
+                "2021-08-20",  # 5
+                "2019-03-10",  # 6: Normal prevalent
+                "2018-11-22",  # 7: Normal prevalent
+                None,  # 8: Normal control
+                "2022-02-14",  # 9: Uncertain control
+            ],
+            "age": [45, 50, None, 55, 60, None, 65, 70, 75, None],
+            "BMI": [22.5, 25.0, 27.5, None, 30.0, 32.5, 35.0, 37.5, 40.0, 42.5],
+        }
+    )
 
 
 class TestApplyRowFilters:
@@ -166,12 +166,14 @@ class TestApplyRowFilters:
 
     def test_missing_ced_date_column(self):
         """Should handle data without CeD_date column."""
-        df = pd.DataFrame({
-            ID_COL: [0, 1, 2],
-            TARGET_COL: [CONTROL_LABEL, INCIDENT_LABEL, PREVALENT_LABEL],
-            "age": [45, 50, 55],
-            "BMI": [22.5, 25.0, 27.5],
-        })
+        df = pd.DataFrame(
+            {
+                ID_COL: [0, 1, 2],
+                TARGET_COL: [CONTROL_LABEL, INCIDENT_LABEL, PREVALENT_LABEL],
+                "age": [45, 50, 55],
+                "BMI": [22.5, 25.0, 27.5],
+            }
+        )
 
         df_out, stats = apply_row_filters(
             df,
@@ -185,11 +187,13 @@ class TestApplyRowFilters:
 
     def test_missing_metadata_columns(self):
         """Should handle data without age/BMI columns."""
-        df = pd.DataFrame({
-            ID_COL: [0, 1, 2],
-            TARGET_COL: [CONTROL_LABEL, INCIDENT_LABEL, PREVALENT_LABEL],
-            CED_DATE_COL: [None, "2020-01-01", "2019-01-01"],
-        })
+        df = pd.DataFrame(
+            {
+                ID_COL: [0, 1, 2],
+                TARGET_COL: [CONTROL_LABEL, INCIDENT_LABEL, PREVALENT_LABEL],
+                CED_DATE_COL: [None, "2020-01-01", "2019-01-01"],
+            }
+        )
 
         df_out, stats = apply_row_filters(
             df,
@@ -203,12 +207,14 @@ class TestApplyRowFilters:
 
     def test_partial_metadata_columns(self):
         """Should handle data with only some metadata columns."""
-        df = pd.DataFrame({
-            ID_COL: [0, 1, 2],
-            TARGET_COL: [CONTROL_LABEL, INCIDENT_LABEL, PREVALENT_LABEL],
-            "age": [45, None, 55],
-            # No BMI column
-        })
+        df = pd.DataFrame(
+            {
+                ID_COL: [0, 1, 2],
+                TARGET_COL: [CONTROL_LABEL, INCIDENT_LABEL, PREVALENT_LABEL],
+                "age": [45, None, 55],
+                # No BMI column
+            }
+        )
 
         df_out, stats = apply_row_filters(
             df,
@@ -223,13 +229,15 @@ class TestApplyRowFilters:
 
     def test_all_rows_filtered(self):
         """Should handle case where all rows are filtered."""
-        df = pd.DataFrame({
-            ID_COL: [0, 1],
-            TARGET_COL: [CONTROL_LABEL, CONTROL_LABEL],
-            CED_DATE_COL: ["2020-01-01", "2021-01-01"],
-            "age": [None, None],
-            "BMI": [None, None],
-        })
+        df = pd.DataFrame(
+            {
+                ID_COL: [0, 1],
+                TARGET_COL: [CONTROL_LABEL, CONTROL_LABEL],
+                CED_DATE_COL: ["2020-01-01", "2021-01-01"],
+                "age": [None, None],
+                "BMI": [None, None],
+            }
+        )
 
         df_out, stats = apply_row_filters(df)
 
@@ -241,13 +249,15 @@ class TestApplyRowFilters:
 
     def test_no_uncertain_controls(self):
         """Should handle data with no uncertain controls."""
-        df = pd.DataFrame({
-            ID_COL: [0, 1, 2],
-            TARGET_COL: [CONTROL_LABEL, INCIDENT_LABEL, PREVALENT_LABEL],
-            CED_DATE_COL: [None, "2020-01-01", "2019-01-01"],
-            "age": [45, 50, 55],
-            "BMI": [22.5, 25.0, 27.5],
-        })
+        df = pd.DataFrame(
+            {
+                ID_COL: [0, 1, 2],
+                TARGET_COL: [CONTROL_LABEL, INCIDENT_LABEL, PREVALENT_LABEL],
+                CED_DATE_COL: [None, "2020-01-01", "2019-01-01"],
+                "age": [45, 50, 55],
+                "BMI": [22.5, 25.0, 27.5],
+            }
+        )
 
         df_out, stats = apply_row_filters(df)
 
@@ -273,7 +283,11 @@ class TestApplyRowFilters:
         _, stats = apply_row_filters(sample_data)
 
         # n_out should equal n_in minus removals
-        expected_out = stats["n_in"] - stats["n_removed_uncertain_controls"] - stats["n_removed_dropna_meta_num"]
+        expected_out = (
+            stats["n_in"]
+            - stats["n_removed_uncertain_controls"]
+            - stats["n_removed_dropna_meta_num"]
+        )
         assert stats["n_out"] == expected_out
 
     def test_filter_flags_recorded(self, sample_data):

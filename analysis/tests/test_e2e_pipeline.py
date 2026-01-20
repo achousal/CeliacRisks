@@ -8,10 +8,9 @@ These tests verify that all components work together correctly and that the
 pipeline produces valid outputs.
 """
 
-import pytest
-import pandas as pd
 import numpy as np
-from pathlib import Path
+import pandas as pd
+import pytest
 import yaml
 
 from ced_ml.data.schema import ID_COL, TARGET_COL
@@ -32,15 +31,8 @@ class TestEndToEndPipeline:
         config = {
             "model": "LR_EN",
             "scenario": "IncidentOnly",
-            "cv": {
-                "folds": 5,
-                "repeats": 3,
-                "scoring": "neg_brier_score"
-            },
-            "features": {
-                "screen_top_n": 1000,
-                "stability_thresh": 0.75
-            }
+            "cv": {"folds": 5, "repeats": 3, "scoring": "neg_brier_score"},
+            "features": {"screen_top_n": 1000, "stability_thresh": 0.75},
         }
 
         # Save
@@ -48,7 +40,7 @@ class TestEndToEndPipeline:
             yaml.dump(config, f)
 
         # Load
-        with open(config_file, "r") as f:
+        with open(config_file) as f:
             loaded_config = yaml.safe_load(f)
 
         # Compare
@@ -107,13 +99,11 @@ def toy_proteomics_csv(tmp_path):
 
     # Create labels
     labels = (
-        ["Controls"] * n_controls +
-        ["CeD_incident"] * n_incident +
-        ["CeD_prevalent"] * n_prevalent
+        ["Controls"] * n_controls + ["CeD_incident"] * n_incident + ["CeD_prevalent"] * n_prevalent
     )
 
     # Create metadata
-    from ced_ml.data.schema import ID_COL, TARGET_COL
+
     data = {
         ID_COL: [f"S{i:04d}" for i in range(n_total)],
         TARGET_COL: labels,
@@ -128,8 +118,8 @@ def toy_proteomics_csv(tmp_path):
         base = np.random.randn(n_total)
         # Add signal for incident cases
         signal = np.zeros(n_total)
-        signal[n_controls:n_controls+n_incident] = np.random.randn(n_incident) * 0.5 + 1.0
-        signal[n_controls+n_incident:] = np.random.randn(n_prevalent) * 0.5 + 1.5
+        signal[n_controls : n_controls + n_incident] = np.random.randn(n_incident) * 0.5 + 1.0
+        signal[n_controls + n_incident :] = np.random.randn(n_prevalent) * 0.5 + 1.5
 
         data[f"Protein{i}_resid"] = base + signal
 

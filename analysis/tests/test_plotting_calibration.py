@@ -157,8 +157,7 @@ class TestPlotProbCalibrationPanel:
         bin_centers = (bins[:-1] + bins[1:]) / 2
 
         _plot_prob_calibration_panel(
-            ax, y_true, probs, bins, bin_centers, 10, "uniform",
-            panel_title="Test Calibration"
+            ax, y_true, probs, bins, bin_centers, 10, "uniform", panel_title="Test Calibration"
         )
 
         # Should have created plot elements
@@ -181,9 +180,16 @@ class TestPlotProbCalibrationPanel:
         bin_centers = (bins[:-1] + bins[1:]) / 2
 
         _plot_prob_calibration_panel(
-            ax, y_true, probs, bins, bin_centers, 10, "uniform",
-            split_ids=split_ids, unique_splits=unique_splits,
-            panel_title="Multi-Split Calibration"
+            ax,
+            y_true,
+            probs,
+            bins,
+            bin_centers,
+            10,
+            "uniform",
+            split_ids=split_ids,
+            unique_splits=unique_splits,
+            panel_title="Multi-Split Calibration",
         )
 
         # Should show confidence bands
@@ -205,7 +211,7 @@ class TestPlotProbCalibrationPanel:
         bin_centers_q = (bins_q[:-1] + bins_q[1:]) / 2
 
         _plot_prob_calibration_panel(
-            ax1, y_true, probs, bins_q, bin_centers_q, len(bins_q)-1, "quantile"
+            ax1, y_true, probs, bins_q, bin_centers_q, len(bins_q) - 1, "quantile"
         )
 
         # Uniform binning
@@ -213,9 +219,7 @@ class TestPlotProbCalibrationPanel:
         bins_u = np.linspace(0, 1, 11)
         bin_centers_u = (bins_u[:-1] + bins_u[1:]) / 2
 
-        _plot_prob_calibration_panel(
-            ax2, y_true, probs, bins_u, bin_centers_u, 10, "uniform"
-        )
+        _plot_prob_calibration_panel(ax2, y_true, probs, bins_u, bin_centers_u, 10, "uniform")
 
         # Both should create valid plots
         assert len(ax1.lines) > 0
@@ -242,12 +246,17 @@ class TestPlotLogitCalibrationPanel:
             lowess = None
 
         _plot_logit_calibration_panel(
-            ax, y_true, probs, n_bins=10, bin_strategy="uniform",
-            split_ids=None, unique_splits=None,
+            ax,
+            y_true,
+            probs,
+            n_bins=10,
+            bin_strategy="uniform",
+            split_ids=None,
+            unique_splits=None,
             panel_title="Logit Calibration",
             lowess=lowess,
             calib_intercept=0.0,
-            calib_slope=1.0
+            calib_slope=1.0,
         )
 
         # Should have diagonal line and possibly recalibration line
@@ -265,12 +274,17 @@ class TestPlotLogitCalibrationPanel:
         fig, ax = plt.subplots()
 
         _plot_logit_calibration_panel(
-            ax, y_true, probs, n_bins=10, bin_strategy="quantile",
-            split_ids=split_ids, unique_splits=unique_splits,
+            ax,
+            y_true,
+            probs,
+            n_bins=10,
+            bin_strategy="quantile",
+            split_ids=split_ids,
+            unique_splits=unique_splits,
             panel_title="Multi-Split Logit",
             lowess=None,
             calib_intercept=0.1,
-            calib_slope=0.9
+            calib_slope=0.9,
         )
 
         # Should create plot with aggregated bands
@@ -286,12 +300,17 @@ class TestPlotLogitCalibrationPanel:
         fig, ax = plt.subplots()
 
         _plot_logit_calibration_panel(
-            ax, y_true, probs, n_bins=10, bin_strategy="uniform",
-            split_ids=None, unique_splits=None,
+            ax,
+            y_true,
+            probs,
+            n_bins=10,
+            bin_strategy="uniform",
+            split_ids=None,
+            unique_splits=None,
             panel_title="With Recalibration",
             lowess=None,
             calib_intercept=0.5,  # Significant miscalibration
-            calib_slope=0.7
+            calib_slope=0.7,
         )
 
         # Should have ideal line + recalibration line
@@ -310,11 +329,7 @@ class TestPlotCalibrationCurve:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "calibration.png"
 
-            plot_calibration_curve(
-                y_true, probs, out_path,
-                title="Test Calibration",
-                n_bins=10
-            )
+            plot_calibration_curve(y_true, probs, out_path, title="Test Calibration", n_bins=10)
 
             # File should be created
             assert out_path.exists()
@@ -327,16 +342,10 @@ class TestPlotCalibrationCurve:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "calibration_meta.png"
 
-            meta_lines = [
-                "Model: Random Forest",
-                "Dataset: Test",
-                "N=500"
-            ]
+            meta_lines = ["Model: Random Forest", "Dataset: Test", "N=500"]
 
             plot_calibration_curve(
-                y_true, probs, out_path,
-                title="Calibration with Metadata",
-                meta_lines=meta_lines
+                y_true, probs, out_path, title="Calibration with Metadata", meta_lines=meta_lines
             )
 
             assert out_path.exists()
@@ -349,10 +358,12 @@ class TestPlotCalibrationCurve:
             out_path = Path(tmpdir) / "calibration_splits.png"
 
             plot_calibration_curve(
-                y_true, probs, out_path,
+                y_true,
+                probs,
+                out_path,
                 title="Multi-Split Calibration",
                 split_ids=split_ids,
-                n_bins=10
+                n_bins=10,
             )
 
             assert out_path.exists()
@@ -365,10 +376,12 @@ class TestPlotCalibrationCurve:
             out_path = Path(tmpdir) / "calibration_recal.png"
 
             plot_calibration_curve(
-                y_true, probs, out_path,
+                y_true,
+                probs,
+                out_path,
                 title="Miscalibrated Model",
                 calib_intercept=0.3,
-                calib_slope=0.8
+                calib_slope=0.8,
             )
 
             assert out_path.exists()
@@ -382,10 +395,7 @@ class TestPlotCalibrationCurve:
             out_path = Path(tmpdir) / "calibration_one_class.png"
 
             # Should not crash
-            plot_calibration_curve(
-                y_true, probs, out_path,
-                title="All One Class"
-            )
+            plot_calibration_curve(y_true, probs, out_path, title="All One Class")
 
             assert out_path.exists()
 
@@ -397,10 +407,7 @@ class TestPlotCalibrationCurve:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "calibration_perfect.png"
 
-            plot_calibration_curve(
-                y_true, probs, out_path,
-                title="Perfect Predictions"
-            )
+            plot_calibration_curve(y_true, probs, out_path, title="Perfect Predictions")
 
             assert out_path.exists()
 
@@ -412,10 +419,7 @@ class TestPlotCalibrationCurve:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "calibration_nan.png"
 
-            plot_calibration_curve(
-                y_true, probs, out_path,
-                title="With NaN Values"
-            )
+            plot_calibration_curve(y_true, probs, out_path, title="With NaN Values")
 
             assert out_path.exists()
 
@@ -429,9 +433,11 @@ class TestPlotCalibrationCurve:
             out_path = Path(tmpdir) / "calibration_small.png"
 
             plot_calibration_curve(
-                y_true, probs, out_path,
+                y_true,
+                probs,
+                out_path,
                 title="Small Sample",
-                n_bins=2  # Fewer bins for small sample
+                n_bins=2,  # Fewer bins for small sample
             )
 
             assert out_path.exists()
@@ -443,10 +449,7 @@ class TestPlotCalibrationCurve:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "subdir" / "nested" / "calibration.png"
 
-            plot_calibration_curve(
-                y_true, probs, out_path,
-                title="Nested Output"
-            )
+            plot_calibration_curve(y_true, probs, out_path, title="Nested Output")
 
             assert out_path.exists()
             assert out_path.parent.exists()
@@ -458,15 +461,12 @@ class TestEdgeCases:
     def test_extreme_probabilities(self):
         """Test with probabilities very close to 0 and 1."""
         y_true = np.array([0, 0, 1, 1] * 25)
-        probs = np.array([1e-7, 1e-6, 1-1e-6, 1-1e-7] * 25)
+        probs = np.array([1e-7, 1e-6, 1 - 1e-6, 1 - 1e-7] * 25)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "extreme_probs.png"
 
-            plot_calibration_curve(
-                y_true, probs, out_path,
-                title="Extreme Probabilities"
-            )
+            plot_calibration_curve(y_true, probs, out_path, title="Extreme Probabilities")
 
             assert out_path.exists()
 
@@ -477,18 +477,17 @@ class TestEdgeCases:
         n_cases = 10
 
         y_true = np.concatenate([np.zeros(n_controls), np.ones(n_cases)])
-        probs = np.concatenate([
-            np.random.beta(1, 10, n_controls),  # Low probabilities for controls
-            np.random.beta(3, 2, n_cases)       # Higher probabilities for cases
-        ])
+        probs = np.concatenate(
+            [
+                np.random.beta(1, 10, n_controls),  # Low probabilities for controls
+                np.random.beta(3, 2, n_cases),  # Higher probabilities for cases
+            ]
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "imbalanced.png"
 
-            plot_calibration_curve(
-                y_true, probs, out_path,
-                title="Imbalanced Data (1:100)"
-            )
+            plot_calibration_curve(y_true, probs, out_path, title="Imbalanced Data (1:100)")
 
             assert out_path.exists()
 
@@ -500,9 +499,7 @@ class TestEdgeCases:
             out_path = Path(tmpdir) / "with_subtitle.png"
 
             plot_calibration_curve(
-                y_true, probs, out_path,
-                title="Main Title",
-                subtitle="Validation Set"
+                y_true, probs, out_path, title="Main Title", subtitle="Validation Set"
             )
 
             assert out_path.exists()

@@ -1,20 +1,19 @@
 """Tests for plotting.learning_curve module."""
 
-import pytest
 import numpy as np
 import pandas as pd
-from pathlib import Path
+import pytest
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from ced_ml.plotting.learning_curve import (
-    compute_learning_curve,
-    save_learning_curve_csv,
-    plot_learning_curve,
-    aggregate_learning_curve_runs,
-    plot_learning_curve_summary,
     _normalize_metric_scores,
+    aggregate_learning_curve_runs,
+    compute_learning_curve,
+    plot_learning_curve,
+    plot_learning_curve_summary,
+    save_learning_curve_csv,
 )
 
 
@@ -83,9 +82,7 @@ class TestComputeLearningCurve:
         # min_frac=0.5 means 50% of that training set
         assert sizes[0] >= 0.30 * len(y)  # Conservative lower bound
 
-    def test_reproducibility_with_seed(
-        self, simple_pipeline, simple_classification_data
-    ):
+    def test_reproducibility_with_seed(self, simple_pipeline, simple_classification_data):
         X, y = simple_classification_data
 
         sizes1, train1, val1 = compute_learning_curve(
@@ -99,9 +96,7 @@ class TestComputeLearningCurve:
         np.testing.assert_array_almost_equal(train1, train2)
         np.testing.assert_array_almost_equal(val1, val2)
 
-    def test_different_scoring_metrics(
-        self, simple_pipeline, simple_classification_data
-    ):
+    def test_different_scoring_metrics(self, simple_pipeline, simple_classification_data):
         X, y = simple_classification_data
 
         # Test with different scoring metrics
@@ -159,15 +154,11 @@ class TestNormalizeMetricScores:
 class TestSaveLearningCurveCsv:
     """Tests for save_learning_curve_csv."""
 
-    def test_csv_creation(
-        self, tmp_path, simple_pipeline, simple_classification_data
-    ):
+    def test_csv_creation(self, tmp_path, simple_pipeline, simple_classification_data):
         X, y = simple_classification_data
         out_csv = tmp_path / "learning_curve.csv"
 
-        save_learning_curve_csv(
-            simple_pipeline, X, y, out_csv, scoring="roc_auc", cv=3, n_points=3
-        )
+        save_learning_curve_csv(simple_pipeline, X, y, out_csv, scoring="roc_auc", cv=3, n_points=3)
 
         assert out_csv.exists()
 
@@ -178,15 +169,11 @@ class TestSaveLearningCurveCsv:
         assert "val_score" in df.columns
         assert "scoring" in df.columns
 
-    def test_csv_content_structure(
-        self, tmp_path, simple_pipeline, simple_classification_data
-    ):
+    def test_csv_content_structure(self, tmp_path, simple_pipeline, simple_classification_data):
         X, y = simple_classification_data
         out_csv = tmp_path / "learning_curve.csv"
 
-        save_learning_curve_csv(
-            simple_pipeline, X, y, out_csv, scoring="roc_auc", cv=3, n_points=4
-        )
+        save_learning_curve_csv(simple_pipeline, X, y, out_csv, scoring="roc_auc", cv=3, n_points=4)
 
         df = pd.read_csv(out_csv)
 
@@ -199,9 +186,7 @@ class TestSaveLearningCurveCsv:
         # Check CV splits
         assert set(df["cv_split"].unique()) == {0, 1, 2}
 
-    def test_metric_metadata(
-        self, tmp_path, simple_pipeline, simple_classification_data
-    ):
+    def test_metric_metadata(self, tmp_path, simple_pipeline, simple_classification_data):
         X, y = simple_classification_data
         out_csv = tmp_path / "learning_curve_neg.csv"
 
@@ -215,9 +200,7 @@ class TestSaveLearningCurveCsv:
         assert (df["error_metric"] == "brier_score").all()
         assert (df["metric_direction"] == "lower_is_better").all()
 
-    def test_with_plot_generation(
-        self, tmp_path, simple_pipeline, simple_classification_data
-    ):
+    def test_with_plot_generation(self, tmp_path, simple_pipeline, simple_classification_data):
         X, y = simple_classification_data
         out_csv = tmp_path / "learning_curve.csv"
         out_plot = tmp_path / "learning_curve.png"
@@ -229,15 +212,11 @@ class TestSaveLearningCurveCsv:
         assert out_csv.exists()
         assert out_plot.exists()
 
-    def test_summary_statistics(
-        self, tmp_path, simple_pipeline, simple_classification_data
-    ):
+    def test_summary_statistics(self, tmp_path, simple_pipeline, simple_classification_data):
         X, y = simple_classification_data
         out_csv = tmp_path / "learning_curve.csv"
 
-        save_learning_curve_csv(
-            simple_pipeline, X, y, out_csv, scoring="roc_auc", cv=3, n_points=3
-        )
+        save_learning_curve_csv(simple_pipeline, X, y, out_csv, scoring="roc_auc", cv=3, n_points=3)
 
         df = pd.read_csv(out_csv)
 

@@ -21,7 +21,7 @@ def run_eval_holdout(
     target_prevalence: float = None,
     clinical_threshold_points: str = "",
     subgroup_min_n: int = 40,
-    **kwargs
+    **kwargs,
 ):
     """
     Evaluate trained model on holdout set.

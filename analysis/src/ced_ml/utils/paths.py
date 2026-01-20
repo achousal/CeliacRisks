@@ -24,25 +24,25 @@ def get_run_dir(
 ) -> Path:
     """
     Generate standardized run directory name matching current implementation.
-    
+
     Format: {scenario}__{model}__{cv_config}__{val_config}__{test_config}{suffix}
-    
+
     Example:
         IncidentPlusPrevalent__RF__5x10__val0.25__test0.25__hybrid
     """
     parts = [scenario, model, cv_config]
-    
+
     if val_config:
         parts.append(val_config)
-    
+
     if test_config:
         parts.append(test_config)
-    
+
     run_name = "__".join(parts)
-    
+
     if suffix:
         run_name = f"{run_name}__{suffix}"
-    
+
     run_dir = Path(base_dir) / run_name
     return run_dir
 

@@ -5,7 +5,7 @@ Defines column names, labels, and data structures used throughout the pipeline.
 Matches exactly with current implementation for behavioral equivalence.
 """
 
-from typing import Dict, List
+from typing import List
 
 # ============================================================================
 # Column Names
@@ -211,6 +211,7 @@ SUBDIR_FEATURE_IMPORTANCE = "feature_importance"
 # Helper Functions
 # ============================================================================
 
+
 def get_protein_columns(df_columns: List[str]) -> List[str]:
     """Extract protein column names from DataFrame columns."""
     return [col for col in df_columns if col.endswith(PROTEIN_SUFFIX)]
@@ -219,12 +220,16 @@ def get_protein_columns(df_columns: List[str]) -> List[str]:
 def get_scenario_labels(scenario: str) -> List[str]:
     """Get valid labels for a scenario."""
     if scenario not in SCENARIO_DEFINITIONS:
-        raise ValueError(f"Unknown scenario: {scenario}. Valid: {list(SCENARIO_DEFINITIONS.keys())}")
+        raise ValueError(
+            f"Unknown scenario: {scenario}. Valid: {list(SCENARIO_DEFINITIONS.keys())}"
+        )
     return SCENARIO_DEFINITIONS[scenario]["labels"]
 
 
 def get_positive_label(scenario: str) -> str:
     """Get positive class label for a scenario."""
     if scenario not in SCENARIO_DEFINITIONS:
-        raise ValueError(f"Unknown scenario: {scenario}. Valid: {list(SCENARIO_DEFINITIONS.keys())}")
+        raise ValueError(
+            f"Unknown scenario: {scenario}. Valid: {list(SCENARIO_DEFINITIONS.keys())}"
+        )
     return SCENARIO_DEFINITIONS[scenario]["positive_label"]

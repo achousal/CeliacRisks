@@ -25,17 +25,23 @@ def simple_protein_data():
     n_samples = 100
     n_case = 20
 
-    X = pd.DataFrame({
-        "P1": np.concatenate([
-            np.random.normal(0, 1, n_samples - n_case),  # controls
-            np.random.normal(2, 1, n_case),  # cases (shifted)
-        ]),
-        "P2": np.concatenate([
-            np.random.normal(0, 1, n_samples - n_case),
-            np.random.normal(0.5, 1, n_case),  # weak signal
-        ]),
-        "P3": np.random.normal(0, 1, n_samples),  # pure noise
-    })
+    X = pd.DataFrame(
+        {
+            "P1": np.concatenate(
+                [
+                    np.random.normal(0, 1, n_samples - n_case),  # controls
+                    np.random.normal(2, 1, n_case),  # cases (shifted)
+                ]
+            ),
+            "P2": np.concatenate(
+                [
+                    np.random.normal(0, 1, n_samples - n_case),
+                    np.random.normal(0.5, 1, n_case),  # weak signal
+                ]
+            ),
+            "P3": np.random.normal(0, 1, n_samples),  # pure noise
+        }
+    )
 
     y = np.array([0] * (n_samples - n_case) + [1] * n_case)
 
@@ -45,11 +51,13 @@ def simple_protein_data():
 @pytest.fixture
 def protein_data_with_missing():
     """Protein data with missing values."""
-    X = pd.DataFrame({
-        "P1": [1.0, 2.0, np.nan, 4.0, 5.0],
-        "P2": [10.0, np.nan, 30.0, 40.0, 50.0],
-        "P3": [0.1, 0.2, 0.3, 0.4, 0.5],
-    })
+    X = pd.DataFrame(
+        {
+            "P1": [1.0, 2.0, np.nan, 4.0, 5.0],
+            "P2": [10.0, np.nan, 30.0, 40.0, 50.0],
+            "P3": [0.1, 0.2, 0.3, 0.4, 0.5],
+        }
+    )
     y = np.array([0, 0, 1, 1, 1])
 
     return X, y
@@ -117,9 +125,7 @@ class TestSelectKBestFeatures:
         y = np.array([0, 0, 0])  # All same class
 
         with pytest.raises(ValueError):
-            select_kbest_features(
-                X, y, k=1, protein_cols=["P1", "P2"], fallback_to_variance=False
-            )
+            select_kbest_features(X, y, k=1, protein_cols=["P1", "P2"], fallback_to_variance=False)
 
     def test_returns_deterministic_results(self, simple_protein_data):
         X, y = simple_protein_data
@@ -150,14 +156,16 @@ class TestComputeFClassifScores:
 
     def test_higher_score_for_stronger_signal(self):
         # Feature 0: strong signal, Feature 1: no signal
-        X = np.array([
-            [0, 0],
-            [0, 1],
-            [1, 0],
-            [1, 1],
-            [5, 0],
-            [5, 1],
-        ])
+        X = np.array(
+            [
+                [0, 0],
+                [0, 1],
+                [1, 0],
+                [1, 1],
+                [5, 0],
+                [5, 1],
+            ]
+        )
         y = np.array([0, 0, 0, 0, 1, 1])
 
         scores = compute_f_classif_scores(X, y)
@@ -228,9 +236,16 @@ class TestComputeProteinStatistics:
         stats = compute_protein_statistics(X, y, "P1")
 
         required_keys = [
-            "protein", "n_total", "n_case", "n_control",
-            "mean_case", "mean_control", "sd_case", "sd_control",
-            "cohens_d", "p_ttest"
+            "protein",
+            "n_total",
+            "n_case",
+            "n_control",
+            "mean_case",
+            "mean_control",
+            "sd_case",
+            "sd_control",
+            "cohens_d",
+            "p_ttest",
         ]
         for key in required_keys:
             assert key in stats
@@ -291,8 +306,8 @@ class TestComputeProteinStatistics:
 
     def test_p_value_significant_for_large_effect(self):
         # Large separation should yield small p-value
-        X = pd.DataFrame({"P1": [0]*20 + [10]*20})
-        y = np.array([0]*20 + [1]*20)
+        X = pd.DataFrame({"P1": [0] * 20 + [10] * 20})
+        y = np.array([0] * 20 + [1] * 20)
 
         stats = compute_protein_statistics(X, y, "P1")
 
@@ -307,24 +322,26 @@ class TestExtractSelectedProteinsFromKBest:
         from sklearn.compose import ColumnTransformer
         from sklearn.preprocessing import StandardScaler
 
-        X = pd.DataFrame({
-            "P1": [1, 2, 3, 4],
-            "P2": [10, 20, 30, 40],
-            "P3": [0.1, 0.2, 0.3, 0.4],
-        })
+        X = pd.DataFrame(
+            {
+                "P1": [1, 2, 3, 4],
+                "P2": [10, 20, 30, 40],
+                "P3": [0.1, 0.2, 0.3, 0.4],
+            }
+        )
         y = np.array([0, 0, 1, 1])
 
         # Build pipeline
-        preprocessor = ColumnTransformer([
-            ("num", StandardScaler(), ["P1", "P2", "P3"])
-        ])
+        preprocessor = ColumnTransformer([("num", StandardScaler(), ["P1", "P2", "P3"])])
 
         selector = SelectKBest(score_func=f_classif, k=2)
 
-        pipe = Pipeline([
-            ("pre", preprocessor),
-            ("sel", selector),
-        ])
+        pipe = Pipeline(
+            [
+                ("pre", preprocessor),
+                ("sel", selector),
+            ]
+        )
 
         pipe.fit(X, y)
 
@@ -339,9 +356,7 @@ class TestExtractSelectedProteinsFromKBest:
     def test_returns_empty_for_missing_step(self):
         pipe = Pipeline([("dummy", StandardScaler())])
 
-        selected = extract_selected_proteins_from_kbest(
-            pipe, protein_cols=["P1"], step_name="sel"
-        )
+        selected = extract_selected_proteins_from_kbest(pipe, protein_cols=["P1"], step_name="sel")
 
         assert selected == []
 
@@ -378,18 +393,22 @@ class TestIntegration:
     def test_selection_reproducibility_across_seeds(self):
         # Same data should give same selection
         np.random.seed(123)
-        X1 = pd.DataFrame({
-            "P1": np.random.normal(0, 1, 50),
-            "P2": np.random.normal(0, 1, 50),
-        })
-        y1 = np.array([0]*25 + [1]*25)
+        X1 = pd.DataFrame(
+            {
+                "P1": np.random.normal(0, 1, 50),
+                "P2": np.random.normal(0, 1, 50),
+            }
+        )
+        y1 = np.array([0] * 25 + [1] * 25)
 
         np.random.seed(123)
-        X2 = pd.DataFrame({
-            "P1": np.random.normal(0, 1, 50),
-            "P2": np.random.normal(0, 1, 50),
-        })
-        y2 = np.array([0]*25 + [1]*25)
+        X2 = pd.DataFrame(
+            {
+                "P1": np.random.normal(0, 1, 50),
+                "P2": np.random.normal(0, 1, 50),
+            }
+        )
+        y2 = np.array([0] * 25 + [1] * 25)
 
         selected1 = select_kbest_features(X1, y1, k=1, protein_cols=["P1", "P2"])
         selected2 = select_kbest_features(X2, y2, k=1, protein_cols=["P1", "P2"])

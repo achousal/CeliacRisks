@@ -2,23 +2,21 @@
 Tests for data I/O module.
 """
 
-import pytest
-import pandas as pd
 import numpy as np
-import tempfile
-from pathlib import Path
+import pandas as pd
+import pytest
 
 from ced_ml.data.io import (
-    usecols_for_proteomics,
-    read_proteomics_csv,
-    validate_required_columns,
     coerce_numeric_columns,
     fill_missing_categorical,
-    identify_protein_columns,
     get_data_stats,
+    identify_protein_columns,
     load_data,
+    read_proteomics_csv,
+    usecols_for_proteomics,
+    validate_required_columns,
 )
-from ced_ml.data.schema import ID_COL, TARGET_COL, CED_DATE_COL
+from ced_ml.data.schema import CED_DATE_COL, ID_COL, TARGET_COL
 
 
 class TestUsecolsFilter:
@@ -60,13 +58,15 @@ class TestReadProteomicsCSV:
     def test_read_valid_csv(self, tmp_path):
         """Should read valid CSV successfully."""
         csv_path = tmp_path / "test.csv"
-        df = pd.DataFrame({
-            "eid": [1, 2, 3],
-            "CeD_comparison": ["Controls", "Incident", "Controls"],
-            "age": [25, 30, 35],
-            "IL6_resid": [0.1, 0.2, 0.3],
-            "APOE_resid": [0.4, 0.5, 0.6],
-        })
+        df = pd.DataFrame(
+            {
+                "eid": [1, 2, 3],
+                "CeD_comparison": ["Controls", "Incident", "Controls"],
+                "age": [25, 30, 35],
+                "IL6_resid": [0.1, 0.2, 0.3],
+                "APOE_resid": [0.4, 0.5, 0.6],
+            }
+        )
         df.to_csv(csv_path, index=False)
 
         result = read_proteomics_csv(str(csv_path))
@@ -83,13 +83,15 @@ class TestReadProteomicsCSV:
     def test_column_filtering(self, tmp_path):
         """Should filter columns based on proteomics schema."""
         csv_path = tmp_path / "test.csv"
-        df = pd.DataFrame({
-            "eid": [1, 2],
-            "CeD_comparison": ["Controls", "Incident"],
-            "age": [25, 30],
-            "random_col": ["A", "B"],  # Should be filtered out
-            "IL6_resid": [0.1, 0.2],
-        })
+        df = pd.DataFrame(
+            {
+                "eid": [1, 2],
+                "CeD_comparison": ["Controls", "Incident"],
+                "age": [25, 30],
+                "random_col": ["A", "B"],  # Should be filtered out
+                "IL6_resid": [0.1, 0.2],
+            }
+        )
         df.to_csv(csv_path, index=False)
 
         result = read_proteomics_csv(str(csv_path))
@@ -122,10 +124,12 @@ class TestValidateRequiredColumns:
 
     def test_valid_dataframe(self):
         """Should pass for DataFrame with required columns."""
-        df = pd.DataFrame({
-            "eid": [1, 2],
-            "CeD_comparison": ["Controls", "Incident"],
-        })
+        df = pd.DataFrame(
+            {
+                "eid": [1, 2],
+                "CeD_comparison": ["Controls", "Incident"],
+            }
+        )
         validate_required_columns(df)  # Should not raise
 
     def test_missing_id_column(self):
@@ -191,10 +195,12 @@ class TestCoerceNumericColumns:
 
     def test_multiple_columns(self):
         """Should coerce multiple columns."""
-        df = pd.DataFrame({
-            "age": ["25", "30"],
-            "BMI": ["22.5", "25.0"],
-        })
+        df = pd.DataFrame(
+            {
+                "age": ["25", "30"],
+                "BMI": ["22.5", "25.0"],
+            }
+        )
         result = coerce_numeric_columns(df, ["age", "BMI"])
         assert pd.api.types.is_numeric_dtype(result["age"])
         assert pd.api.types.is_numeric_dtype(result["BMI"])
@@ -230,10 +236,12 @@ class TestFillMissingCategorical:
 
     def test_multiple_columns(self):
         """Should fill multiple columns."""
-        df = pd.DataFrame({
-            "sex": ["Male", None],
-            "ethnicity": [None, "Asian"],
-        })
+        df = pd.DataFrame(
+            {
+                "sex": ["Male", None],
+                "ethnicity": [None, "Asian"],
+            }
+        )
         result = fill_missing_categorical(df, ["sex", "ethnicity"])
         assert result.loc[1, "sex"] == "Missing"
         assert result.loc[0, "ethnicity"] == "Missing"
@@ -244,21 +252,25 @@ class TestIdentifyProteinColumns:
 
     def test_identify_protein_columns(self):
         """Should identify columns with _resid suffix."""
-        df = pd.DataFrame({
-            "age": [25],
-            "APOE_resid": [0.5],
-            "IL6_resid": [1.2],
-            "TGM2_resid": [0.8],
-        })
+        df = pd.DataFrame(
+            {
+                "age": [25],
+                "APOE_resid": [0.5],
+                "IL6_resid": [1.2],
+                "TGM2_resid": [0.8],
+            }
+        )
         proteins = identify_protein_columns(df)
         assert proteins == ["APOE_resid", "IL6_resid", "TGM2_resid"]
 
     def test_exclude_non_protein_columns(self):
         """Should exclude columns without _resid suffix."""
-        df = pd.DataFrame({
-            "APOE": [0.5],  # No suffix
-            "APOE_resid": [0.5],  # Has suffix
-        })
+        df = pd.DataFrame(
+            {
+                "APOE": [0.5],  # No suffix
+                "APOE_resid": [0.5],  # Has suffix
+            }
+        )
         proteins = identify_protein_columns(df)
         assert proteins == ["APOE_resid"]
 
@@ -270,11 +282,13 @@ class TestIdentifyProteinColumns:
 
     def test_sorted_output(self):
         """Should return sorted list of protein names."""
-        df = pd.DataFrame({
-            "ZZZ_resid": [1.0],
-            "AAA_resid": [2.0],
-            "MMM_resid": [3.0],
-        })
+        df = pd.DataFrame(
+            {
+                "ZZZ_resid": [1.0],
+                "AAA_resid": [2.0],
+                "MMM_resid": [3.0],
+            }
+        )
         proteins = identify_protein_columns(df)
         assert proteins == ["AAA_resid", "MMM_resid", "ZZZ_resid"]
 
@@ -284,42 +298,50 @@ class TestGetDataStats:
 
     def test_basic_stats(self):
         """Should compute basic row/column counts."""
-        df = pd.DataFrame({
-            "eid": [1, 2, 3],
-            "CeD_comparison": ["Controls", "Incident", "Controls"],
-        })
+        df = pd.DataFrame(
+            {
+                "eid": [1, 2, 3],
+                "CeD_comparison": ["Controls", "Incident", "Controls"],
+            }
+        )
         stats = get_data_stats(df)
         assert stats["n_rows"] == 3
         assert stats["n_cols"] == 2
 
     def test_protein_count(self):
         """Should count protein columns."""
-        df = pd.DataFrame({
-            "eid": [1],
-            "CeD_comparison": ["Controls"],
-            "IL6_resid": [0.1],
-            "APOE_resid": [0.2],
-        })
+        df = pd.DataFrame(
+            {
+                "eid": [1],
+                "CeD_comparison": ["Controls"],
+                "IL6_resid": [0.1],
+                "APOE_resid": [0.2],
+            }
+        )
         stats = get_data_stats(df)
         assert stats["n_proteins"] == 2
 
     def test_outcome_distribution(self):
         """Should compute outcome counts."""
-        df = pd.DataFrame({
-            "eid": [1, 2, 3],
-            "CeD_comparison": ["Controls", "Incident", "Controls"],
-        })
+        df = pd.DataFrame(
+            {
+                "eid": [1, 2, 3],
+                "CeD_comparison": ["Controls", "Incident", "Controls"],
+            }
+        )
         stats = get_data_stats(df)
         assert stats["outcome_counts"] == {"Controls": 2, "Incident": 1}
 
     def test_missing_metadata(self):
         """Should track missing metadata counts."""
-        df = pd.DataFrame({
-            "eid": [1, 2, 3],
-            "CeD_comparison": ["Controls", "Incident", "Controls"],
-            "age": [25, None, 30],
-            "BMI": [22.5, 23.0, None],
-        })
+        df = pd.DataFrame(
+            {
+                "eid": [1, 2, 3],
+                "CeD_comparison": ["Controls", "Incident", "Controls"],
+                "age": [25, None, 30],
+                "BMI": [22.5, 23.0, None],
+            }
+        )
         stats = get_data_stats(df)
         assert "missing_metadata" in stats
         assert stats["missing_metadata"]["age"] == 1
@@ -327,11 +349,13 @@ class TestGetDataStats:
 
     def test_no_missing_metadata_omitted(self):
         """Should omit missing_metadata key if no missing values."""
-        df = pd.DataFrame({
-            "eid": [1, 2],
-            "CeD_comparison": ["Controls", "Incident"],
-            "age": [25, 30],
-        })
+        df = pd.DataFrame(
+            {
+                "eid": [1, 2],
+                "CeD_comparison": ["Controls", "Incident"],
+                "age": [25, 30],
+            }
+        )
         stats = get_data_stats(df)
         assert "missing_metadata" not in stats
 
@@ -342,11 +366,13 @@ class TestLoadData:
     def test_load_data_convenience(self, tmp_path):
         """Should load data with default settings."""
         csv_path = tmp_path / "test.csv"
-        df = pd.DataFrame({
-            "eid": [1, 2],
-            "CeD_comparison": ["Controls", "Incident"],
-            "IL6_resid": [0.1, 0.2],
-        })
+        df = pd.DataFrame(
+            {
+                "eid": [1, 2],
+                "CeD_comparison": ["Controls", "Incident"],
+                "IL6_resid": [0.1, 0.2],
+            }
+        )
         df.to_csv(csv_path, index=False)
 
         result = load_data(str(csv_path))

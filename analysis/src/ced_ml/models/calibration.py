@@ -7,12 +7,13 @@ This module provides:
 - sklearn CalibratedClassifierCV wrapper utilities
 """
 
+from typing import Tuple
+
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import LinearSVC
-from typing import Tuple
 
 
 def calibration_intercept_slope(y_true: np.ndarray, p: np.ndarray) -> Tuple[float, float]:
@@ -69,11 +70,7 @@ def calib_slope_metric(y: np.ndarray, p: np.ndarray) -> float:
     return float(b)
 
 
-def expected_calibration_error(
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    n_bins: int = 10
-) -> float:
+def expected_calibration_error(y_true: np.ndarray, y_pred: np.ndarray, n_bins: int = 10) -> float:
     """
     Compute Expected Calibration Error (ECE).
 
@@ -181,9 +178,7 @@ class PrevalenceAdjustedModel(BaseEstimator, ClassifierMixin):
         if raw_probs.shape[1] == 2:
             pos_probs = raw_probs[:, 1]
             adjusted_probs = adjust_probabilities_for_prevalence(
-                pos_probs,
-                self.sample_prevalence,
-                self.target_prevalence
+                pos_probs, self.sample_prevalence, self.target_prevalence
             )
             return np.column_stack([1.0 - adjusted_probs, adjusted_probs])
         else:
@@ -227,11 +222,7 @@ def get_calibrated_cv_param_name() -> str:
 
 
 def maybe_calibrate_estimator(
-    estimator,
-    model_name: str,
-    calibrate: bool,
-    method: str = "sigmoid",
-    cv: int = 3
+    estimator, model_name: str, calibrate: bool, method: str = "sigmoid", cv: int = 3
 ):
     """
     Optional calibration wrapper for LR/RF (SVM is already calibrated).

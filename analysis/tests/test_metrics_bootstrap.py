@@ -11,7 +11,7 @@ Covers:
 
 import numpy as np
 import pytest
-from sklearn.metrics import roc_auc_score, brier_score_loss
+from sklearn.metrics import brier_score_loss, roc_auc_score
 
 from ced_ml.metrics.bootstrap import (
     _safe_metric,
@@ -72,23 +72,15 @@ class TestStratifiedBootstrapCI:
     def test_reproducibility(self, basic_data):
         """Should produce identical results with same seed."""
         y_true, y_pred = basic_data
-        ci1 = stratified_bootstrap_ci(
-            y_true, y_pred, roc_auc_score, n_boot=100, seed=42
-        )
-        ci2 = stratified_bootstrap_ci(
-            y_true, y_pred, roc_auc_score, n_boot=100, seed=42
-        )
+        ci1 = stratified_bootstrap_ci(y_true, y_pred, roc_auc_score, n_boot=100, seed=42)
+        ci2 = stratified_bootstrap_ci(y_true, y_pred, roc_auc_score, n_boot=100, seed=42)
         assert ci1 == ci2
 
     def test_different_seeds_differ(self, basic_data):
         """Should produce different results with different seeds."""
         y_true, y_pred = basic_data
-        ci1 = stratified_bootstrap_ci(
-            y_true, y_pred, roc_auc_score, n_boot=100, seed=42
-        )
-        ci2 = stratified_bootstrap_ci(
-            y_true, y_pred, roc_auc_score, n_boot=100, seed=999
-        )
+        ci1 = stratified_bootstrap_ci(y_true, y_pred, roc_auc_score, n_boot=100, seed=42)
+        ci2 = stratified_bootstrap_ci(y_true, y_pred, roc_auc_score, n_boot=100, seed=999)
         assert ci1 != ci2
 
     def test_insufficient_cases(self):
@@ -96,27 +88,21 @@ class TestStratifiedBootstrapCI:
         y_true = np.array([0, 0, 0, 1])  # Only 1 case
         y_pred = np.array([0.1, 0.2, 0.3, 0.9])
         with pytest.raises(ValueError, match="Insufficient samples"):
-            stratified_bootstrap_ci(
-                y_true, y_pred, roc_auc_score, n_boot=100
-            )
+            stratified_bootstrap_ci(y_true, y_pred, roc_auc_score, n_boot=100)
 
     def test_insufficient_controls(self):
         """Should raise ValueError with <2 controls."""
         y_true = np.array([1, 1, 1, 0])  # Only 1 control
         y_pred = np.array([0.7, 0.8, 0.9, 0.1])
         with pytest.raises(ValueError, match="Insufficient samples"):
-            stratified_bootstrap_ci(
-                y_true, y_pred, roc_auc_score, n_boot=100
-            )
+            stratified_bootstrap_ci(y_true, y_pred, roc_auc_score, n_boot=100)
 
     def test_length_mismatch(self):
         """Should raise ValueError on length mismatch."""
         y_true = np.array([0, 0, 1, 1])
         y_pred = np.array([0.1, 0.2, 0.8])  # Too short
         with pytest.raises(ValueError, match="Length mismatch"):
-            stratified_bootstrap_ci(
-                y_true, y_pred, roc_auc_score, n_boot=100
-            )
+            stratified_bootstrap_ci(y_true, y_pred, roc_auc_score, n_boot=100)
 
     def test_nan_on_insufficient_valid_samples(self):
         """Should return (NaN, NaN) if too few valid bootstrap samples."""
@@ -163,8 +149,7 @@ class TestStratifiedBootstrapCI:
 
         # With higher threshold, may get NaN if some samples fail
         ci_lower, ci_upper = stratified_bootstrap_ci(
-            y_true, y_pred, roc_auc_score,
-            n_boot=100, seed=42, min_valid_frac=0.99
+            y_true, y_pred, roc_auc_score, n_boot=100, seed=42, min_valid_frac=0.99
         )
         # Should still succeed with good data
         assert isinstance(ci_lower, float)
@@ -209,12 +194,8 @@ class TestStratifiedBootstrapDiffCI:
     def test_diff_reproducibility(self, two_model_data):
         """Should be reproducible with same seed."""
         y_true, p1, p2 = two_model_data
-        result1 = stratified_bootstrap_diff_ci(
-            y_true, p1, p2, roc_auc_score, n_boot=100, seed=42
-        )
-        result2 = stratified_bootstrap_diff_ci(
-            y_true, p1, p2, roc_auc_score, n_boot=100, seed=42
-        )
+        result1 = stratified_bootstrap_diff_ci(y_true, p1, p2, roc_auc_score, n_boot=100, seed=42)
+        result2 = stratified_bootstrap_diff_ci(y_true, p1, p2, roc_auc_score, n_boot=100, seed=42)
         assert result1 == result2
 
     def test_diff_full_sample(self, two_model_data):
@@ -234,9 +215,7 @@ class TestStratifiedBootstrapDiffCI:
         p1 = np.array([0.1, 0.2, 0.8])  # Too short
         p2 = np.array([0.2, 0.3, 0.7, 0.9])
         with pytest.raises(ValueError, match="Length mismatch"):
-            stratified_bootstrap_diff_ci(
-                y_true, p1, p2, roc_auc_score, n_boot=100
-            )
+            stratified_bootstrap_diff_ci(y_true, p1, p2, roc_auc_score, n_boot=100)
 
     def test_diff_length_mismatch_p1_p2(self):
         """Should raise ValueError on p1/p2 length mismatch."""
@@ -244,9 +223,7 @@ class TestStratifiedBootstrapDiffCI:
         p1 = np.array([0.1, 0.2, 0.8, 0.9])
         p2 = np.array([0.2, 0.3, 0.7])  # Too short
         with pytest.raises(ValueError, match="Length mismatch"):
-            stratified_bootstrap_diff_ci(
-                y_true, p1, p2, roc_auc_score, n_boot=100
-            )
+            stratified_bootstrap_diff_ci(y_true, p1, p2, roc_auc_score, n_boot=100)
 
     def test_diff_insufficient_samples(self):
         """Should raise ValueError with insufficient samples."""
@@ -254,9 +231,7 @@ class TestStratifiedBootstrapDiffCI:
         p1 = np.array([0.1, 0.2, 0.3, 0.9])
         p2 = np.array([0.2, 0.3, 0.4, 0.8])
         with pytest.raises(ValueError, match="Insufficient samples"):
-            stratified_bootstrap_diff_ci(
-                y_true, p1, p2, roc_auc_score, n_boot=100
-            )
+            stratified_bootstrap_diff_ci(y_true, p1, p2, roc_auc_score, n_boot=100)
 
     def test_diff_nan_on_invalid_bootstrap(self):
         """Should return NaN CIs if too few valid bootstrap samples."""
@@ -315,8 +290,7 @@ class TestStratifiedBootstrapDiffCI:
         """Should respect min_valid_frac parameter."""
         y_true, p1, p2 = two_model_data
         diff, ci_lower, ci_upper = stratified_bootstrap_diff_ci(
-            y_true, p1, p2, roc_auc_score,
-            n_boot=100, seed=42, min_valid_frac=0.5
+            y_true, p1, p2, roc_auc_score, n_boot=100, seed=42, min_valid_frac=0.5
         )
         assert isinstance(diff, float)
         assert isinstance(ci_lower, float)

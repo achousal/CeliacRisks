@@ -10,26 +10,28 @@ References:
 - XGBoost tree_method controls CPU vs GPU acceleration
 """
 
-import re
 import math
 import numbers
+import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+import sklearn
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import LinearSVC
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.calibration import CalibratedClassifierCV
-import sklearn
 
 try:
     from xgboost import XGBClassifier
+
     XGBOOST_AVAILABLE = True
 except (ImportError, Exception):
     XGBOOST_AVAILABLE = False
     XGBClassifier = None  # type: ignore
 
 from ..config.schema import TrainingConfig
+
 
 # ----------------------------
 # sklearn version compatibility
@@ -39,6 +41,7 @@ def _sklearn_version_tuple(ver: str) -> Tuple[int, int, int]:
     nums = re.findall(r"\d+", ver)
     nums = (nums + ["0", "0", "0"])[:3]
     return (int(nums[0]), int(nums[1]), int(nums[2]))
+
 
 SKLEARN_VER = _sklearn_version_tuple(getattr(sklearn, "__version__", "0.0.0"))
 
@@ -165,7 +168,9 @@ def _coerce_int_or_none_list(vals: List[Any], *, name: str) -> List[Any]:
     return out
 
 
-def _coerce_min_samples_leaf_list(vals: List[Any], *, name: str = "rf_min_samples_leaf_grid") -> List[Any]:
+def _coerce_min_samples_leaf_list(
+    vals: List[Any], *, name: str = "rf_min_samples_leaf_grid"
+) -> List[Any]:
     """Coerce min_samples_leaf grid to sklearn-compatible types.
 
     sklearn accepts:
@@ -254,7 +259,9 @@ def parse_class_weight_options(s: str) -> List:
     return out2
 
 
-def make_logspace(minv: float, maxv: float, points: int, rng: Optional[np.random.RandomState] = None) -> np.ndarray:
+def make_logspace(
+    minv: float, maxv: float, points: int, rng: Optional[np.random.RandomState] = None
+) -> np.ndarray:
     """Generate log-spaced values for regularization parameters.
 
     Args:
@@ -336,14 +343,18 @@ def _randomize_numeric_list(
         for i, val in enumerate(sorted_vals):
             # Determine perturbation range based on neighbors
             if i == 0:
-                gap = (sorted_vals[i+1] - val) / 2 if i+1 < len(sorted_vals) else (high - low) * 0.1
+                gap = (
+                    (sorted_vals[i + 1] - val) / 2
+                    if i + 1 < len(sorted_vals)
+                    else (high - low) * 0.1
+                )
                 noise = rng.uniform(-gap * 0.5, gap)
             elif i == len(sorted_vals) - 1:
-                gap = (val - sorted_vals[i-1]) / 2
+                gap = (val - sorted_vals[i - 1]) / 2
                 noise = rng.uniform(-gap, gap * 0.5)
             else:
-                gap_left = (val - sorted_vals[i-1]) / 2
-                gap_right = (sorted_vals[i+1] - val) / 2
+                gap_left = (val - sorted_vals[i - 1]) / 2
+                gap_right = (sorted_vals[i + 1] - val) / 2
                 noise = rng.uniform(-gap_left, gap_right)
 
             perturbed_val = val + noise
@@ -361,14 +372,18 @@ def _randomize_numeric_list(
             for i, val in enumerate(sorted_vals):
                 int_val = int(val)
                 if i == 0:
-                    gap = int((sorted_vals[i+1] - val) / 2) if i+1 < len(sorted_vals) else max(1, int((high - low) * 0.1))
+                    gap = (
+                        int((sorted_vals[i + 1] - val) / 2)
+                        if i + 1 < len(sorted_vals)
+                        else max(1, int((high - low) * 0.1))
+                    )
                     offset = rng.randint(-max(1, gap // 2), gap + 1)
                 elif i == len(sorted_vals) - 1:
-                    gap = int((val - sorted_vals[i-1]) / 2)
+                    gap = int((val - sorted_vals[i - 1]) / 2)
                     offset = rng.randint(-gap, max(1, gap // 2) + 1)
                 else:
-                    gap_left = int((val - sorted_vals[i-1]) / 2)
-                    gap_right = int((sorted_vals[i+1] - val) / 2)
+                    gap_left = int((val - sorted_vals[i - 1]) / 2)
+                    gap_right = int((sorted_vals[i + 1] - val) / 2)
                     offset = rng.randint(-gap_left, gap_right + 1)
 
                 perturbed_val = int_val + offset
@@ -461,13 +476,13 @@ def build_logistic_regression(
     Returns:
         Configured LogisticRegression estimator
     """
-    lr_common = dict(
-        solver=solver,
-        C=C,
-        max_iter=int(max_iter),
-        tol=float(tol),
-        random_state=int(random_state),
-    )
+    lr_common = {
+        "solver": solver,
+        "C": C,
+        "max_iter": int(max_iter),
+        "tol": float(tol),
+        "random_state": int(random_state),
+    }
 
     # sklearn >=1.8 deprecates penalty=, uses l1_ratio
     if SKLEARN_VER >= (1, 8, 0):
@@ -498,16 +513,9 @@ def build_linear_svm_calibrated(
         CalibratedClassifierCV wrapping LinearSVC
     """
     base_svm = LinearSVC(
-        C=C,
-        class_weight=None,
-        random_state=int(random_state),
-        max_iter=int(max_iter)
+        C=C, class_weight=None, random_state=int(random_state), max_iter=int(max_iter)
     )
-    return CalibratedClassifierCV(
-        base_svm,
-        method=str(calibration_method),
-        cv=int(calibration_cv)
-    )
+    return CalibratedClassifierCV(base_svm, method=str(calibration_method), cv=int(calibration_cv))
 
 
 def build_random_forest(
@@ -537,16 +545,16 @@ def build_random_forest(
     Returns:
         Configured RandomForestClassifier
     """
-    rf_kwargs = dict(
-        n_estimators=int(n_estimators),
-        max_depth=max_depth,
-        min_samples_leaf=min_samples_leaf,
-        min_samples_split=min_samples_split,
-        max_features=max_features,
-        bootstrap=bool(bootstrap),
-        random_state=int(random_state),
-        n_jobs=int(max(1, n_jobs)),
-    )
+    rf_kwargs = {
+        "n_estimators": int(n_estimators),
+        "max_depth": max_depth,
+        "min_samples_leaf": min_samples_leaf,
+        "min_samples_split": min_samples_split,
+        "max_features": max_features,
+        "bootstrap": bool(bootstrap),
+        "random_state": int(random_state),
+        "n_jobs": int(max(1, n_jobs)),
+    }
 
     if max_samples is not None:
         try:
@@ -614,7 +622,7 @@ def build_xgboost(
         eval_metric="logloss",
         tree_method=tree_method,
         random_state=int(random_state),
-        n_jobs=int(max(1, n_jobs)) if tree_method != "gpu_hist" else 1
+        n_jobs=int(max(1, n_jobs)) if tree_method != "gpu_hist" else 1,
     )
 
 
@@ -697,7 +705,9 @@ def build_models(
             scale_pos_weight=spw,
             reg_alpha=config.xgboost.reg_alpha[0] if config.xgboost.reg_alpha else 0.0,
             reg_lambda=config.xgboost.reg_lambda[0] if config.xgboost.reg_lambda else 1.0,
-            min_child_weight=config.xgboost.min_child_weight[0] if config.xgboost.min_child_weight else 1,
+            min_child_weight=(
+                config.xgboost.min_child_weight[0] if config.xgboost.min_child_weight else 1
+            ),
             gamma=config.xgboost.gamma[0] if config.xgboost.gamma else 0.0,
             tree_method=config.xgboost.tree_method,
             random_state=random_state,
@@ -749,8 +759,8 @@ def get_param_distributions(
             d["sel__k"] = k_grid
 
     # Get hyperparameter grids from config
-    lr_Cs = config.lr.C if hasattr(config.lr, 'C') else [0.001, 0.01, 0.1, 1.0, 10.0]
-    svm_Cs = config.svm.C if hasattr(config.svm, 'C') else [0.01, 0.1, 1.0, 10.0]
+    lr_Cs = config.lr.C if hasattr(config.lr, "C") else [0.001, 0.01, 0.1, 1.0, 10.0]
+    svm_Cs = config.svm.C if hasattr(config.svm, "C") else [0.01, 0.1, 1.0, 10.0]
 
     # Convert class_weight strings to lists
     lr_class_weight = [config.lr.class_weight] if config.lr.class_weight else [None]
@@ -759,50 +769,65 @@ def get_param_distributions(
 
     # Model-specific grids
     if model_name == "LR_L1":
-        d.update({
-            "clf__C": lr_Cs,
-            "clf__class_weight": lr_class_weight
-        })
+        d.update({"clf__C": lr_Cs, "clf__class_weight": lr_class_weight})
         return d
 
     if model_name == "LR_EN":
-        l1_grid = config.lr.l1_ratio if hasattr(config.lr, 'l1_ratio') else [0.05, 0.1, 0.2, 0.4, 0.6, 0.8, 0.95]
+        l1_grid = (
+            config.lr.l1_ratio
+            if hasattr(config.lr, "l1_ratio")
+            else [0.05, 0.1, 0.2, 0.4, 0.6, 0.8, 0.95]
+        )
         if rng is not None:
             l1_grid = _randomize_numeric_list(
                 l1_grid, rng, min_float=0.0, max_float=1.0, perturb_mode=True
             )
-        d.update({
-            "clf__C": lr_Cs,
-            "clf__l1_ratio": l1_grid,
-            "clf__class_weight": lr_class_weight,
-        })
+        d.update(
+            {
+                "clf__C": lr_Cs,
+                "clf__l1_ratio": l1_grid,
+                "clf__class_weight": lr_class_weight,
+            }
+        )
         return d
 
     if model_name == "LinSVM_cal":
         # Handle sklearn API differences
-        est_key = "estimator" if "estimator" in CalibratedClassifierCV(LinearSVC()).get_params() else "base_estimator"
-        d.update({
-            f"clf__{est_key}__C": svm_Cs,
-            f"clf__{est_key}__class_weight": svm_class_weight,
-        })
+        est_key = (
+            "estimator"
+            if "estimator" in CalibratedClassifierCV(LinearSVC()).get_params()
+            else "base_estimator"
+        )
+        d.update(
+            {
+                f"clf__{est_key}__C": svm_Cs,
+                f"clf__{est_key}__class_weight": svm_class_weight,
+            }
+        )
         return d
 
     if model_name == "RF":
-        n_estimators_grid = config.rf.n_estimators if hasattr(config.rf, 'n_estimators') else [100, 300, 500]
+        n_estimators_grid = (
+            config.rf.n_estimators if hasattr(config.rf, "n_estimators") else [100, 300, 500]
+        )
         if rng is not None:
             n_estimators_grid = _randomize_numeric_list(
                 n_estimators_grid, rng, as_int=True, min_int=1, unique_int=True, perturb_mode=True
             )
 
-        max_depth = config.rf.max_depth if hasattr(config.rf, 'max_depth') else [None, 10, 20, 40]
+        max_depth = config.rf.max_depth if hasattr(config.rf, "max_depth") else [None, 10, 20, 40]
         if rng is not None:
             max_depth = _randomize_numeric_list(
                 max_depth, rng, as_int=True, min_int=1, unique_int=True, perturb_mode=True
             )
 
-        min_leaf = config.rf.min_samples_leaf if hasattr(config.rf, 'min_samples_leaf') else [1, 2, 4]
-        min_split = config.rf.min_samples_split if hasattr(config.rf, 'min_samples_split') else [2, 5, 10]
-        max_feat = config.rf.max_features if hasattr(config.rf, 'max_features') else ["sqrt", 0.5]
+        min_leaf = (
+            config.rf.min_samples_leaf if hasattr(config.rf, "min_samples_leaf") else [1, 2, 4]
+        )
+        min_split = (
+            config.rf.min_samples_split if hasattr(config.rf, "min_samples_split") else [2, 5, 10]
+        )
+        max_feat = config.rf.max_features if hasattr(config.rf, "max_features") else ["sqrt", 0.5]
 
         if rng is not None:
             max_feat = _randomize_numeric_list(
@@ -812,23 +837,41 @@ def get_param_distributions(
                 min_split, rng, as_int=True, min_int=2, unique_int=True, perturb_mode=True
             )
 
-        d.update({
-            "clf__n_estimators": n_estimators_grid,
-            "clf__max_depth": max_depth,
-            "clf__min_samples_leaf": min_leaf,
-            "clf__min_samples_split": min_split,
-            "clf__max_features": max_feat,
-            "clf__class_weight": rf_class_weight,
-        })
+        d.update(
+            {
+                "clf__n_estimators": n_estimators_grid,
+                "clf__max_depth": max_depth,
+                "clf__min_samples_leaf": min_leaf,
+                "clf__min_samples_split": min_split,
+                "clf__max_features": max_feat,
+                "clf__class_weight": rf_class_weight,
+            }
+        )
 
         return d
 
     if model_name == "XGBoost":
-        n_estimators_grid = config.xgboost.n_estimators if hasattr(config.xgboost, 'n_estimators') else [100, 300, 500]
-        max_depth_grid = config.xgboost.max_depth if hasattr(config.xgboost, 'max_depth') else [3, 5, 7]
-        learning_rate_grid = config.xgboost.learning_rate if hasattr(config.xgboost, 'learning_rate') else [0.01, 0.05, 0.1]
-        subsample_grid = config.xgboost.subsample if hasattr(config.xgboost, 'subsample') else [0.7, 0.8, 1.0]
-        colsample_grid = config.xgboost.colsample_bytree if hasattr(config.xgboost, 'colsample_bytree') else [0.7, 0.8, 1.0]
+        n_estimators_grid = (
+            config.xgboost.n_estimators
+            if hasattr(config.xgboost, "n_estimators")
+            else [100, 300, 500]
+        )
+        max_depth_grid = (
+            config.xgboost.max_depth if hasattr(config.xgboost, "max_depth") else [3, 5, 7]
+        )
+        learning_rate_grid = (
+            config.xgboost.learning_rate
+            if hasattr(config.xgboost, "learning_rate")
+            else [0.01, 0.05, 0.1]
+        )
+        subsample_grid = (
+            config.xgboost.subsample if hasattr(config.xgboost, "subsample") else [0.7, 0.8, 1.0]
+        )
+        colsample_grid = (
+            config.xgboost.colsample_bytree
+            if hasattr(config.xgboost, "colsample_bytree")
+            else [0.7, 0.8, 1.0]
+        )
         spw_grid = [float(xgb_scale_pos_weight)] if xgb_scale_pos_weight is not None else [1.0]
 
         if rng is not None:
@@ -847,18 +890,18 @@ def get_param_distributions(
             colsample_grid = _randomize_numeric_list(
                 colsample_grid, rng, min_float=0.1, max_float=1.0, perturb_mode=True
             )
-            spw_grid = _randomize_numeric_list(
-                spw_grid, rng, min_float=1e-3, perturb_mode=True
-            )
+            spw_grid = _randomize_numeric_list(spw_grid, rng, min_float=1e-3, perturb_mode=True)
 
-        d.update({
-            "clf__n_estimators": n_estimators_grid,
-            "clf__max_depth": max_depth_grid,
-            "clf__learning_rate": learning_rate_grid,
-            "clf__subsample": subsample_grid,
-            "clf__colsample_bytree": colsample_grid,
-            "clf__scale_pos_weight": spw_grid,
-        })
+        d.update(
+            {
+                "clf__n_estimators": n_estimators_grid,
+                "clf__max_depth": max_depth_grid,
+                "clf__learning_rate": learning_rate_grid,
+                "clf__subsample": subsample_grid,
+                "clf__colsample_bytree": colsample_grid,
+                "clf__scale_pos_weight": spw_grid,
+            }
+        )
         return d
 
     return {}

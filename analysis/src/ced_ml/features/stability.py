@@ -11,10 +11,11 @@ Design:
 - Stability threshold = minimum frequency for inclusion in stable panel
 """
 
-from typing import Dict, List, Tuple
 import json
-import pandas as pd
+from typing import Dict, List, Tuple
+
 import numpy as np
+import pandas as pd
 
 
 def compute_selection_frequencies(
@@ -96,16 +97,17 @@ def build_frequency_panel(
         return pd.DataFrame(columns=["protein", "selection_freq", "rank"])
 
     # Build initial panel with all proteins
-    df = pd.DataFrame([
-        {"protein": protein, "selection_freq": freq}
-        for protein, freq in selection_frequencies.items()
-    ])
+    df = pd.DataFrame(
+        [
+            {"protein": protein, "selection_freq": freq}
+            for protein, freq in selection_frequencies.items()
+        ]
+    )
 
     # Sort by frequency (descending), then protein name (ascending)
-    df = df.sort_values(
-        ["selection_freq", "protein"],
-        ascending=[False, True]
-    ).reset_index(drop=True)
+    df = df.sort_values(["selection_freq", "protein"], ascending=[False, True]).reset_index(
+        drop=True
+    )
 
     df["rank"] = np.arange(1, len(df) + 1, dtype=int)
 
@@ -187,11 +189,13 @@ def extract_stable_panel(
     rows = []
     for protein in all_proteins:
         freq = sum(protein in union for union in repeat_unions) / n_repeats
-        rows.append({
-            "protein": protein,
-            "selection_freq": freq,
-            "kept": freq >= stability_threshold,
-        })
+        rows.append(
+            {
+                "protein": protein,
+                "selection_freq": freq,
+                "kept": freq >= stability_threshold,
+            }
+        )
 
     panel_df = pd.DataFrame(rows)
     if panel_df.empty:
@@ -199,8 +203,7 @@ def extract_stable_panel(
 
     # Sort: kept first, then by frequency (desc), then by name (asc)
     panel_df = panel_df.sort_values(
-        ["kept", "selection_freq", "protein"],
-        ascending=[False, False, True]
+        ["kept", "selection_freq", "protein"], ascending=[False, False, True]
     ).reset_index(drop=True)
 
     stable_proteins = panel_df[panel_df["kept"]]["protein"].tolist()
@@ -214,9 +217,7 @@ def extract_stable_panel(
     return panel_df, stable_proteins, repeat_unions
 
 
-def rank_proteins_by_frequency(
-    selection_frequencies: Dict[str, float]
-) -> List[str]:
+def rank_proteins_by_frequency(selection_frequencies: Dict[str, float]) -> List[str]:
     """Rank proteins by selection frequency (descending), breaking ties by name.
 
     Args:
@@ -234,7 +235,4 @@ def rank_proteins_by_frequency(
         return []
 
     # Sort by frequency (desc), then protein name (asc)
-    return sorted(
-        selection_frequencies.keys(),
-        key=lambda p: (-selection_frequencies[p], p)
-    )
+    return sorted(selection_frequencies.keys(), key=lambda p: (-selection_frequencies[p], p))

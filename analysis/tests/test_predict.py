@@ -1,21 +1,22 @@
 """Tests for evaluation/predict.py (prediction generation)."""
 
+import os
+import tempfile
+
 import numpy as np
 import pandas as pd
 import pytest
-import tempfile
-import os
+from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
 
 from ced_ml.evaluation.predict import (
+    export_predictions,
     generate_predictions,
     generate_predictions_with_adjustment,
-    export_predictions,
-    predict_on_validation,
-    predict_on_test,
     predict_on_holdout,
+    predict_on_test,
+    predict_on_validation,
 )
 from ced_ml.models.prevalence import PrevalenceAdjustedModel
 
@@ -27,10 +28,9 @@ def simple_model():
     X = pd.DataFrame(np.random.randn(100, 5), columns=[f"feat_{i}" for i in range(5)])
     y = np.random.randint(0, 2, size=100)
 
-    pipe = Pipeline([
-        ("scaler", StandardScaler()),
-        ("clf", LogisticRegression(random_state=42, max_iter=200))
-    ])
+    pipe = Pipeline(
+        [("scaler", StandardScaler()), ("clf", LogisticRegression(random_state=42, max_iter=200))]
+    )
     pipe.fit(X, y)
     return pipe
 
@@ -56,6 +56,7 @@ def test_generate_predictions_basic(simple_model, test_data):
 
 def test_generate_predictions_clipping():
     """Test that predictions are clipped to [0, 1]."""
+
     class MockModel:
         def predict_proba(self, X):
             # Return out-of-range values
@@ -75,9 +76,7 @@ def test_generate_predictions_prevalence_adjusted_model(simple_model, test_data)
     """Test prediction generation with PrevalenceAdjustedModel."""
     X, _ = test_data
     adjusted_model = PrevalenceAdjustedModel(
-        base_model=simple_model,
-        sample_prevalence=0.5,
-        target_prevalence=0.1
+        base_model=simple_model, sample_prevalence=0.5, target_prevalence=0.1
     )
 
     # Raw predictions (from base model)
@@ -98,10 +97,7 @@ def test_generate_predictions_with_adjustment_basic(simple_model, test_data):
     """Test generating both raw and adjusted predictions."""
     X, _ = test_data
     preds = generate_predictions_with_adjustment(
-        model=simple_model,
-        X=X,
-        train_prevalence=0.5,
-        target_prevalence=0.1
+        model=simple_model, X=X, train_prevalence=0.5, target_prevalence=0.1
     )
 
     assert "raw" in preds
@@ -118,18 +114,12 @@ def test_generate_predictions_with_adjustment_prevalence_effect(simple_model, te
 
     # Adjust from 50% to 10% (should decrease)
     preds_down = generate_predictions_with_adjustment(
-        model=simple_model,
-        X=X,
-        train_prevalence=0.5,
-        target_prevalence=0.1
+        model=simple_model, X=X, train_prevalence=0.5, target_prevalence=0.1
     )
 
     # Adjust from 10% to 50% (should increase)
     preds_up = generate_predictions_with_adjustment(
-        model=simple_model,
-        X=X,
-        train_prevalence=0.1,
-        target_prevalence=0.5
+        model=simple_model, X=X, train_prevalence=0.1, target_prevalence=0.5
     )
 
     assert preds_down["adjusted"].mean() < preds_down["raw"].mean()
@@ -140,10 +130,7 @@ def test_export_predictions_basic(simple_model, test_data):
     """Test basic prediction export."""
     X, y = test_data
     preds = generate_predictions_with_adjustment(
-        model=simple_model,
-        X=X,
-        train_prevalence=0.5,
-        target_prevalence=0.1
+        model=simple_model, X=X, train_prevalence=0.5, target_prevalence=0.1
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -169,10 +156,7 @@ def test_export_predictions_with_ids_and_target(simple_model, test_data):
     """Test prediction export with custom IDs and target column."""
     X, y = test_data
     preds = generate_predictions_with_adjustment(
-        model=simple_model,
-        X=X,
-        train_prevalence=0.5,
-        target_prevalence=0.1
+        model=simple_model, X=X, train_prevalence=0.5, target_prevalence=0.1
     )
 
     ids = np.array([f"SUBJ_{i:04d}" for i in range(len(y))])
@@ -198,10 +182,7 @@ def test_export_predictions_active_key(simple_model, test_data):
     """Test prediction export with custom active key."""
     X, y = test_data
     preds = generate_predictions_with_adjustment(
-        model=simple_model,
-        X=X,
-        train_prevalence=0.5,
-        target_prevalence=0.1
+        model=simple_model, X=X, train_prevalence=0.5, target_prevalence=0.1
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -223,10 +204,7 @@ def test_export_predictions_percentile(simple_model, test_data):
     """Test prediction export with percentile columns."""
     X, y = test_data
     preds = generate_predictions_with_adjustment(
-        model=simple_model,
-        X=X,
-        train_prevalence=0.5,
-        target_prevalence=0.1
+        model=simple_model, X=X, train_prevalence=0.5, target_prevalence=0.1
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -241,10 +219,7 @@ def test_export_predictions_percentile(simple_model, test_data):
         df = pd.read_csv(out_path)
         assert "risk_raw_pct" in df.columns
         assert "risk_adjusted_pct" in df.columns
-        np.testing.assert_array_almost_equal(
-            df["risk_raw_pct"].values,
-            100.0 * preds["raw"]
-        )
+        np.testing.assert_array_almost_equal(df["risk_raw_pct"].values, 100.0 * preds["raw"])
 
 
 def test_export_predictions_no_percentile(simple_model, test_data):
@@ -289,7 +264,7 @@ def test_predict_on_validation(simple_model, test_data):
         y_val=y,
         train_prevalence=0.5,
         target_prevalence=0.1,
-        use_adjusted=True
+        use_adjusted=True,
     )
 
     assert "raw" in result
@@ -316,7 +291,7 @@ def test_predict_on_validation_raw_active(simple_model, test_data):
         y_val=y,
         train_prevalence=0.5,
         target_prevalence=0.1,
-        use_adjusted=False
+        use_adjusted=False,
     )
 
     # Active should be raw
@@ -332,7 +307,7 @@ def test_predict_on_test(simple_model, test_data):
         y_test=y,
         train_prevalence=0.5,
         target_prevalence=0.1,
-        use_adjusted=True
+        use_adjusted=True,
     )
 
     assert "raw" in result
@@ -346,16 +321,10 @@ def test_predict_on_holdout_prevalence_adjusted_model(simple_model, test_data):
     """Test holdout predictions with PrevalenceAdjustedModel."""
     X, y = test_data
     adjusted_model = PrevalenceAdjustedModel(
-        base_model=simple_model,
-        sample_prevalence=0.5,
-        target_prevalence=0.1
+        base_model=simple_model, sample_prevalence=0.5, target_prevalence=0.1
     )
 
-    result = predict_on_holdout(
-        model=adjusted_model,
-        X_holdout=X,
-        y_holdout=y
-    )
+    result = predict_on_holdout(model=adjusted_model, X_holdout=X, y_holdout=y)
 
     assert "raw" in result
     assert "adjusted" in result
@@ -370,11 +339,7 @@ def test_predict_on_holdout_pipeline(simple_model, test_data):
     """Test holdout predictions with Pipeline model."""
     X, y = test_data
     result = predict_on_holdout(
-        model=simple_model,
-        X_holdout=X,
-        y_holdout=y,
-        train_prevalence=0.5,
-        target_prevalence=0.1
+        model=simple_model, X_holdout=X, y_holdout=y, train_prevalence=0.5, target_prevalence=0.1
     )
 
     assert "raw" in result
@@ -386,11 +351,7 @@ def test_predict_on_holdout_pipeline_missing_prevalence(simple_model, test_data)
     """Test that holdout predictions raise error when prevalence missing."""
     X, y = test_data
     with pytest.raises(ValueError, match="train_prevalence and target_prevalence required"):
-        predict_on_holdout(
-            model=simple_model,
-            X_holdout=X,
-            y_holdout=y
-        )
+        predict_on_holdout(model=simple_model, X_holdout=X, y_holdout=y)
 
 
 def test_predict_on_holdout_metadata(simple_model, test_data):
@@ -403,7 +364,7 @@ def test_predict_on_holdout_metadata(simple_model, test_data):
         X_holdout=X,
         y_holdout=y_custom,
         train_prevalence=0.5,
-        target_prevalence=0.1
+        target_prevalence=0.1,
     )
 
     assert result["n"] == 50
@@ -427,7 +388,7 @@ def test_end_to_end_prediction_workflow(simple_model):
         y_val=y_val,
         train_prevalence=0.5,
         target_prevalence=0.003,
-        use_adjusted=True
+        use_adjusted=True,
     )
 
     # Generate test predictions
@@ -437,7 +398,7 @@ def test_end_to_end_prediction_workflow(simple_model):
         y_test=y_test,
         train_prevalence=0.5,
         target_prevalence=0.003,
-        use_adjusted=True
+        use_adjusted=True,
     )
 
     # Export both

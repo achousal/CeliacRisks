@@ -10,6 +10,7 @@ Provides:
 """
 
 import json
+import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -21,10 +22,7 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.model_selection import RepeatedStratifiedKFold, StratifiedKFold
 from sklearn.pipeline import Pipeline
 
-import logging
-
 from ..config import TrainingConfig
-from ..data.schema import PROTEIN_SUFFIX
 
 logger = logging.getLogger(__name__)
 
@@ -82,15 +80,14 @@ def oof_predictions_with_nested_cv(
     # Setup outer CV splitter
     if n_splits < 2:
         logger.warning(
-            f"[cv] WARNING: folds={n_splits} < 2; skipping outer CV, using in-sample predictions.")
+            f"[cv] WARNING: folds={n_splits} < 2; skipping outer CV, using in-sample predictions."
+        )
         all_indices = np.arange(n_samples, dtype=int)
         split_iterator = ((all_indices, all_indices) for _ in range(n_repeats))
         split_divisor = 1
     else:
         rskf = RepeatedStratifiedKFold(
-            n_splits=n_splits,
-            n_repeats=n_repeats,
-            random_state=random_state
+            n_splits=n_splits, n_repeats=n_repeats, random_state=random_state
         )
         split_iterator = rskf.split(X, y)
         split_divisor = n_splits
@@ -116,12 +113,7 @@ def oof_predictions_with_nested_cv(
 
         # Build inner CV hyperparameter search
         search = _build_hyperparameter_search(
-            base_pipeline,
-            model_name,
-            config,
-            random_state,
-            xgb_spw,
-            grid_rng
+            base_pipeline, model_name, config, random_state, xgb_spw, grid_rng
         )
 
         # Fit model (with or without search)
@@ -131,8 +123,8 @@ def oof_predictions_with_nested_cv(
             best_params, best_score = {}, np.nan
         else:
             # Use loky backend for multi-threaded search to avoid thread oversubscription
-            if getattr(search, 'n_jobs', 1) and int(search.n_jobs) > 1:
-                with parallel_backend('loky', inner_max_num_threads=1):
+            if getattr(search, "n_jobs", 1) and int(search.n_jobs) > 1:
+                with parallel_backend("loky", inner_max_num_threads=1):
                     search.fit(X.iloc[train_idx], y[train_idx])
             else:
                 search.fit(X.iloc[train_idx], y[train_idx])
@@ -143,12 +135,7 @@ def oof_predictions_with_nested_cv(
 
         # Optional post-hoc calibration (LR/RF only, SVM already calibrated)
         fitted_model = _maybe_apply_calibration(
-            fitted_model,
-            model_name,
-            config,
-            X.iloc[train_idx],
-            y[train_idx],
-            random_state
+            fitted_model, model_name, config, X.iloc[train_idx], y[train_idx], random_state
         )
 
         # Generate OOF predictions for this fold
@@ -157,13 +144,15 @@ def oof_predictions_with_nested_cv(
         preds[repeat_num, test_idx] = proba
 
         # Record best hyperparameters
-        best_params_rows.append({
-            "model": model_name,
-            "repeat": repeat_num,
-            "outer_split": split_idx,
-            "best_score_inner": best_score,
-            "best_params": json.dumps(best_params, sort_keys=True),
-        })
+        best_params_rows.append(
+            {
+                "model": model_name,
+                "repeat": repeat_num,
+                "outer_split": split_idx,
+                "best_score_inner": best_score,
+                "best_params": json.dumps(best_params, sort_keys=True),
+            }
+        )
 
         # Extract selected proteins from this fold
         selected_proteins = _extract_selected_proteins_from_fold(
@@ -173,17 +162,19 @@ def oof_predictions_with_nested_cv(
             config,
             X.iloc[train_idx],
             y[train_idx],
-            random_state
+            random_state,
         )
 
         if selected_proteins:
-            selected_proteins_rows.append({
-                "model": model_name,
-                "repeat": repeat_num,
-                "outer_split": split_idx,
-                "n_selected_proteins": len(selected_proteins),
-                "selected_proteins": json.dumps(sorted(selected_proteins)),
-            })
+            selected_proteins_rows.append(
+                {
+                    "model": model_name,
+                    "repeat": repeat_num,
+                    "outer_split": split_idx,
+                    "n_selected_proteins": len(selected_proteins),
+                    "selected_proteins": json.dumps(sorted(selected_proteins)),
+                }
+            )
 
         split_idx += 1
 
@@ -192,15 +183,13 @@ def oof_predictions_with_nested_cv(
     # Validate: no missing OOF predictions
     for r in range(n_repeats):
         if np.isnan(preds[r]).any():
-            raise RuntimeError(
-                f"Repeat {r} has missing OOF predictions. Check CV splitting logic."
-            )
+            raise RuntimeError(f"Repeat {r} has missing OOF predictions. Check CV splitting logic.")
 
     return (
         preds,
         elapsed_sec,
         pd.DataFrame(best_params_rows),
-        pd.DataFrame(selected_proteins_rows)
+        pd.DataFrame(selected_proteins_rows),
     )
 
 
@@ -263,15 +252,11 @@ def _build_hyperparameter_search(
         RandomizedSearchCV object or None
     """
     from sklearn.model_selection import RandomizedSearchCV
+
     from .hyperparams import get_param_distributions
 
     # Get parameter distributions for this model
-    param_dists = get_param_distributions(
-        model_name,
-        config,
-        xgb_spw=xgb_spw,
-        grid_rng=grid_rng
-    )
+    param_dists = get_param_distributions(model_name, config, xgb_spw=xgb_spw, grid_rng=grid_rng)
 
     if not param_dists:
         return None
@@ -280,21 +265,17 @@ def _build_hyperparameter_search(
     inner_folds = config.cv.inner_folds
     if inner_folds < 2:
         logger.info(
-            f"[tune] WARNING: inner_folds={inner_folds} < 2; skipping hyperparameter search.")
+            f"[tune] WARNING: inner_folds={inner_folds} < 2; skipping hyperparameter search."
+        )
         return None
 
     n_iter = config.cv.n_iter
     if n_iter < 1:
-        logger.warning(
-            f"[tune] WARNING: n_iter={n_iter} < 1; skipping hyperparameter search.")
+        logger.warning(f"[tune] WARNING: n_iter={n_iter} < 1; skipping hyperparameter search.")
         return None
 
     # Build inner CV splitter
-    inner_cv = StratifiedKFold(
-        n_splits=inner_folds,
-        shuffle=True,
-        random_state=random_state
-    )
+    inner_cv = StratifiedKFold(n_splits=inner_folds, shuffle=True, random_state=random_state)
 
     # Determine parallelization strategy
     n_jobs = _get_search_n_jobs(model_name, config)
@@ -385,9 +366,7 @@ def _maybe_apply_calibration(
 
     # Wrap with calibration
     calibrated = CalibratedClassifierCV(
-        estimator=estimator,
-        method=config.calibration.method,
-        cv=config.calibration.cv
+        estimator=estimator, method=config.calibration.method, cv=config.calibration.cv
     )
 
     # Fit on training fold
@@ -442,11 +421,7 @@ def _extract_selected_proteins_from_fold(
 
     # Strategy 1: Extract from screening step (if present)
     if "screen" in pipeline.named_steps:
-        screen_selected = getattr(
-            pipeline.named_steps["screen"],
-            "selected_proteins_",
-            []
-        )
+        screen_selected = getattr(pipeline.named_steps["screen"], "selected_proteins_", [])
         if screen_selected:
             selected_proteins.update(screen_selected)
 
@@ -458,30 +433,20 @@ def _extract_selected_proteins_from_fold(
 
         if kbest_scope == "protein" and "prot_sel" in pipeline.named_steps:
             # Protein-level K-best
-            prot_sel_proteins = getattr(
-                pipeline.named_steps["prot_sel"],
-                "selected_proteins_",
-                []
-            )
+            prot_sel_proteins = getattr(pipeline.named_steps["prot_sel"], "selected_proteins_", [])
             if prot_sel_proteins:
                 selected_proteins.update(prot_sel_proteins)
 
         elif "sel" in pipeline.named_steps:
             # Transformed-space K-best
-            kbest_proteins = _extract_from_kbest_transformed(
-                pipeline,
-                protein_cols
-            )
+            kbest_proteins = _extract_from_kbest_transformed(pipeline, protein_cols)
             if kbest_proteins:
                 selected_proteins.update(kbest_proteins)
 
     # Strategy 3: Extract from model coefficients (linear models)
     if feature_select in ("l1_stability", "hybrid"):
         model_proteins = _extract_from_model_coefficients(
-            pipeline,
-            model_name,
-            protein_cols,
-            config
+            pipeline, model_name, protein_cols, config
         )
         if model_proteins:
             selected_proteins.update(model_proteins)
@@ -493,12 +458,7 @@ def _extract_selected_proteins_from_fold(
         and config.features.selection.rf_use_permutation
     ):
         perm_proteins = _extract_from_rf_permutation(
-            pipeline,
-            X_train,
-            y_train,
-            protein_cols,
-            config,
-            random_state
+            pipeline, X_train, y_train, protein_cols, config, random_state
         )
         if perm_proteins:
             selected_proteins.update(perm_proteins)
@@ -506,10 +466,7 @@ def _extract_selected_proteins_from_fold(
     return sorted(selected_proteins)
 
 
-def _extract_from_kbest_transformed(
-    pipeline: Pipeline,
-    protein_cols: List[str]
-) -> set:
+def _extract_from_kbest_transformed(pipeline: Pipeline, protein_cols: List[str]) -> set:
     """Extract protein names from SelectKBest in transformed space."""
     if "sel" not in pipeline.named_steps:
         return set()
@@ -527,7 +484,7 @@ def _extract_from_kbest_transformed(
     proteins = set()
     for name in selected_names:
         if name.startswith("num__"):
-            orig = name[len("num__"):]
+            orig = name[len("num__") :]
             if orig in protein_cols:
                 proteins.add(orig)
 
@@ -535,10 +492,7 @@ def _extract_from_kbest_transformed(
 
 
 def _extract_from_model_coefficients(
-    pipeline: Pipeline,
-    model_name: str,
-    protein_cols: List[str],
-    config: TrainingConfig
+    pipeline: Pipeline, model_name: str, protein_cols: List[str], config: TrainingConfig
 ) -> set:
     """Extract protein names from linear model coefficients."""
     coef_thresh = config.features.selection.coef_threshold
@@ -583,14 +537,15 @@ def _extract_from_model_coefficients(
     if len(feature_names) != len(coefs):
         logger.warning(
             f"[extract] WARNING: Feature names length ({len(feature_names)}) != "
-            f"coef length ({len(coefs)}); skipping extraction")
+            f"coef length ({len(coefs)}); skipping extraction"
+        )
         return set()
 
     # Extract proteins with |coef| > threshold
     proteins = set()
     for name, c in zip(feature_names, coefs):
         if name.startswith("num__"):
-            orig = name[len("num__"):]
+            orig = name[len("num__") :]
             if orig in protein_cols and abs(c) > coef_thresh:
                 proteins.add(orig)
 
@@ -603,7 +558,7 @@ def _extract_from_rf_permutation(
     y_train: np.ndarray,
     protein_cols: List[str],
     config: TrainingConfig,
-    random_state: int
+    random_state: int,
 ) -> set:
     """Extract important proteins from RF using permutation importance."""
     from sklearn.inspection import permutation_importance
@@ -629,12 +584,11 @@ def _extract_from_rf_permutation(
             scoring=config.cv.scoring,
             n_repeats=config.features.selection.rf_perm_repeats,
             random_state=random_state,
-            n_jobs=1  # Already inside parallel context
+            n_jobs=1,  # Already inside parallel context
         )
         importances = perm_result.importances_mean
     except Exception as e:
-        logger.warning(
-            f"[perm] WARNING: Permutation importance failed: {e}")
+        logger.warning(f"[perm] WARNING: Permutation importance failed: {e}")
         return set()
 
     # Sanity check
@@ -647,7 +601,7 @@ def _extract_from_rf_permutation(
         if not np.isfinite(imp):
             continue
         if name.startswith("num__"):
-            orig = name[len("num__"):]
+            orig = name[len("num__") :]
             if orig in protein_cols:
                 protein_importance[orig] = protein_importance.get(orig, 0.0) + float(imp)
 

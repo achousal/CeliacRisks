@@ -26,14 +26,14 @@ def save_json(obj: Any, path: Union[str, Path], indent: int = 2):
     """Save object as JSON."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     with open(path, "w") as f:
         json.dump(obj, f, indent=indent, default=str)
 
 
 def load_json(path: Union[str, Path]) -> Any:
     """Load JSON file."""
-    with open(path, "r") as f:
+    with open(path) as f:
         return json.load(f)
 
 
@@ -41,7 +41,7 @@ def save_pickle(obj: Any, path: Union[str, Path]):
     """Save object using pickle."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     with open(path, "wb") as f:
         pickle.dump(obj, f)
 

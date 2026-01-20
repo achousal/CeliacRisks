@@ -37,7 +37,7 @@ def _plot_prob_calibration_panel(
     split_ids: Optional[np.ndarray] = None,
     unique_splits: Optional[list] = None,
     panel_title: str = "",
-    variable_sizes: bool = True
+    variable_sizes: bool = True,
 ) -> None:
     """
     Plot a single probability-space calibration panel.
@@ -80,13 +80,25 @@ def _plot_prob_calibration_panel(
         obs_sd = np.nanstd(curves, axis=0)
         obs_lo = np.nanpercentile(curves, 2.5, axis=0)
         obs_hi = np.nanpercentile(curves, 97.5, axis=0)
-        mean_counts = np.nanmean(counts_all, axis=0)
+        np.nanmean(counts_all, axis=0)
         sum_counts = np.nansum(counts_all, axis=0)
 
-        ax.fill_between(bin_centers, np.clip(obs_lo, 0, 1), np.clip(obs_hi, 0, 1),
-                        color="steelblue", alpha=0.15, label="95% CI")
-        ax.fill_between(bin_centers, np.clip(obs_mean - obs_sd, 0, 1), np.clip(obs_mean + obs_sd, 0, 1),
-                        color="steelblue", alpha=0.30, label="±1 SD")
+        ax.fill_between(
+            bin_centers,
+            np.clip(obs_lo, 0, 1),
+            np.clip(obs_hi, 0, 1),
+            color="steelblue",
+            alpha=0.15,
+            label="95% CI",
+        )
+        ax.fill_between(
+            bin_centers,
+            np.clip(obs_mean - obs_sd, 0, 1),
+            np.clip(obs_mean + obs_sd, 0, 1),
+            color="steelblue",
+            alpha=0.30,
+            label="±1 SD",
+        )
 
         valid = ~np.isnan(obs_mean) & (sum_counts > 0)
         # Only use variable marker sizes for uniform binning; quantile binning gets fixed sizes
@@ -98,10 +110,23 @@ def _plot_prob_calibration_panel(
         else:
             # Fixed marker size for all points
             scatter_sizes = 30
-        ax.scatter(bin_centers[valid], obs_mean[valid], s=scatter_sizes, color="steelblue",
-                   alpha=0.6, edgecolors="darkblue", linewidths=0.5)
-        ax.plot(bin_centers, obs_mean, color="steelblue", linewidth=2, alpha=0.5,
-                label=f"Mean (n={len(curves)} splits)")
+        ax.scatter(
+            bin_centers[valid],
+            obs_mean[valid],
+            s=scatter_sizes,
+            color="steelblue",
+            alpha=0.6,
+            edgecolors="darkblue",
+            linewidths=0.5,
+        )
+        ax.plot(
+            bin_centers,
+            obs_mean,
+            color="steelblue",
+            linewidth=2,
+            alpha=0.5,
+            label=f"Mean (n={len(curves)} splits)",
+        )
     else:
         bin_idx = np.digitize(p, bins) - 1
         bin_idx = np.clip(bin_idx, 0, actual_n_bins - 1)
@@ -130,8 +155,15 @@ def _plot_prob_calibration_panel(
             scatter_sizes = np.clip(sizes[valid] * 3, 30, 500)
         else:
             scatter_sizes = 60
-        ax.scatter(pred_means[valid], obs[valid], s=scatter_sizes, color="steelblue",
-                   alpha=0.6, edgecolors="darkblue", linewidths=0.5)
+        ax.scatter(
+            pred_means[valid],
+            obs[valid],
+            s=scatter_sizes,
+            color="steelblue",
+            alpha=0.6,
+            edgecolors="darkblue",
+            linewidths=0.5,
+        )
         ax.plot(pred_means[valid], obs[valid], color="steelblue", linewidth=1.5, alpha=0.5)
 
     bin_label = "quantile" if bin_strategy == "quantile" else "uniform"
@@ -150,23 +182,34 @@ def _plot_prob_calibration_panel(
     # Add size legend for uniform binning with multiple splits
     if bin_strategy == "uniform" and unique_splits is not None and len(unique_splits) > 1:
         from matplotlib.lines import Line2D
+
         size_handles = []
         size_labels = []
         for sample_count in [10, 50, 100, 200]:
             size = np.clip(sample_count * 1, 5, 300)
             markersize = np.sqrt(size) / 2  # Convert area to radius
-            handle = Line2D([0], [0], marker='o', color='w',
-                           markerfacecolor='steelblue', markersize=markersize,
-                           markeredgecolor='darkblue', linewidth=0.5)
+            handle = Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="w",
+                markerfacecolor="steelblue",
+                markersize=markersize,
+                markeredgecolor="darkblue",
+                linewidth=0.5,
+            )
             size_handles.append(handle)
-            size_labels.append(f'{sample_count}')
+            size_labels.append(f"{sample_count}")
 
-        size_legend = ax.legend(size_handles, size_labels,
-                               title='Bin size (n)',
-                               loc='center left',
-                               bbox_to_anchor=(1.05, 0.5),
-                               frameon=True,
-                               fontsize=8)
+        size_legend = ax.legend(
+            size_handles,
+            size_labels,
+            title="Bin size (n)",
+            loc="center left",
+            bbox_to_anchor=(1.05, 0.5),
+            frameon=True,
+            fontsize=8,
+        )
         ax.add_artist(size_legend)
         # Re-add main legend (was overwritten by size legend)
         ax.legend(loc="upper left", fontsize=9)
@@ -180,8 +223,14 @@ def _binned_logits(
     n_bins: int = 10,
     bin_strategy: str = "quantile",
     min_bin_size: int = 30,
-    merge_tail: bool = True
-) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
+    merge_tail: bool = True,
+) -> Tuple[
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+]:
     """
     Compute binned logits for calibration plot in logit space with binomial CIs.
 
@@ -252,7 +301,7 @@ def _binned_logits(
         # Observed proportion and Wilson CI
         n = len(y_bin)
         k = int(y_bin.sum())
-        ci_lo, ci_hi = proportion_confint(k, n, alpha=0.05, method='wilson')
+        ci_lo, ci_hi = proportion_confint(k, n, alpha=0.05, method="wilson")
 
         # Convert to logits (with clipping for numerical stability)
         obs_prop = k / n
@@ -278,7 +327,7 @@ def _binned_logits(
         np.array(ys_list),
         np.array(ys_lo_list),
         np.array(ys_hi_list),
-        np.array(sizes_list)
+        np.array(sizes_list),
     )
 
 
@@ -294,7 +343,7 @@ def _plot_logit_calibration_panel(
     lowess,
     calib_intercept: Optional[float],
     calib_slope: Optional[float],
-    eps: float = 1e-7
+    eps: float = 1e-7,
 ) -> None:
     """
     Plot a single logit-space calibration panel.
@@ -391,19 +440,29 @@ def _plot_logit_calibration_panel(
         prob_y_mean = np.nanmean(prob_y_bins, axis=0)
         prob_y_lo = np.nanpercentile(prob_y_bins, 2.5, axis=0)
         prob_y_hi = np.nanpercentile(prob_y_bins, 97.5, axis=0)
-        prob_y_sd = np.nanstd(prob_y_bins, axis=0)
+        np.nanstd(prob_y_bins, axis=0)
 
         # Aggregate bin sizes across splits
         bin_sizes_mean = np.nanmean(bin_sizes_per_split, axis=0)
 
         # NOW convert aggregated probabilities to logit space
-        logit_x_mean = np.log(np.clip(prob_x_mean, eps, 1 - eps) / (1 - np.clip(prob_x_mean, eps, 1 - eps)))
-        logit_y_mean = np.log(np.clip(prob_y_mean, eps, 1 - eps) / (1 - np.clip(prob_y_mean, eps, 1 - eps)))
-        logit_y_lo = np.log(np.clip(prob_y_lo, eps, 1 - eps) / (1 - np.clip(prob_y_lo, eps, 1 - eps)))
-        logit_y_hi = np.log(np.clip(prob_y_hi, eps, 1 - eps) / (1 - np.clip(prob_y_hi, eps, 1 - eps)))
+        logit_x_mean = np.log(
+            np.clip(prob_x_mean, eps, 1 - eps) / (1 - np.clip(prob_x_mean, eps, 1 - eps))
+        )
+        logit_y_mean = np.log(
+            np.clip(prob_y_mean, eps, 1 - eps) / (1 - np.clip(prob_y_mean, eps, 1 - eps))
+        )
+        logit_y_lo = np.log(
+            np.clip(prob_y_lo, eps, 1 - eps) / (1 - np.clip(prob_y_lo, eps, 1 - eps))
+        )
+        logit_y_hi = np.log(
+            np.clip(prob_y_hi, eps, 1 - eps) / (1 - np.clip(prob_y_hi, eps, 1 - eps))
+        )
 
         # For SD: compute logit of each smoothed split value, then take SD in logit space
-        logit_curves_smooth = np.log(np.clip(prob_y_bins, eps, 1 - eps) / (1 - np.clip(prob_y_bins, eps, 1 - eps)))
+        logit_curves_smooth = np.log(
+            np.clip(prob_y_bins, eps, 1 - eps) / (1 - np.clip(prob_y_bins, eps, 1 - eps))
+        )
         logit_y_sd = np.nanstd(logit_curves_smooth, axis=0)
 
         # Plot aggregated logit calibration bands
@@ -413,20 +472,28 @@ def _plot_logit_calibration_panel(
                 logit_x_mean[valid_logit],
                 logit_y_lo[valid_logit],
                 logit_y_hi[valid_logit],
-                color="steelblue", alpha=0.15, label="95% CI"
+                color="steelblue",
+                alpha=0.15,
+                label="95% CI",
             )
             ax.fill_between(
                 logit_x_mean[valid_logit],
                 np.clip(logit_y_mean[valid_logit] - logit_y_sd[valid_logit], -20, 20),
                 np.clip(logit_y_mean[valid_logit] + logit_y_sd[valid_logit], -20, 20),
-                color="steelblue", alpha=0.30, label="±1 SD"
+                color="steelblue",
+                alpha=0.30,
+                label="±1 SD",
             )
 
             # Plot line connecting bin centers
             ax.plot(
                 logit_x_mean[valid_logit],
                 logit_y_mean[valid_logit],
-                '-', color="steelblue", linewidth=2, alpha=0.5, zorder=4
+                "-",
+                color="steelblue",
+                linewidth=2,
+                alpha=0.5,
+                zorder=4,
             )
 
             # Compute marker sizes: only variable for uniform binning
@@ -436,7 +503,9 @@ def _plot_logit_calibration_panel(
                 valid_sizes = bin_sizes_mean[valid_logit]
                 if len(valid_sizes) > 0 and valid_sizes.max() > 0:
                     min_size, max_size = 4, 16
-                    norm_sizes = (valid_sizes - valid_sizes.min()) / (valid_sizes.max() - valid_sizes.min() + 1e-7)
+                    norm_sizes = (valid_sizes - valid_sizes.min()) / (
+                        valid_sizes.max() - valid_sizes.min() + 1e-7
+                    )
                     marker_sizes = min_size + norm_sizes * (max_size - min_size)
                 else:
                     marker_sizes = 6
@@ -446,11 +515,13 @@ def _plot_logit_calibration_panel(
                 logit_x_mean[valid_logit],
                 logit_y_mean[valid_logit],
                 s=marker_sizes**2,
-                marker='o',
-                color="steelblue", alpha=0.8,
-                edgecolors='darkblue', linewidth=0.5,
+                marker="o",
+                color="steelblue",
+                alpha=0.8,
+                edgecolors="darkblue",
+                linewidth=0.5,
                 label=f"Mean logit calib (n={len(unique_splits)} splits)",
-                zorder=5
+                zorder=5,
             )
 
             # Add legend for dot sizes (only for uniform binning)
@@ -459,9 +530,16 @@ def _plot_logit_calibration_panel(
                 if len(valid_sizes) > 0 and valid_sizes.max() > 0:
                     size_range = [int(valid_sizes.min()), int(valid_sizes.max())]
                     size_legend_text = f"Dot size ∝ sample n: {size_range[0]}–{size_range[1]}"
-                    ax.text(0.98, 0.02, size_legend_text, transform=ax.transAxes,
-                            fontsize=8, ha='right', va='bottom',
-                            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+                    ax.text(
+                        0.98,
+                        0.02,
+                        size_legend_text,
+                        transform=ax.transAxes,
+                        fontsize=8,
+                        ha="right",
+                        va="bottom",
+                        bbox={"boxstyle": "round", "facecolor": "wheat", "alpha": 0.5},
+                    )
 
             loess_ok = True  # Skip LOESS when multi-split aggregation is used
 
@@ -469,11 +547,11 @@ def _plot_logit_calibration_panel(
         if valid_logit.sum() > 0:
             logit_range_x = [
                 np.nanpercentile(logit_x_mean[valid_logit], 1) - 0.5,
-                np.nanpercentile(logit_x_mean[valid_logit], 99) + 0.5
+                np.nanpercentile(logit_x_mean[valid_logit], 99) + 0.5,
             ]
             logit_range_y = [
                 np.nanpercentile(logit_y_lo[valid_logit], 1) - 0.5,
-                np.nanpercentile(logit_y_hi[valid_logit], 99) + 0.5
+                np.nanpercentile(logit_y_hi[valid_logit], 99) + 0.5,
             ]
         else:
             logit_range_x = [-5, 5]
@@ -545,26 +623,42 @@ def _plot_logit_calibration_panel(
         if loess_ok and loess_logit_y is not None:
             loess_min = np.percentile(loess_logit_y, 1)
             loess_max = np.percentile(loess_logit_y, 99)
-            logit_range_y = [min(logit_range_y[0], loess_min - 0.5),
-                            max(logit_range_y[1], loess_max + 0.5)]
+            logit_range_y = [
+                min(logit_range_y[0], loess_min - 0.5),
+                max(logit_range_y[1], loess_max + 0.5),
+            ]
 
     # Plot ideal calibration line
     ax.plot(logit_range_x, logit_range_x, "k--", linewidth=1.5, alpha=0.7, label="Ideal (α=0, β=1)")
 
     # Plot recalibration line if available
-    if calib_intercept is not None and calib_slope is not None and np.isfinite(calib_intercept) and np.isfinite(calib_slope):
+    if (
+        calib_intercept is not None
+        and calib_slope is not None
+        and np.isfinite(calib_intercept)
+        and np.isfinite(calib_slope)
+    ):
         recal_x = np.array(logit_range_x)
         recal_y = calib_intercept + calib_slope * recal_x
-        ax.plot(recal_x, recal_y, "r-", linewidth=2, alpha=0.8,
-                label=f"Recalibration (α={calib_intercept:.2f}, β={calib_slope:.2f})")
+        ax.plot(
+            recal_x,
+            recal_y,
+            "r-",
+            linewidth=2,
+            alpha=0.8,
+            label=f"Recalibration (α={calib_intercept:.2f}, β={calib_slope:.2f})",
+        )
         # Extend y-range if recalibration line goes outside
-        logit_range_y = [min(logit_range_y[0], recal_y.min() - 0.5),
-                        max(logit_range_y[1], recal_y.max() + 0.5)]
+        logit_range_y = [
+            min(logit_range_y[0], recal_y.min() - 0.5),
+            max(logit_range_y[1], recal_y.max() + 0.5),
+        ]
 
     # Compute binned observations (skip for multi-split, already computed above)
     if not (unique_splits is not None and len(unique_splits) > 1):
-        binned_result = _binned_logits(y, p, n_bins=n_bins, bin_strategy=bin_strategy,
-                                         min_bin_size=30, merge_tail=True)
+        binned_result = _binned_logits(
+            y, p, n_bins=n_bins, bin_strategy=bin_strategy, min_bin_size=30, merge_tail=True
+        )
         bx, by, by_lo, by_hi, bin_sizes = binned_result
 
         # Plot observed calibration (LOESS or binned)
@@ -572,7 +666,9 @@ def _plot_logit_calibration_panel(
         if loess_ok and loess_x is not None and loess_logit_y is not None:
             # Plot LOESS curve on top of CI band
             label = "LOESS (smoothed)"
-            ax.plot(loess_x, loess_logit_y, "steelblue", linewidth=2.5, alpha=0.9, label=label, zorder=5)
+            ax.plot(
+                loess_x, loess_logit_y, "steelblue", linewidth=2.5, alpha=0.9, label=label, zorder=5
+            )
             method_label = "LOESS"
 
             # Overlay binned observations with binomial CIs
@@ -584,42 +680,61 @@ def _plot_logit_calibration_panel(
                 # Compute marker sizes scaled by bin sample numbers
                 if bin_sizes is not None and len(bin_sizes) > 0:
                     min_size, max_size = 4, 16
-                    norm_sizes = (bin_sizes - bin_sizes.min()) / (bin_sizes.max() - bin_sizes.min() + 1e-7)
+                    norm_sizes = (bin_sizes - bin_sizes.min()) / (
+                        bin_sizes.max() - bin_sizes.min() + 1e-7
+                    )
                     marker_sizes = min_size + norm_sizes * (max_size - min_size)
                 else:
                     marker_sizes = 7
 
                 # Plot error bars
                 ax.errorbar(
-                    bx, by,
+                    bx,
+                    by,
                     yerr=yerr,
-                    fmt='none', capsize=4, capthick=1.5,
-                    color='darkorange', ecolor='darkorange', alpha=0.8,
-                    zorder=9
+                    fmt="none",
+                    capsize=4,
+                    capthick=1.5,
+                    color="darkorange",
+                    ecolor="darkorange",
+                    alpha=0.8,
+                    zorder=9,
                 )
 
                 # Plot markers
                 ax.scatter(
-                    bx, by,
+                    bx,
+                    by,
                     s=marker_sizes**2,
-                    marker='o',
-                    color='darkorange', alpha=0.8,
-                    edgecolors='darkred', linewidth=0.5,
-                    label=f'Binned observations (n={len(bx)} bins, Wilson CI)',
-                    zorder=10
+                    marker="o",
+                    color="darkorange",
+                    alpha=0.8,
+                    edgecolors="darkred",
+                    linewidth=0.5,
+                    label=f"Binned observations (n={len(bx)} bins, Wilson CI)",
+                    zorder=10,
                 )
 
                 # Add legend for dot sizes
                 if bin_sizes is not None and len(bin_sizes) > 0:
                     size_range = [int(bin_sizes.min()), int(bin_sizes.max())]
                     size_legend_text = f"Dot size ∝ sample n: {size_range[0]}–{size_range[1]}"
-                    ax.text(0.98, 0.02, size_legend_text, transform=ax.transAxes,
-                            fontsize=8, ha='right', va='bottom',
-                            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+                    ax.text(
+                        0.98,
+                        0.02,
+                        size_legend_text,
+                        transform=ax.transAxes,
+                        fontsize=8,
+                        ha="right",
+                        va="bottom",
+                        bbox={"boxstyle": "round", "facecolor": "wheat", "alpha": 0.5},
+                    )
 
                 # Extend y-range for binned CIs
-                logit_range_y = [min(logit_range_y[0], by_lo.min() - 0.3),
-                                max(logit_range_y[1], by_hi.max() + 0.3)]
+                logit_range_y = [
+                    min(logit_range_y[0], by_lo.min() - 0.3),
+                    max(logit_range_y[1], by_hi.max() + 0.3),
+                ]
         else:
             # Fallback: only binned data available
             if bx is not None and by is not None and by_lo is not None and by_hi is not None:
@@ -630,47 +745,66 @@ def _plot_logit_calibration_panel(
                 # Compute marker sizes
                 if bin_sizes is not None and len(bin_sizes) > 0:
                     min_size, max_size = 4, 16
-                    norm_sizes = (bin_sizes - bin_sizes.min()) / (bin_sizes.max() - bin_sizes.min() + 1e-7)
+                    norm_sizes = (bin_sizes - bin_sizes.min()) / (
+                        bin_sizes.max() - bin_sizes.min() + 1e-7
+                    )
                     marker_sizes = min_size + norm_sizes * (max_size - min_size)
                 else:
                     marker_sizes = 7
 
                 # Plot error bars
                 ax.errorbar(
-                    bx, by,
+                    bx,
+                    by,
                     yerr=yerr,
-                    fmt='none', capsize=4, capthick=1.5,
-                    color='steelblue', ecolor='steelblue', alpha=0.8,
+                    fmt="none",
+                    capsize=4,
+                    capthick=1.5,
+                    color="steelblue",
+                    ecolor="steelblue",
+                    alpha=0.8,
                     linewidth=2,
-                    zorder=4
+                    zorder=4,
                 )
 
                 # Plot line connecting bin centers
-                ax.plot(bx, by, '-', color='steelblue', linewidth=2, alpha=0.6, zorder=4)
+                ax.plot(bx, by, "-", color="steelblue", linewidth=2, alpha=0.6, zorder=4)
 
                 # Plot markers
                 ax.scatter(
-                    bx, by,
+                    bx,
+                    by,
                     s=marker_sizes**2,
-                    marker='o',
-                    color='steelblue', alpha=0.8,
-                    edgecolors='darkblue', linewidth=0.5,
-                    label=f'Binned logits (n={len(bx)} bins, Wilson CI)',
-                    zorder=5
+                    marker="o",
+                    color="steelblue",
+                    alpha=0.8,
+                    edgecolors="darkblue",
+                    linewidth=0.5,
+                    label=f"Binned logits (n={len(bx)} bins, Wilson CI)",
+                    zorder=5,
                 )
 
                 # Add legend for dot sizes
                 if bin_sizes is not None and len(bin_sizes) > 0:
                     size_range = [int(bin_sizes.min()), int(bin_sizes.max())]
                     size_legend_text = f"Dot size ∝ sample n: {size_range[0]}–{size_range[1]}"
-                    ax.text(0.98, 0.02, size_legend_text, transform=ax.transAxes,
-                            fontsize=8, ha='right', va='bottom',
-                            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+                    ax.text(
+                        0.98,
+                        0.02,
+                        size_legend_text,
+                        transform=ax.transAxes,
+                        fontsize=8,
+                        ha="right",
+                        va="bottom",
+                        bbox={"boxstyle": "round", "facecolor": "wheat", "alpha": 0.5},
+                    )
 
                 method_label = "Binned"
                 # Extend y-range for binned data
-                logit_range_y = [min(logit_range_y[0], by_lo.min() - 0.5),
-                                max(logit_range_y[1], by_hi.max() + 0.5)]
+                logit_range_y = [
+                    min(logit_range_y[0], by_lo.min() - 0.5),
+                    max(logit_range_y[1], by_hi.max() + 0.5),
+                ]
     else:
         # Multi-split mode: aggregated bands already plotted
         method_label = "Multi-split aggregated"
@@ -683,23 +817,34 @@ def _plot_logit_calibration_panel(
     # Add size legend for uniform binning with multiple splits
     if bin_strategy == "uniform" and unique_splits is not None and len(unique_splits) > 1:
         from matplotlib.lines import Line2D
+
         size_handles = []
         size_labels = []
         for sample_count in [10, 50, 100, 200]:
             size = np.clip(sample_count * 1, 5, 300)
             markersize = np.sqrt(size) / 2
-            handle = Line2D([0], [0], marker='o', color='w',
-                           markerfacecolor='steelblue', markersize=markersize,
-                           markeredgecolor='darkblue', linewidth=0.5)
+            handle = Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="w",
+                markerfacecolor="steelblue",
+                markersize=markersize,
+                markeredgecolor="darkblue",
+                linewidth=0.5,
+            )
             size_handles.append(handle)
-            size_labels.append(f'{sample_count}')
+            size_labels.append(f"{sample_count}")
 
-        size_legend = ax.legend(size_handles, size_labels,
-                               title='Bin size (n)',
-                               loc='center left',
-                               bbox_to_anchor=(1.05, 0.5),
-                               frameon=True,
-                               fontsize=8)
+        size_legend = ax.legend(
+            size_handles,
+            size_labels,
+            title="Bin size (n)",
+            loc="center left",
+            bbox_to_anchor=(1.05, 0.5),
+            frameon=True,
+            fontsize=8,
+        )
         ax.add_artist(size_legend)
         # Re-add main legend
         ax.legend(loc="upper left", fontsize=9)
@@ -746,7 +891,7 @@ def plot_calibration_curve(
     bin_strategy: str = "uniform",
     calib_intercept: Optional[float] = None,
     calib_slope: Optional[float] = None,
-    four_panel: bool = False
+    four_panel: bool = False,
 ) -> None:
     """
     Generate 4-panel calibration plot.
@@ -773,6 +918,7 @@ def plot_calibration_curve(
     """
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except Exception as e:
@@ -782,6 +928,7 @@ def plot_calibration_curve(
     lowess = None
     try:
         from statsmodels.nonparametric.smoothers_lowess import lowess as _lowess
+
         lowess = _lowess
     except Exception:
         lowess = None
@@ -796,7 +943,7 @@ def plot_calibration_curve(
 
     # Clip probabilities for numerical stability
     eps = 1e-7
-    p_clipped = np.clip(p, eps, 1 - eps)
+    np.clip(p, eps, 1 - eps)
 
     if split_ids is not None:
         split_ids = np.asarray(split_ids)[mask]
@@ -841,12 +988,22 @@ def plot_calibration_curve(
 
     panel_title_1 = f"Calibration (quantile bins)\nk={actual_n_bins_q}, {bin_size_str}"
     if subtitle:
-        panel_title_1 = f"{subtitle} – Calibration (quantile bins)\nk={actual_n_bins_q}, {bin_size_str}"
+        panel_title_1 = (
+            f"{subtitle} – Calibration (quantile bins)\nk={actual_n_bins_q}, {bin_size_str}"
+        )
 
     _plot_prob_calibration_panel(
-        ax1, y, p, bins_quantile, bin_centers_q, actual_n_bins_q, "quantile",
-        split_ids=split_ids, unique_splits=unique_splits, panel_title=panel_title_1,
-        variable_sizes=False
+        ax1,
+        y,
+        p,
+        bins_quantile,
+        bin_centers_q,
+        actual_n_bins_q,
+        "quantile",
+        split_ids=split_ids,
+        unique_splits=unique_splits,
+        panel_title=panel_title_1,
+        variable_sizes=False,
     )
 
     # ========== Panel 2 (top-right): Probability-space calibration curve with uniform binning ==========
@@ -859,25 +1016,51 @@ def plot_calibration_curve(
         panel_title_2 = f"{subtitle} – Calibration (uniform bins)\nk={actual_n_bins_u}"
 
     _plot_prob_calibration_panel(
-        ax2, y, p, bins_uniform, bin_centers_u, actual_n_bins_u, "uniform",
-        split_ids=split_ids, unique_splits=unique_splits, panel_title=panel_title_2,
-        variable_sizes=True
+        ax2,
+        y,
+        p,
+        bins_uniform,
+        bin_centers_u,
+        actual_n_bins_u,
+        "uniform",
+        split_ids=split_ids,
+        unique_splits=unique_splits,
+        panel_title=panel_title_2,
+        variable_sizes=True,
     )
 
     # ========== Panel 3 (bottom-left): Log-odds calibration with quantile binning ==========
     logit_title_q = "Logit calibration (quantile bins)"
     _plot_logit_calibration_panel(
-        ax3, y, p, n_bins, "quantile",
-        split_ids, unique_splits, logit_title_q,
-        lowess, calib_intercept, calib_slope, eps=eps
+        ax3,
+        y,
+        p,
+        n_bins,
+        "quantile",
+        split_ids,
+        unique_splits,
+        logit_title_q,
+        lowess,
+        calib_intercept,
+        calib_slope,
+        eps=eps,
     )
 
     # ========== Panel 4 (bottom-right): Log-odds calibration with uniform binning ==========
     logit_title_u = "Logit calibration (uniform bins)"
     _plot_logit_calibration_panel(
-        ax4, y, p, n_bins, "uniform",
-        split_ids, unique_splits, logit_title_u,
-        lowess, calib_intercept, calib_slope, eps=eps
+        ax4,
+        y,
+        p,
+        n_bins,
+        "uniform",
+        split_ids,
+        unique_splits,
+        logit_title_u,
+        lowess,
+        calib_intercept,
+        calib_slope,
+        eps=eps,
     )
 
     # Add title at the top

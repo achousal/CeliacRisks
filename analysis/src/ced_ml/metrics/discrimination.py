@@ -17,7 +17,7 @@ References:
     - Fluss et al. (2005). Estimation of the Youden Index and its cutoff point.
 """
 
-from typing import Any, Dict
+from typing import Dict
 
 import numpy as np
 from sklearn.metrics import (

@@ -7,13 +7,12 @@ Commands:
 - ced config diff: Compare two config files
 """
 
-import sys
 import logging
+import sys
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
-import yaml
+from typing import Any, Dict, List, Optional, Tuple
 
-from ced_ml.config.loader import load_yaml, load_splits_config, load_training_config, save_config
+from ced_ml.config.loader import load_splits_config, load_training_config, load_yaml, save_config
 from ced_ml.config.schema import SplitsConfig, TrainingConfig
 from ced_ml.config.validation import validate_config
 from ced_ml.utils.logging import setup_logger
@@ -159,56 +158,105 @@ def _map_to_nested_key(key: str) -> str:
     """
     # CV keys
     cv_keys = {
-        "folds", "repeats", "inner_folds", "scoring", "n_iter", "random_state",
-        "tune_n_jobs", "error_score", "grid_randomize"
+        "folds",
+        "repeats",
+        "inner_folds",
+        "scoring",
+        "n_iter",
+        "random_state",
+        "tune_n_jobs",
+        "error_score",
+        "grid_randomize",
     }
 
     # Feature keys
     feature_keys = {
-        "feature_select", "screen_method", "screen_top_n", "kbest_scope",
-        "kbest_max", "k_grid", "stability_thresh", "stable_corr_thresh",
-        "stable_corr_method", "stable_summary", "kbest_n_jobs", "screening_n_jobs",
-        "screen_equal_var", "screen_filter_mode"
+        "feature_select",
+        "screen_method",
+        "screen_top_n",
+        "kbest_scope",
+        "kbest_max",
+        "k_grid",
+        "stability_thresh",
+        "stable_corr_thresh",
+        "stable_corr_method",
+        "stable_summary",
+        "kbest_n_jobs",
+        "screening_n_jobs",
+        "screen_equal_var",
+        "screen_filter_mode",
     }
 
     # Panel keys
     panel_keys = {
-        "build_panels", "panel_sizes", "panel_corr_thresh", "panel_corr_method",
-        "panel_rep_tiebreak", "panel_refit", "panel_stability_mode",
-        "panel_min_stability", "panel_use_all_sizes"
+        "build_panels",
+        "panel_sizes",
+        "panel_corr_thresh",
+        "panel_corr_method",
+        "panel_rep_tiebreak",
+        "panel_refit",
+        "panel_stability_mode",
+        "panel_min_stability",
+        "panel_use_all_sizes",
     }
 
     # Threshold keys
     threshold_keys = {
-        "threshold_objective", "fbeta", "fixed_spec", "fixed_ppv",
-        "threshold_source", "target_prevalence_source", "risk_prob_source",
-        "prevalence_fixed"
+        "threshold_objective",
+        "fbeta",
+        "fixed_spec",
+        "fixed_ppv",
+        "threshold_source",
+        "target_prevalence_source",
+        "risk_prob_source",
+        "prevalence_fixed",
     }
 
     # Evaluation keys
     evaluation_keys = {
-        "test_ci_bootstrap", "n_boot", "learning_curve", "feature_reports",
-        "control_spec_targets", "toprisk_fracs", "n_boot_lc", "lc_train_sizes",
-        "lc_cv", "lc_scoring", "lc_n_jobs", "feature_report_max"
+        "test_ci_bootstrap",
+        "n_boot",
+        "learning_curve",
+        "feature_reports",
+        "control_spec_targets",
+        "toprisk_fracs",
+        "n_boot_lc",
+        "lc_train_sizes",
+        "lc_cv",
+        "lc_scoring",
+        "lc_n_jobs",
+        "feature_report_max",
     }
 
     # DCA keys
     dca_keys = {
-        "compute_dca", "dca_threshold_min", "dca_threshold_max",
-        "dca_threshold_step", "dca_report_points"
+        "compute_dca",
+        "dca_threshold_min",
+        "dca_threshold_max",
+        "dca_threshold_step",
+        "dca_report_points",
     }
 
     # Output keys
     output_keys = {
-        "save_train_preds", "save_val_preds", "save_test_preds",
-        "save_calibration", "calib_bins", "save_oof_splits",
-        "save_inner_model", "save_search_results"
+        "save_train_preds",
+        "save_val_preds",
+        "save_test_preds",
+        "save_calibration",
+        "calib_bins",
+        "save_oof_splits",
+        "save_inner_model",
+        "save_search_results",
     }
 
     # Strictness keys
     strictness_keys = {
-        "strictness_level", "check_split_overlap", "check_prevalent_in_eval",
-        "check_threshold_source", "check_feature_leakage", "check_missing_handling"
+        "strictness_level",
+        "check_split_overlap",
+        "check_prevalent_in_eval",
+        "check_threshold_source",
+        "check_feature_leakage",
+        "check_missing_handling",
     }
 
     # Map to nested structure
@@ -279,7 +327,7 @@ def validate_config_file(
 
     # Load config
     try:
-        config_dict = load_yaml(config_file)
+        load_yaml(config_file)
     except Exception as e:
         errors.append(f"Failed to load YAML: {e}")
         return False, errors, warnings
@@ -367,7 +415,9 @@ def diff_configs(
             report_lines.append(f"    {config_file1.name}: {val1}")
             report_lines.append(f"    {config_file2.name}: {val2}")
 
-    report_lines.append(f"\nTotal differences: {len(diff_result['only_in_first']) + len(diff_result['only_in_second']) + len(diff_result['different_values'])}")
+    report_lines.append(
+        f"\nTotal differences: {len(diff_result['only_in_first']) + len(diff_result['only_in_second']) + len(diff_result['different_values'])}"
+    )
     report_lines.append("=" * 80)
 
     report = "\n".join(report_lines)
@@ -491,9 +541,9 @@ def run_config_validate(
             print(f"  - {warn}")
 
     if is_valid:
-        print(f"\n[OK] Config is valid")
+        print("\n[OK] Config is valid")
     else:
-        print(f"\n[FAIL] Config is invalid")
+        print("\n[FAIL] Config is invalid")
         if strict:
             print("  (strict mode: warnings treated as errors)")
 
@@ -517,7 +567,7 @@ def run_config_diff(
         output_file: Output file for diff report
         verbose: Verbosity level
     """
-    logger = setup_logger("ced.config.diff", level=_verbose_to_level(verbose))
+    setup_logger("ced.config.diff", level=_verbose_to_level(verbose))
 
     diff_result = diff_configs(
         config_file1=config_file1,
@@ -528,9 +578,9 @@ def run_config_diff(
 
     # Exit with non-zero if differences found
     total_diffs = (
-        len(diff_result["only_in_first"]) +
-        len(diff_result["only_in_second"]) +
-        len(diff_result["different_values"])
+        len(diff_result["only_in_first"])
+        + len(diff_result["only_in_second"])
+        + len(diff_result["different_values"])
     )
 
     sys.exit(0 if total_diffs == 0 else 1)

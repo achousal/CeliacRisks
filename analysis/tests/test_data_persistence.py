@@ -25,7 +25,6 @@ from ced_ml.data.persistence import (
     validate_split_indices,
 )
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -361,7 +360,7 @@ def test_save_split_indices_raises_on_existing(temp_outdir, valid_split):
 def test_save_split_indices_overwrites(temp_outdir, valid_split):
     """Test overwrites existing files when overwrite=True."""
     # Save once
-    paths1 = save_split_indices(
+    save_split_indices(
         outdir=temp_outdir,
         scenario="IncidentOnly",
         seed=42,

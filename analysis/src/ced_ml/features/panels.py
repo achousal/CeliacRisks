@@ -12,7 +12,8 @@ Design:
 - Graph-based correlation component detection
 """
 
-from typing import Dict, List, Tuple, Optional, Literal
+from typing import Dict, List, Literal, Optional, Tuple
+
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -74,16 +75,11 @@ def compute_univariate_strength(
             try:
                 # Try with method parameter (scipy >= 1.7)
                 _, p_value = stats.mannwhitneyu(
-                    x_case, x_control,
-                    alternative="two-sided",
-                    method="asymptotic"
+                    x_case, x_control, alternative="two-sided", method="asymptotic"
                 )
             except TypeError:
                 # Fallback for older scipy
-                _, p_value = stats.mannwhitneyu(
-                    x_case, x_control,
-                    alternative="two-sided"
-                )
+                _, p_value = stats.mannwhitneyu(x_case, x_control, alternative="two-sided")
             p_value = float(p_value)
         except Exception:
             p_value = np.nan
@@ -145,10 +141,16 @@ def prune_correlated_proteins(
     # Filter to proteins present in df
     available = [p for p in proteins if p in df.columns]
     if len(available) == 0:
-        empty_df = pd.DataFrame(columns=[
-            "component_id", "protein", "selection_freq", "kept",
-            "rep_protein", "component_size"
-        ])
+        empty_df = pd.DataFrame(
+            columns=[
+                "component_id",
+                "protein",
+                "selection_freq",
+                "kept",
+                "rep_protein",
+                "component_size",
+            ]
+        )
         return empty_df, []
 
     # Prepare numeric data
@@ -231,26 +233,32 @@ def prune_correlated_proteins(
         # Record mapping for all proteins in component
         for protein in component:
             freq = selection_freq.get(protein, np.nan) if selection_freq else np.nan
-            component_rows.append({
-                "component_id": component_id,
-                "protein": protein,
-                "selection_freq": freq,
-                "kept": (protein == representative),
-                "rep_protein": representative,
-                "component_size": len(component),
-            })
+            component_rows.append(
+                {
+                    "component_id": component_id,
+                    "protein": protein,
+                    "selection_freq": freq,
+                    "kept": (protein == representative),
+                    "rep_protein": representative,
+                    "component_size": len(component),
+                }
+            )
 
     # Build component map DataFrame
-    component_map = pd.DataFrame(component_rows).sort_values(
-        ["kept", "selection_freq", "protein"],
-        ascending=[False, False, True],
-        na_position="last"
-    ).reset_index(drop=True)
+    component_map = (
+        pd.DataFrame(component_rows)
+        .sort_values(
+            ["kept", "selection_freq", "protein"],
+            ascending=[False, False, True],
+            na_position="last",
+        )
+        .reset_index(drop=True)
+    )
 
     # Sort kept proteins by frequency
     kept_proteins = sorted(
         set(kept_proteins),
-        key=lambda p: (-(selection_freq.get(p, 0.0) if selection_freq else 0.0), p)
+        key=lambda p: (-(selection_freq.get(p, 0.0) if selection_freq else 0.0), p),
     )
 
     return component_map, kept_proteins
@@ -310,7 +318,7 @@ def prune_and_refill_panel(
     available = [p for p in ranked_proteins if p in df.columns]
 
     # Take top N from ranked list
-    top_n = available[:min(target_size, len(available))]
+    top_n = available[: min(target_size, len(available))]
 
     # Prune correlated proteins
     component_map, kept = prune_correlated_proteins(
@@ -327,9 +335,7 @@ def prune_and_refill_panel(
     if not component_map.empty:
         component_map["representative_flag"] = component_map["kept"].astype(bool)
         component_map["removed_due_to_corr_with"] = np.where(
-            component_map["kept"],
-            "",
-            component_map["rep_protein"]
+            component_map["kept"], "", component_map["rep_protein"]
         )
 
     # If already at target size, done
@@ -337,7 +343,7 @@ def prune_and_refill_panel(
         return component_map, kept[:target_size]
 
     # Backfill from pool of candidates
-    pool = available[:min(pool_limit, len(available))]
+    pool = available[: min(pool_limit, len(available))]
     if not pool:
         return component_map, kept
 
@@ -365,9 +371,11 @@ def prune_and_refill_panel(
         # Check if candidate is too correlated with any existing panel member
         too_correlated = False
         for existing in final_panel:
-            if (candidate in corr_matrix.index and
-                existing in corr_matrix.columns and
-                float(corr_matrix.loc[candidate, existing]) >= corr_threshold):
+            if (
+                candidate in corr_matrix.index
+                and existing in corr_matrix.columns
+                and float(corr_matrix.loc[candidate, existing]) >= corr_threshold
+            ):
                 too_correlated = True
                 break
 
@@ -382,22 +390,21 @@ def prune_and_refill_panel(
         max_component_id = int(component_map["component_id"].max())
 
         backfill_rows = []
-        for i, protein in enumerate(final_panel[len(kept):], start=1):
-            backfill_rows.append({
-                "component_id": max_component_id + i,
-                "protein": protein,
-                "selection_freq": float(selection_freq.get(protein, np.nan)),
-                "kept": True,
-                "rep_protein": protein,
-                "component_size": 1,
-                "representative_flag": True,
-                "removed_due_to_corr_with": "",
-            })
+        for i, protein in enumerate(final_panel[len(kept) :], start=1):
+            backfill_rows.append(
+                {
+                    "component_id": max_component_id + i,
+                    "protein": protein,
+                    "selection_freq": float(selection_freq.get(protein, np.nan)),
+                    "kept": True,
+                    "rep_protein": protein,
+                    "component_size": 1,
+                    "representative_flag": True,
+                    "removed_due_to_corr_with": "",
+                }
+            )
 
-        component_map = pd.concat(
-            [component_map, pd.DataFrame(backfill_rows)],
-            ignore_index=True
-        )
+        component_map = pd.concat([component_map, pd.DataFrame(backfill_rows)], ignore_index=True)
 
     return component_map, final_panel
 
@@ -443,10 +450,7 @@ def build_multi_size_panels(
         ['A', 'C', 'D', ..., 'Z']
     """
     # Rank proteins by selection frequency
-    ranked = sorted(
-        selection_freq.keys(),
-        key=lambda p: (-selection_freq[p], p)
-    )
+    ranked = sorted(selection_freq.keys(), key=lambda p: (-selection_freq[p], p))
 
     results = {}
     for size in sorted(panel_sizes):

@@ -20,11 +20,7 @@ def make_mock_config(**overrides):
     """
     defaults = {
         "cv": SimpleNamespace(
-            folds=3,
-            repeats=2,
-            inner_folds=2,
-            n_iter=5,
-            scoring="neg_brier_score"
+            folds=3, repeats=2, inner_folds=2, n_iter=5, scoring="neg_brier_score"
         ),
         "features": SimpleNamespace(
             selection=SimpleNamespace(
@@ -38,27 +34,14 @@ def make_mock_config(**overrides):
                 rf_perm_min_importance=0.0,
             )
         ),
-        "calibration": SimpleNamespace(
-            enabled=False,
-            method="sigmoid",
-            cv=3
-        ),
-        "compute": SimpleNamespace(
-            cpus=2,
-            tune_n_jobs=None
-        ),
+        "calibration": SimpleNamespace(enabled=False, method="sigmoid", cv=3),
+        "compute": SimpleNamespace(cpus=2, tune_n_jobs=None),
         "models": SimpleNamespace(
             lr=SimpleNamespace(
-                C_min=0.01,
-                C_max=100.0,
-                C_points=5,
-                class_weight_options="None,balanced"
+                C_min=0.01, C_max=100.0, C_points=5, class_weight_options="None,balanced"
             ),
             svm=SimpleNamespace(
-                C_min=0.01,
-                C_max=100.0,
-                C_points=5,
-                class_weight_options="balanced"
+                C_min=0.01, C_max=100.0, C_points=5, class_weight_options="balanced"
             ),
             rf=SimpleNamespace(
                 n_estimators_grid=[100, 200],
@@ -66,7 +49,7 @@ def make_mock_config(**overrides):
                 min_samples_split_grid=[2, 5],
                 min_samples_leaf_grid=[1, 2],
                 max_features_grid=[0.3, 0.5],
-                class_weight_options="None,balanced"
+                class_weight_options="None,balanced",
             ),
             xgboost=SimpleNamespace(
                 n_estimators_grid=[100, 200],
@@ -75,9 +58,9 @@ def make_mock_config(**overrides):
                 subsample_grid=[0.8, 1.0],
                 colsample_bytree_grid=[0.8, 1.0],
                 scale_pos_weight=None,
-                scale_pos_weight_grid=[1.0, 5.0]
-            )
-        )
+                scale_pos_weight_grid=[1.0, 5.0],
+            ),
+        ),
     }
 
     # Deep merge overrides

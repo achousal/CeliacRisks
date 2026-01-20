@@ -8,7 +8,6 @@ Supports:
 4. Validation and resolution
 """
 
-import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
@@ -16,17 +15,17 @@ import yaml
 from pydantic import ValidationError
 
 from ced_ml.config.defaults import (
-    DEFAULT_SPLITS_CONFIG,
     DEFAULT_CV_CONFIG,
-    DEFAULT_FEATURE_CONFIG,
-    DEFAULT_PANEL_CONFIG,
-    DEFAULT_THRESHOLD_CONFIG,
-    DEFAULT_EVALUATION_CONFIG,
     DEFAULT_DCA_CONFIG,
+    DEFAULT_EVALUATION_CONFIG,
+    DEFAULT_FEATURE_CONFIG,
     DEFAULT_OUTPUT_CONFIG,
+    DEFAULT_PANEL_CONFIG,
+    DEFAULT_SPLITS_CONFIG,
     DEFAULT_STRICTNESS_CONFIG,
+    DEFAULT_THRESHOLD_CONFIG,
 )
-from ced_ml.config.schema import RootConfig, SplitsConfig, TrainingConfig
+from ced_ml.config.schema import SplitsConfig, TrainingConfig
 
 
 def load_yaml(file_path: Union[str, Path]) -> Dict[str, Any]:
@@ -34,10 +33,10 @@ def load_yaml(file_path: Union[str, Path]) -> Dict[str, Any]:
     file_path = Path(file_path)
     if not file_path.exists():
         raise FileNotFoundError(f"Config file not found: {file_path}")
-    
-    with open(file_path, "r") as f:
+
+    with open(file_path) as f:
         config_dict = yaml.safe_load(f)
-    
+
     return config_dict or {}
 
 
@@ -143,31 +142,31 @@ def load_splits_config(
 ) -> SplitsConfig:
     """
     Load splits configuration from file and CLI overrides.
-    
+
     Args:
         config_file: Path to YAML config file (optional)
         overrides: List of CLI overrides in "key=value" format (optional)
-    
+
     Returns:
         Validated SplitsConfig instance
     """
     # Start with defaults
     config_dict = DEFAULT_SPLITS_CONFIG.copy()
-    
+
     # Load from file if provided
     if config_file is not None:
         file_config = load_yaml(config_file)
         config_dict.update(file_config)
-    
+
     # Apply CLI overrides
     if overrides:
         config_dict = apply_overrides(config_dict, overrides)
-    
+
     # Validate and return
     try:
         return SplitsConfig(**config_dict)
     except ValidationError as e:
-        raise ValueError(f"Invalid splits configuration:\n{e}")
+        raise ValueError(f"Invalid splits configuration:\n{e}") from e
 
 
 def load_training_config(
@@ -176,11 +175,11 @@ def load_training_config(
 ) -> TrainingConfig:
     """
     Load training configuration from file and CLI overrides.
-    
+
     Args:
         config_file: Path to YAML config file (optional)
         overrides: List of CLI overrides in "key=value" format (optional)
-    
+
     Returns:
         Validated TrainingConfig instance
     """
@@ -195,37 +194,37 @@ def load_training_config(
         "output": DEFAULT_OUTPUT_CONFIG.copy(),
         "strictness": DEFAULT_STRICTNESS_CONFIG.copy(),
     }
-    
+
     # Load from file if provided
     if config_file is not None:
         file_config = load_yaml(config_file)
-        
+
         # Deep merge nested dicts
         for key, value in file_config.items():
             if key in config_dict and isinstance(value, dict):
                 config_dict[key].update(value)
             else:
                 config_dict[key] = value
-    
+
     # Apply CLI overrides
     if overrides:
         config_dict = apply_overrides(config_dict, overrides)
-    
+
     # Validate and return
     try:
         return TrainingConfig(**config_dict)
     except ValidationError as e:
-        raise ValueError(f"Invalid training configuration:\n{e}")
+        raise ValueError(f"Invalid training configuration:\n{e}") from e
 
 
 def save_config(config: Union[SplitsConfig, TrainingConfig], output_path: Union[str, Path]):
     """Save resolved configuration to YAML file."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Convert to dict
     config_dict = config.model_dump()
-    
+
     # Convert Path objects to strings for YAML serialization
     def convert_paths(d):
         for key, value in d.items():
@@ -234,9 +233,9 @@ def save_config(config: Union[SplitsConfig, TrainingConfig], output_path: Union[
             elif isinstance(value, dict):
                 convert_paths(value)
         return d
-    
+
     config_dict = convert_paths(config_dict)
-    
+
     # Write YAML
     with open(output_path, "w") as f:
         yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
@@ -248,9 +247,9 @@ def print_config_summary(config: Union[SplitsConfig, TrainingConfig], logger=Non
     lines.append("=" * 80)
     lines.append("Configuration Summary")
     lines.append("=" * 80)
-    
+
     config_dict = config.model_dump()
-    
+
     def format_dict(d, indent=0):
         result = []
         for key, value in d.items():
@@ -260,12 +259,12 @@ def print_config_summary(config: Union[SplitsConfig, TrainingConfig], logger=Non
             else:
                 result.append(f"{'  ' * indent}{key}: {value}")
         return result
-    
+
     lines.extend(format_dict(config_dict))
     lines.append("=" * 80)
-    
+
     summary = "\n".join(lines)
-    
+
     if logger:
         logger.info(summary)
     else:

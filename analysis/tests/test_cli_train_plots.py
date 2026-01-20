@@ -8,7 +8,6 @@ Verifies:
 """
 
 import ast
-import importlib
 import inspect
 from pathlib import Path
 
@@ -72,7 +71,9 @@ def test_no_duplicate_plot_calibration():
         tree = ast.parse(f.read())
 
     func_names = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
-    assert "plot_calibration_curve" not in func_names, "CLI should not define plot_calibration_curve"
+    assert (
+        "plot_calibration_curve" not in func_names
+    ), "CLI should not define plot_calibration_curve"
     assert "plot_calibration" not in func_names, "CLI should not define plot_calibration variant"
 
 
@@ -94,7 +95,9 @@ def test_no_duplicate_plot_risk_distribution():
         tree = ast.parse(f.read())
 
     func_names = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
-    assert "plot_risk_distribution" not in func_names, "CLI should not define plot_risk_distribution"
+    assert (
+        "plot_risk_distribution" not in func_names
+    ), "CLI should not define plot_risk_distribution"
 
 
 def test_no_duplicate_plot_learning_curve():
@@ -122,9 +125,9 @@ def test_no_inline_matplotlib_imports():
     # But train.py should not have direct pyplot imports
     lines = content.split("\n")
     direct_pyplot_imports = [
-        line for line in lines
-        if "import matplotlib.pyplot" in line
-        and not line.strip().startswith("#")
+        line
+        for line in lines
+        if "import matplotlib.pyplot" in line and not line.strip().startswith("#")
     ]
     assert len(direct_pyplot_imports) == 0, f"Found direct pyplot imports: {direct_pyplot_imports}"
 
@@ -133,19 +136,25 @@ def test_plotting_functions_are_imported_not_copied():
     """Verify CLI imports reference actual plotting functions (not copies)."""
     from ced_ml.cli import train
     from ced_ml.plotting import (
-        plot_roc_curve,
         plot_calibration_curve,
-        plot_risk_distribution,
         plot_dca,
         plot_learning_curve,
+        plot_risk_distribution,
+        plot_roc_curve,
     )
 
     # Check identity (same object, not copy)
     assert train.plot_roc_curve is plot_roc_curve, "plot_roc_curve should be imported, not copied"
-    assert train.plot_calibration_curve is plot_calibration_curve, "plot_calibration_curve should be imported"
-    assert train.plot_risk_distribution is plot_risk_distribution, "plot_risk_distribution should be imported"
+    assert (
+        train.plot_calibration_curve is plot_calibration_curve
+    ), "plot_calibration_curve should be imported"
+    assert (
+        train.plot_risk_distribution is plot_risk_distribution
+    ), "plot_risk_distribution should be imported"
     assert train.plot_dca is plot_dca, "plot_dca should be imported"
-    assert train.plot_learning_curve is plot_learning_curve, "plot_learning_curve should be imported"
+    assert (
+        train.plot_learning_curve is plot_learning_curve
+    ), "plot_learning_curve should be imported"
 
 
 def test_plotting_module_has_all_functions():
@@ -188,7 +197,12 @@ def test_no_plotting_function_duplication_in_cli():
     func_names = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
 
     # Known plotting function prefixes
-    plotting_prefixes = ["plot_", "compute_learning_curve", "save_learning_curve", "aggregate_learning"]
+    plotting_prefixes = [
+        "plot_",
+        "compute_learning_curve",
+        "save_learning_curve",
+        "aggregate_learning",
+    ]
 
     # Check that no function in CLI starts with plotting prefixes (except run_* orchestration)
     for func_name in func_names:
@@ -196,16 +210,18 @@ def test_no_plotting_function_duplication_in_cli():
             continue  # run_* functions are orchestration, not plotting logic
 
         for prefix in plotting_prefixes:
-            assert not func_name.startswith(prefix), (
-                f"CLI defines plotting function {func_name} - should import from plotting module"
-            )
+            assert not func_name.startswith(
+                prefix
+            ), f"CLI defines plotting function {func_name} - should import from plotting module"
 
 
 def test_roc_pr_module_functions_count():
     """Verify roc_pr module has expected number of public functions."""
     from ced_ml.plotting import roc_pr
 
-    public_funcs = [name for name in dir(roc_pr) if not name.startswith("_") and callable(getattr(roc_pr, name))]
+    public_funcs = [
+        name for name in dir(roc_pr) if not name.startswith("_") and callable(getattr(roc_pr, name))
+    ]
 
     # roc_pr has 2 public plot functions
     expected = ["plot_roc_curve", "plot_pr_curve"]
@@ -217,7 +233,11 @@ def test_calibration_module_functions_count():
     """Verify calibration module has expected number of public functions."""
     from ced_ml.plotting import calibration
 
-    public_funcs = [name for name in dir(calibration) if not name.startswith("_") and callable(getattr(calibration, name))]
+    public_funcs = [
+        name
+        for name in dir(calibration)
+        if not name.startswith("_") and callable(getattr(calibration, name))
+    ]
 
     # calibration has 1 main plot function
     assert "plot_calibration_curve" in public_funcs
@@ -227,7 +247,9 @@ def test_dca_module_functions_count():
     """Verify DCA module has expected number of public functions."""
     from ced_ml.plotting import dca
 
-    public_funcs = [name for name in dir(dca) if not name.startswith("_") and callable(getattr(dca, name))]
+    public_funcs = [
+        name for name in dir(dca) if not name.startswith("_") and callable(getattr(dca, name))
+    ]
 
     # DCA has 3 public functions
     expected = ["plot_dca", "plot_dca_curve", "apply_plot_metadata"]
@@ -239,7 +261,11 @@ def test_risk_dist_module_functions_count():
     """Verify risk_dist module has expected number of public functions."""
     from ced_ml.plotting import risk_dist
 
-    public_funcs = [name for name in dir(risk_dist) if not name.startswith("_") and callable(getattr(risk_dist, name))]
+    public_funcs = [
+        name
+        for name in dir(risk_dist)
+        if not name.startswith("_") and callable(getattr(risk_dist, name))
+    ]
 
     # risk_dist has 2 public functions
     expected = ["plot_risk_distribution", "compute_distribution_stats"]
@@ -251,7 +277,11 @@ def test_learning_curve_module_functions_count():
     """Verify learning_curve module has expected number of public functions."""
     from ced_ml.plotting import learning_curve
 
-    public_funcs = [name for name in dir(learning_curve) if not name.startswith("_") and callable(getattr(learning_curve, name))]
+    public_funcs = [
+        name
+        for name in dir(learning_curve)
+        if not name.startswith("_") and callable(getattr(learning_curve, name))
+    ]
 
     # learning_curve has 5 public functions
     expected = [
@@ -304,9 +334,7 @@ def test_no_fig_savefig_in_cli():
     # Check for savefig calls (indicates inline plotting)
     lines = content.split("\n")
     savefig_lines = [
-        line for line in lines
-        if ".savefig(" in line
-        and not line.strip().startswith("#")
+        line for line in lines if ".savefig(" in line and not line.strip().startswith("#")
     ]
 
     # Should be zero (all plotting delegated to plotting module)
@@ -340,7 +368,9 @@ def test_plotting_init_exports_all_functions():
 
     # Verify all functions are actually accessible
     for func_name in all_list:
-        assert hasattr(plotting, func_name), f"plotting.__all__ lists {func_name} but it's not accessible"
+        assert hasattr(
+            plotting, func_name
+        ), f"plotting.__all__ lists {func_name} but it's not accessible"
 
 
 def test_no_duplicate_compute_distribution_stats():

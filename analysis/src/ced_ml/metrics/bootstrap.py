@@ -35,7 +35,7 @@ def stratified_bootstrap_ci(
     metric_fn: Callable,
     n_boot: int = 1000,
     seed: int = 0,
-    min_valid_frac: float = 0.1
+    min_valid_frac: float = 0.1,
 ) -> Tuple[float, float]:
     """
     Compute stratified bootstrap confidence interval for a metric.
@@ -116,7 +116,7 @@ def stratified_bootstrap_diff_ci(
     metric_fn: Callable,
     n_boot: int = 500,
     seed: int = 0,
-    min_valid_frac: float = 0.1
+    min_valid_frac: float = 0.1,
 ) -> Tuple[float, float, float]:
     """
     Compute stratified bootstrap CI for difference between two models.
@@ -164,9 +164,7 @@ def stratified_bootstrap_diff_ci(
 
     # Validate inputs
     if not (len(y_true) == len(p1) == len(p2)):
-        raise ValueError(
-            f"Length mismatch: y_true={len(y_true)}, p1={len(p1)}, p2={len(p2)}"
-        )
+        raise ValueError(f"Length mismatch: y_true={len(y_true)}, p1={len(p1)}, p2={len(p2)}")
 
     # Compute full-sample difference
     diff_full = float(metric_fn(y_true, p1) - metric_fn(y_true, p2))

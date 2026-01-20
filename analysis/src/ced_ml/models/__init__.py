@@ -9,37 +9,35 @@ This package contains model-related functionality including:
 """
 
 from .calibration import (
-    calibration_intercept_slope,
+    PrevalenceAdjustedModel,
+    adjust_probabilities_for_prevalence,
     calib_intercept_metric,
     calib_slope_metric,
+    calibration_intercept_slope,
     expected_calibration_error,
-    adjust_probabilities_for_prevalence,
-    PrevalenceAdjustedModel,
-    get_calibrated_estimator_param_name,
     get_calibrated_cv_param_name,
+    get_calibrated_estimator_param_name,
     maybe_calibrate_estimator,
 )
-
-from .prevalence import (
-    adjust_probabilities_for_prevalence as adjust_prevalence,
-    PrevalenceAdjustedModel as PrevalenceModel,
-)
-
-from .registry import (
-    build_models,
-    build_logistic_regression,
-    build_linear_svm_calibrated,
-    build_random_forest,
-    build_xgboost,
-    make_logspace,
-    parse_class_weight_options,
-    compute_scale_pos_weight_from_y,
-)
-
 from .hyperparams import (
     get_param_distributions,
 )
-
+from .prevalence import (
+    PrevalenceAdjustedModel as PrevalenceModel,
+)
+from .prevalence import (
+    adjust_probabilities_for_prevalence as adjust_prevalence,
+)
+from .registry import (
+    build_linear_svm_calibrated,
+    build_logistic_regression,
+    build_models,
+    build_random_forest,
+    build_xgboost,
+    compute_scale_pos_weight_from_y,
+    make_logspace,
+    parse_class_weight_options,
+)
 from .training import (
     oof_predictions_with_nested_cv,
 )

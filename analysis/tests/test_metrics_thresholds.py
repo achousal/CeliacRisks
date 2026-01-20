@@ -22,7 +22,6 @@ from ced_ml.metrics.thresholds import (
     top_risk_capture,
 )
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -418,9 +417,7 @@ def test_choose_threshold_objective_max_f1(balanced_data):
 def test_choose_threshold_objective_max_fbeta(balanced_data):
     """Test threshold selection with max_fbeta objective."""
     y, p = balanced_data
-    name, thr = choose_threshold_objective(
-        y, p, objective="max_fbeta", fbeta=2.0
-    )
+    name, thr = choose_threshold_objective(y, p, objective="max_fbeta", fbeta=2.0)
 
     assert name == "max_fbeta"
     assert 0.0 <= thr <= 1.0
@@ -438,9 +435,7 @@ def test_choose_threshold_objective_youden(balanced_data):
 def test_choose_threshold_objective_fixed_spec(balanced_data):
     """Test threshold selection with fixed_spec objective."""
     y, p = balanced_data
-    name, thr = choose_threshold_objective(
-        y, p, objective="fixed_spec", fixed_spec=0.95
-    )
+    name, thr = choose_threshold_objective(y, p, objective="fixed_spec", fixed_spec=0.95)
 
     assert name == "fixed_spec"
     assert 0.0 <= thr <= 1.0
@@ -449,9 +444,7 @@ def test_choose_threshold_objective_fixed_spec(balanced_data):
 def test_choose_threshold_objective_fixed_ppv(balanced_data):
     """Test threshold selection with fixed_ppv objective."""
     y, p = balanced_data
-    name, thr = choose_threshold_objective(
-        y, p, objective="fixed_ppv", fixed_ppv=0.8
-    )
+    name, thr = choose_threshold_objective(y, p, objective="fixed_ppv", fixed_ppv=0.8)
 
     assert name == "fixed_ppv"
     assert 0.0 <= thr <= 1.0

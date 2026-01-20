@@ -10,24 +10,22 @@ Coverage areas:
 """
 
 import numpy as np
-import pytest
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import LinearSVC
-from sklearn.calibration import CalibratedClassifierCV
 
 from ced_ml.models.calibration import (
-    calibration_intercept_slope,
+    PrevalenceAdjustedModel,
+    adjust_probabilities_for_prevalence,
     calib_intercept_metric,
     calib_slope_metric,
+    calibration_intercept_slope,
     expected_calibration_error,
-    adjust_probabilities_for_prevalence,
-    PrevalenceAdjustedModel,
-    get_calibrated_estimator_param_name,
     get_calibrated_cv_param_name,
+    get_calibrated_estimator_param_name,
     maybe_calibrate_estimator,
 )
-
 
 # ============================================================================
 # Calibration Metrics Tests
@@ -199,7 +197,9 @@ def test_adjust_probabilities_for_prevalence_no_change():
 
     adjusted = adjust_probabilities_for_prevalence(probs, sample_prev, target_prev)
 
-    assert np.allclose(adjusted, probs, atol=1e-5), "Same prevalence should not change probabilities"
+    assert np.allclose(
+        adjusted, probs, atol=1e-5
+    ), "Same prevalence should not change probabilities"
 
 
 def test_adjust_probabilities_extreme_values():
@@ -248,7 +248,9 @@ def test_prevalence_adjusted_model_predict_proba():
     raw_probs = base_model.predict_proba(X_test)[:, 1]
     adjusted_probs = wrapper.predict_proba(X_test)[:, 1]
 
-    assert np.all(adjusted_probs < raw_probs), "Lower target prevalence should decrease probabilities"
+    assert np.all(
+        adjusted_probs < raw_probs
+    ), "Lower target prevalence should decrease probabilities"
     assert adjusted_probs.shape == raw_probs.shape
 
 
@@ -290,11 +292,7 @@ def test_maybe_calibrate_estimator_lr():
     """Test calibration wrapper for Logistic Regression."""
     base_model = LogisticRegression(random_state=42)
     calibrated = maybe_calibrate_estimator(
-        base_model,
-        model_name="LR_EN",
-        calibrate=True,
-        method="sigmoid",
-        cv=3
+        base_model, model_name="LR_EN", calibrate=True, method="sigmoid", cv=3
     )
 
     assert isinstance(calibrated, CalibratedClassifierCV)
@@ -304,11 +302,7 @@ def test_maybe_calibrate_estimator_rf():
     """Test calibration wrapper for Random Forest."""
     base_model = RandomForestClassifier(n_estimators=10, random_state=42)
     calibrated = maybe_calibrate_estimator(
-        base_model,
-        model_name="RF",
-        calibrate=True,
-        method="sigmoid",
-        cv=3
+        base_model, model_name="RF", calibrate=True, method="sigmoid", cv=3
     )
 
     assert isinstance(calibrated, CalibratedClassifierCV)
@@ -318,11 +312,7 @@ def test_maybe_calibrate_estimator_svm_skip():
     """SVM should not be calibrated (already calibrated)."""
     base_model = CalibratedClassifierCV(LinearSVC(random_state=42))
     result = maybe_calibrate_estimator(
-        base_model,
-        model_name="LinSVM_cal",
-        calibrate=True,
-        method="sigmoid",
-        cv=3
+        base_model, model_name="LinSVM_cal", calibrate=True, method="sigmoid", cv=3
     )
 
     assert result is base_model, "SVM should not be re-calibrated"
@@ -332,11 +322,7 @@ def test_maybe_calibrate_estimator_disabled():
     """Should return original estimator when calibration disabled."""
     base_model = LogisticRegression(random_state=42)
     result = maybe_calibrate_estimator(
-        base_model,
-        model_name="LR_EN",
-        calibrate=False,
-        method="sigmoid",
-        cv=3
+        base_model, model_name="LR_EN", calibrate=False, method="sigmoid", cv=3
     )
 
     assert result is base_model
@@ -346,11 +332,7 @@ def test_maybe_calibrate_estimator_already_calibrated():
     """Should not double-calibrate."""
     base_model = CalibratedClassifierCV(LogisticRegression(random_state=42))
     result = maybe_calibrate_estimator(
-        base_model,
-        model_name="LR_EN",
-        calibrate=True,
-        method="sigmoid",
-        cv=3
+        base_model, model_name="LR_EN", calibrate=True, method="sigmoid", cv=3
     )
 
     assert result is base_model, "Should not double-calibrate"
@@ -360,11 +342,7 @@ def test_maybe_calibrate_estimator_isotonic():
     """Test isotonic calibration method."""
     base_model = LogisticRegression(random_state=42)
     calibrated = maybe_calibrate_estimator(
-        base_model,
-        model_name="LR_EN",
-        calibrate=True,
-        method="isotonic",
-        cv=5
+        base_model, model_name="LR_EN", calibrate=True, method="isotonic", cv=5
     )
 
     assert isinstance(calibrated, CalibratedClassifierCV)
@@ -423,16 +401,12 @@ def test_calibration_with_perfect_separation():
     np.random.seed(42)
 
     # Perfectly separable data
-    X_train = np.vstack([
-        np.random.randn(50, 2) - 3,  # Class 0
-        np.random.randn(50, 2) + 3   # Class 1
-    ])
+    X_train = np.vstack(
+        [np.random.randn(50, 2) - 3, np.random.randn(50, 2) + 3]  # Class 0  # Class 1
+    )
     y_train = np.array([0] * 50 + [1] * 50)
 
-    X_test = np.vstack([
-        np.random.randn(10, 2) - 3,
-        np.random.randn(10, 2) + 3
-    ])
+    X_test = np.vstack([np.random.randn(10, 2) - 3, np.random.randn(10, 2) + 3])
     y_test = np.array([0] * 10 + [1] * 10)
 
     # Train model

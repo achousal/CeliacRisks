@@ -7,20 +7,20 @@ Tests:
 - Config diff
 """
 
-import pytest
-from pathlib import Path
 import tempfile
+from pathlib import Path
+
+import pytest
 import yaml
 
 from ced_ml.cli.config_tools import (
-    migrate_legacy_args_to_yaml,
-    validate_config_file,
-    diff_configs,
+    _map_to_nested_key,
     _parse_legacy_args,
     _parse_value_smart,
-    _map_to_nested_key,
+    diff_configs,
+    migrate_legacy_args_to_yaml,
+    validate_config_file,
 )
-from ced_ml.config.schema import SplitsConfig, TrainingConfig
 
 
 class TestParseLegacyArgs:
@@ -146,12 +146,17 @@ class TestMigrateLegacyArgs:
             output_file = Path(tmpdir) / "splits_config.yaml"
 
             legacy_args = [
-                "--n-splits", "10",
-                "--val-size", "0.25",
-                "--test-size", "0.25",
+                "--n-splits",
+                "10",
+                "--val-size",
+                "0.25",
+                "--test-size",
+                "0.25",
                 "--prevalent-train-only",
-                "--prevalent-train-frac", "0.5",
-                "--train-control-per-case", "5",
+                "--prevalent-train-frac",
+                "0.5",
+                "--train-control-per-case",
+                "5",
             ]
 
             result_path = migrate_legacy_args_to_yaml(
@@ -181,13 +186,20 @@ class TestMigrateLegacyArgs:
             output_file = Path(tmpdir) / "training_config.yaml"
 
             legacy_args = [
-                "--infile", "/path/to/data.csv",  # Required field
-                "--model", "RF",
-                "--folds", "10",
-                "--scoring", "neg_brier_score",
-                "--screen-top-n", "1000",
-                "--threshold-objective", "youden",
-                "--n-boot", "500",
+                "--infile",
+                "/path/to/data.csv",  # Required field
+                "--model",
+                "RF",
+                "--folds",
+                "10",
+                "--scoring",
+                "neg_brier_score",
+                "--screen-top-n",
+                "1000",
+                "--threshold-objective",
+                "youden",
+                "--n-boot",
+                "500",
             ]
 
             result_path = migrate_legacy_args_to_yaml(
@@ -351,7 +363,7 @@ class TestDiffConfigs:
                 },
                 "features": {
                     "screen_top_n": 1000,
-                }
+                },
             }
 
             config_dict2 = {
@@ -361,7 +373,7 @@ class TestDiffConfigs:
                 },
                 "features": {
                     "screen_top_n": 2000,
-                }
+                },
             }
 
             with open(config1, "w") as f:

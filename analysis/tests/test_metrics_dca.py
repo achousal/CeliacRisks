@@ -11,8 +11,6 @@ Validates:
 """
 
 import json
-import tempfile
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -30,7 +28,6 @@ from ced_ml.metrics.dca import (
     save_dca_results,
 )
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -40,7 +37,6 @@ from ced_ml.metrics.dca import (
 def binary_classification_data():
     """Create reproducible binary classification data."""
     np.random.seed(42)
-    n = 200
 
     # Controls (80%)
     y_ctrl = np.zeros(160)
@@ -152,11 +148,19 @@ def test_decision_curve_analysis_structure(binary_classification_data):
 
     # Check columns
     expected_cols = [
-        "threshold", "threshold_pct",
-        "net_benefit_model", "net_benefit_all", "net_benefit_none",
+        "threshold",
+        "threshold_pct",
+        "net_benefit_model",
+        "net_benefit_all",
+        "net_benefit_none",
         "relative_utility",
-        "tp", "fp", "tn", "fn", "n_treat",
-        "sensitivity", "specificity",
+        "tp",
+        "fp",
+        "tn",
+        "fn",
+        "n_treat",
+        "sensitivity",
+        "specificity",
     ]
     for col in expected_cols:
         assert col in dca_df.columns
@@ -358,12 +362,14 @@ def test_compute_dca_summary_never_beats_all():
 def test_find_dca_zero_crossing_interpolation(tmp_path):
     """Test zero-crossing with linear interpolation."""
     # Create DCA curve that crosses zero
-    dca_df = pd.DataFrame({
-        "threshold": [0.01, 0.02, 0.03, 0.04, 0.05],
-        "net_benefit_model": [-0.02, -0.01, 0.01, 0.02, 0.03],
-        "net_benefit_all": [0.15, 0.10, 0.05, 0.00, -0.05],
-        "net_benefit_none": [0.0, 0.0, 0.0, 0.0, 0.0],
-    })
+    dca_df = pd.DataFrame(
+        {
+            "threshold": [0.01, 0.02, 0.03, 0.04, 0.05],
+            "net_benefit_model": [-0.02, -0.01, 0.01, 0.02, 0.03],
+            "net_benefit_all": [0.15, 0.10, 0.05, 0.00, -0.05],
+            "net_benefit_none": [0.0, 0.0, 0.0, 0.0, 0.0],
+        }
+    )
 
     csv_path = tmp_path / "dca_curve.csv"
     dca_df.to_csv(csv_path, index=False)
@@ -380,12 +386,14 @@ def test_find_dca_zero_crossing_interpolation(tmp_path):
 def test_find_dca_zero_crossing_no_crossing(tmp_path):
     """Test when model never crosses zero."""
     # Always positive net benefit
-    dca_df = pd.DataFrame({
-        "threshold": [0.01, 0.02, 0.03],
-        "net_benefit_model": [0.10, 0.08, 0.06],
-        "net_benefit_all": [0.05, 0.03, 0.01],
-        "net_benefit_none": [0.0, 0.0, 0.0],
-    })
+    dca_df = pd.DataFrame(
+        {
+            "threshold": [0.01, 0.02, 0.03],
+            "net_benefit_model": [0.10, 0.08, 0.06],
+            "net_benefit_all": [0.05, 0.03, 0.01],
+            "net_benefit_none": [0.0, 0.0, 0.0],
+        }
+    )
 
     csv_path = tmp_path / "dca_curve.csv"
     dca_df.to_csv(csv_path, index=False)
@@ -400,12 +408,14 @@ def test_find_dca_zero_crossing_no_crossing(tmp_path):
 def test_find_dca_zero_crossing_fallback_near_zero(tmp_path):
     """Test fallback when no crossing but point very close to zero."""
     # No crossing but one point close to zero
-    dca_df = pd.DataFrame({
-        "threshold": [0.01, 0.02, 0.03],
-        "net_benefit_model": [0.10, 0.02, 0.08],  # 0.02 is close to zero
-        "net_benefit_all": [0.05, 0.03, 0.01],
-        "net_benefit_none": [0.0, 0.0, 0.0],
-    })
+    dca_df = pd.DataFrame(
+        {
+            "threshold": [0.01, 0.02, 0.03],
+            "net_benefit_model": [0.10, 0.02, 0.08],  # 0.02 is close to zero
+            "net_benefit_all": [0.05, 0.03, 0.01],
+            "net_benefit_none": [0.0, 0.0, 0.0],
+        }
+    )
 
     csv_path = tmp_path / "dca_curve.csv"
     dca_df.to_csv(csv_path, index=False)
@@ -424,10 +434,12 @@ def test_find_dca_zero_crossing_missing_file():
 
 def test_find_dca_zero_crossing_invalid_columns(tmp_path):
     """Missing required columns should return None."""
-    dca_df = pd.DataFrame({
-        "threshold": [0.01, 0.02],
-        "net_benefit_all": [0.05, 0.03],  # Missing net_benefit_model
-    })
+    dca_df = pd.DataFrame(
+        {
+            "threshold": [0.01, 0.02],
+            "net_benefit_all": [0.05, 0.03],  # Missing net_benefit_model
+        }
+    )
 
     csv_path = tmp_path / "dca_curve.csv"
     dca_df.to_csv(csv_path, index=False)
@@ -446,7 +458,8 @@ def test_save_dca_results_files_created(binary_classification_data, tmp_path):
     y_true, y_pred = binary_classification_data
 
     summary = save_dca_results(
-        y_true, y_pred,
+        y_true,
+        y_pred,
         out_dir=str(tmp_path),
         prefix="test__",
     )
@@ -468,7 +481,8 @@ def test_save_dca_results_csv_content(binary_classification_data, tmp_path):
     y_true, y_pred = binary_classification_data
 
     save_dca_results(
-        y_true, y_pred,
+        y_true,
+        y_pred,
         out_dir=str(tmp_path),
         prefix="test__",
         thresholds=np.linspace(0.01, 0.10, 10),
@@ -487,7 +501,8 @@ def test_save_dca_results_json_content(binary_classification_data, tmp_path):
     y_true, y_pred = binary_classification_data
 
     save_dca_results(
-        y_true, y_pred,
+        y_true,
+        y_pred,
         out_dir=str(tmp_path),
         prefix="test__",
     )
@@ -505,7 +520,8 @@ def test_save_dca_results_prevalence_adjustment(binary_classification_data, tmp_
     y_true, y_pred = binary_classification_data
 
     summary = save_dca_results(
-        y_true, y_pred,
+        y_true,
+        y_pred,
         out_dir=str(tmp_path),
         prevalence_adjustment=0.15,
     )
@@ -516,7 +532,10 @@ def test_save_dca_results_prevalence_adjustment(binary_classification_data, tmp_
 def test_save_dca_results_empty_data(tmp_path):
     """Empty data should return error summary."""
     summary = save_dca_results(
-        np.array([]), np.array([],),
+        np.array([]),
+        np.array(
+            [],
+        ),
         out_dir=str(tmp_path),
     )
 
@@ -600,7 +619,8 @@ def test_dca_workflow_end_to_end(binary_classification_data, tmp_path):
 
     # Save DCA results
     summary = save_dca_results(
-        y_true, y_pred,
+        y_true,
+        y_pred,
         out_dir=str(tmp_path),
         prefix="integration__",
         thresholds=np.linspace(0.001, 0.20, 200),

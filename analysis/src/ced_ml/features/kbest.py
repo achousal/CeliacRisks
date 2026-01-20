@@ -9,11 +9,11 @@ Key functions:
 - rank_features_by_score: Rank features by score (descending)
 """
 
-from typing import List, Optional, Tuple, Any
+from typing import Any, List, Optional
 
 import numpy as np
 import pandas as pd
-from sklearn.feature_selection import f_classif, SelectKBest
+from sklearn.feature_selection import SelectKBest, f_classif
 
 
 def select_kbest_features(
@@ -183,7 +183,7 @@ def extract_selected_proteins_from_kbest(
     protein_set = set()
     for name in selected_features:
         if name.startswith(feature_name_prefix):
-            original_name = name[len(feature_name_prefix):]
+            original_name = name[len(feature_name_prefix) :]
             if original_name in protein_cols:
                 protein_set.add(original_name)
 
@@ -311,6 +311,7 @@ def compute_protein_statistics(
     # T-test (Welch's, unequal variance)
     try:
         from scipy import stats
+
         _, p_value = stats.ttest_ind(x_case, x_control, equal_var=False, nan_policy="omit")
         p_ttest = float(p_value)
     except Exception:

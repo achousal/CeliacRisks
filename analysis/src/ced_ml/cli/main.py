@@ -8,7 +8,6 @@ Provides subcommands:
   - ced eval-holdout: Evaluate on holdout set
 """
 
-import sys
 import click
 
 from ced_ml import __version__
@@ -26,7 +25,7 @@ from ced_ml import __version__
 def cli(ctx, verbose):
     """
     CeD-ML: Machine Learning Pipeline for Celiac Disease Risk Prediction
-    
+
     A modular, reproducible ML pipeline for predicting incident Celiac Disease
     risk from proteomics biomarkers.
     """
@@ -131,11 +130,11 @@ def cli(ctx, verbose):
 def save_splits(ctx, config, **kwargs):
     """Generate train/val/test splits with stratification and optional downsampling."""
     from ced_ml.cli.save_splits import run_save_splits
-    
+
     # Collect CLI args
     cli_args = {k: v for k, v in kwargs.items() if k != "override"}
     overrides = list(kwargs.get("override", []))
-    
+
     # Run split generation
     run_save_splits(
         config_file=config,
@@ -194,11 +193,11 @@ def save_splits(ctx, config, **kwargs):
 def train(ctx, config, **kwargs):
     """Train machine learning models with nested cross-validation."""
     from ced_ml.cli.train import run_train
-    
+
     # Collect CLI args
     cli_args = {k: v for k, v in kwargs.items() if k != "override"}
     overrides = list(kwargs.get("override", []))
-    
+
     # Run training
     run_train(
         config_file=config,
@@ -236,7 +235,7 @@ def train(ctx, config, **kwargs):
 def postprocess(ctx, **kwargs):
     """Aggregate and compare results across models."""
     from ced_ml.cli.postprocess import run_postprocess
-    
+
     run_postprocess(**kwargs, verbose=ctx.obj.get("verbose", 0))
 
 
@@ -312,6 +311,7 @@ def config_group(ctx):
 def config_migrate(ctx, input_file, args, command, output):
     """Convert legacy CLI arguments to YAML config."""
     from pathlib import Path
+
     from ced_ml.cli.config_tools import run_config_migrate
 
     run_config_migrate(
@@ -340,6 +340,7 @@ def config_migrate(ctx, input_file, args, command, output):
 def config_validate(ctx, config_file, command, strict):
     """Validate configuration file and report issues."""
     from pathlib import Path
+
     from ced_ml.cli.config_tools import run_config_validate
 
     run_config_validate(
@@ -363,6 +364,7 @@ def config_validate(ctx, config_file, command, strict):
 def config_diff(ctx, config_file1, config_file2, output):
     """Compare two configuration files."""
     from pathlib import Path
+
     from ced_ml.cli.config_tools import run_config_diff
 
     run_config_diff(

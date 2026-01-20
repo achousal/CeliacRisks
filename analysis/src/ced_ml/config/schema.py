@@ -5,16 +5,15 @@ Defines Pydantic models for all pipeline configuration parameters (~200 total).
 All defaults match the current implementation exactly for behavioral equivalence.
 """
 
-from dataclasses import dataclass, field
-from typing import List, Literal, Optional, Union
 from pathlib import Path
+from typing import List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, field_validator, model_validator
-
+from pydantic import BaseModel, Field, model_validator
 
 # ============================================================================
 # Data and Split Configuration
 # ============================================================================
+
 
 class SplitsConfig(BaseModel):
     """Configuration for data split generation."""
@@ -45,7 +44,7 @@ class SplitsConfig(BaseModel):
     save_indices_only: bool = False
     overwrite: bool = False
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_split_sizes(self):
         """Validate that split sizes don't exceed 1.0."""
         if self.mode == "development":
@@ -62,9 +61,10 @@ class SplitsConfig(BaseModel):
 # Cross-Validation Configuration
 # ============================================================================
 
+
 class CVConfig(BaseModel):
     """Configuration for cross-validation structure."""
-    
+
     folds: int = Field(default=5, ge=2)
     repeats: int = Field(default=3, ge=1)
     inner_folds: int = Field(default=5, ge=2)
@@ -80,26 +80,27 @@ class CVConfig(BaseModel):
 # Feature Selection Configuration
 # ============================================================================
 
+
 class FeatureConfig(BaseModel):
     """Configuration for feature selection methods."""
-    
+
     feature_select: Literal["none", "kbest", "l1_stability", "hybrid"] = "none"
     screen_method: Literal["mannwhitney", "f_classif"] = "mannwhitney"
     screen_top_n: int = Field(default=0, ge=0)
-    
+
     # KBest selection
     kbest_scope: Literal["protein", "transformed"] = "protein"
     kbest_max: int = Field(default=500, ge=1)
     k_grid: List[int] = Field(default_factory=lambda: [50, 100, 200, 500])
-    
+
     # Stability-based selection
     stability_thresh: float = Field(default=0.70, ge=0.0, le=1.0)
     stable_corr_thresh: float = Field(default=0.80, ge=0.0, le=1.0)
-    
+
     # L1 stability
     l1_c_grid: List[float] = Field(default_factory=lambda: [0.001, 0.01, 0.1, 1.0])
     l1_stability_thresh: float = Field(default=0.70, ge=0.0, le=1.0)
-    
+
     # Hybrid mode
     hybrid_kbest_first: bool = True
     hybrid_k_for_stability: int = 200
@@ -109,9 +110,10 @@ class FeatureConfig(BaseModel):
 # Panel Building Configuration
 # ============================================================================
 
+
 class PanelConfig(BaseModel):
     """Configuration for biomarker panel building."""
-    
+
     build_panels: bool = False
     panel_sizes: List[int] = Field(default_factory=lambda: [10, 25, 50, 100])
     panel_corr_thresh: float = Field(default=0.80, ge=0.0, le=1.0)
@@ -125,9 +127,10 @@ class PanelConfig(BaseModel):
 # Model-Specific Hyperparameter Configurations
 # ============================================================================
 
+
 class LRConfig(BaseModel):
     """Logistic Regression hyperparameters."""
-    
+
     penalty: List[str] = Field(default_factory=lambda: ["l1", "l2", "elasticnet"])
     C: List[float] = Field(default_factory=lambda: [0.001, 0.01, 0.1, 1.0, 10.0])
     l1_ratio: List[float] = Field(default_factory=lambda: [0.1, 0.5, 0.9])
@@ -139,7 +142,7 @@ class LRConfig(BaseModel):
 
 class SVMConfig(BaseModel):
     """Support Vector Machine hyperparameters."""
-    
+
     C: List[float] = Field(default_factory=lambda: [0.01, 0.1, 1.0, 10.0])
     kernel: List[str] = Field(default_factory=lambda: ["linear", "rbf"])
     gamma: List[Union[str, float]] = Field(default_factory=lambda: ["scale", "auto", 0.001, 0.01])
@@ -151,7 +154,7 @@ class SVMConfig(BaseModel):
 
 class RFConfig(BaseModel):
     """Random Forest hyperparameters."""
-    
+
     n_estimators: List[int] = Field(default_factory=lambda: [100, 300, 500])
     max_depth: List[Optional[int]] = Field(default_factory=lambda: [None, 10, 20, 30])
     min_samples_split: List[int] = Field(default_factory=lambda: [2, 5, 10])
@@ -164,7 +167,7 @@ class RFConfig(BaseModel):
 
 class XGBoostConfig(BaseModel):
     """XGBoost hyperparameters."""
-    
+
     n_estimators: List[int] = Field(default_factory=lambda: [100, 300, 500])
     max_depth: List[int] = Field(default_factory=lambda: [3, 5, 7, 10])
     learning_rate: List[float] = Field(default_factory=lambda: [0.01, 0.05, 0.1, 0.3])
@@ -182,7 +185,7 @@ class XGBoostConfig(BaseModel):
 
 class CalibrationConfig(BaseModel):
     """Calibration wrapper configuration."""
-    
+
     method: Literal["sigmoid", "isotonic"] = "sigmoid"
     cv: int = 5
     ensemble: bool = False
@@ -192,9 +195,10 @@ class CalibrationConfig(BaseModel):
 # Threshold Selection Configuration
 # ============================================================================
 
+
 class ThresholdConfig(BaseModel):
     """Configuration for threshold selection."""
-    
+
     objective: Literal["max_f1", "max_fbeta", "youden", "fixed_spec", "fixed_ppv"] = "max_f1"
     fbeta: float = Field(default=1.0, gt=0.0)
     fixed_spec: float = Field(default=0.90, ge=0.0, le=1.0)
@@ -209,22 +213,23 @@ class ThresholdConfig(BaseModel):
 # Evaluation and Reporting Configuration
 # ============================================================================
 
+
 class EvaluationConfig(BaseModel):
     """Configuration for evaluation metrics and reporting."""
-    
+
     # Bootstrap confidence intervals
     test_ci_bootstrap: bool = True
     n_boot: int = Field(default=500, ge=100)
     boot_random_state: int = 0
-    
+
     # Learning curves
     learning_curve: bool = False
     lc_train_sizes: List[float] = Field(default_factory=lambda: [0.1, 0.25, 0.5, 0.75, 1.0])
-    
+
     # Feature importance
     feature_reports: bool = True
     feature_report_max: int = 100
-    
+
     # Specificity/sensitivity targets
     control_spec_targets: List[float] = Field(default_factory=lambda: [0.90, 0.95, 0.99])
     toprisk_fracs: List[float] = Field(default_factory=lambda: [0.01, 0.05, 0.10])
@@ -234,9 +239,10 @@ class EvaluationConfig(BaseModel):
 # Decision Curve Analysis Configuration
 # ============================================================================
 
+
 class DCAConfig(BaseModel):
     """Configuration for decision curve analysis."""
-    
+
     compute_dca: bool = False
     dca_threshold_min: float = Field(default=0.0005, ge=0.0, le=1.0)
     dca_threshold_max: float = Field(default=1.0, ge=0.0, le=1.0)
@@ -248,9 +254,10 @@ class DCAConfig(BaseModel):
 # Output Control Configuration
 # ============================================================================
 
+
 class OutputConfig(BaseModel):
     """Configuration for output file generation."""
-    
+
     save_train_preds: bool = False
     save_val_preds: bool = True
     save_test_preds: bool = True
@@ -266,9 +273,10 @@ class OutputConfig(BaseModel):
 # Strictness and Validation Configuration
 # ============================================================================
 
+
 class StrictnessConfig(BaseModel):
     """Configuration for validation strictness."""
-    
+
     level: Literal["off", "warn", "error"] = "warn"
     check_split_overlap: bool = True
     check_prevalent_in_eval: bool = True
@@ -281,18 +289,19 @@ class StrictnessConfig(BaseModel):
 # Master Training Configuration
 # ============================================================================
 
+
 class TrainingConfig(BaseModel):
     """Complete training configuration."""
-    
+
     # Data
     infile: Path
     split_dir: Optional[Path] = None
     scenario: str = "IncidentOnly"
     split_seed: int = 0
-    
+
     # Model selection
     model: str = "LR_EN"
-    
+
     # Sub-configurations
     cv: CVConfig = Field(default_factory=CVConfig)
     features: FeatureConfig = Field(default_factory=FeatureConfig)
@@ -302,40 +311,43 @@ class TrainingConfig(BaseModel):
     dca: DCAConfig = Field(default_factory=DCAConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
     strictness: StrictnessConfig = Field(default_factory=StrictnessConfig)
-    
+
     # Model-specific hyperparameters
     lr: LRConfig = Field(default_factory=LRConfig)
     svm: SVMConfig = Field(default_factory=SVMConfig)
     rf: RFConfig = Field(default_factory=RFConfig)
     xgboost: XGBoostConfig = Field(default_factory=XGBoostConfig)
     calibration: CalibrationConfig = Field(default_factory=CalibrationConfig)
-    
+
     # Output
     outdir: Path = Field(default=Path("results"))
     run_name: Optional[str] = None
-    
+
     # Resources
     n_jobs: int = -1
     verbose: int = 1
-    
-    @model_validator(mode='after')
+
+    @model_validator(mode="after")
     def validate_config(self):
         """Cross-field validation."""
         # Ensure threshold source is available
         if self.thresholds.threshold_source == "val" and self.cv.folds < 2:
             raise ValueError("threshold_source='val' requires val_size > 0")
-        
+
         # Check prevalence source consistency
         if self.thresholds.target_prevalence_source == "fixed":
             if self.thresholds.target_prevalence_fixed is None:
-                raise ValueError("target_prevalence_source='fixed' requires target_prevalence_fixed")
-        
+                raise ValueError(
+                    "target_prevalence_source='fixed' requires target_prevalence_fixed"
+                )
+
         return self
 
 
 # ============================================================================
 # Master Configuration (All Subcommands)
 # ============================================================================
+
 
 class RootConfig(BaseModel):
     """Root configuration for all CeD-ML commands."""

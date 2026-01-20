@@ -2,13 +2,10 @@
 Tests for ROC and PR curve plotting.
 """
 
-import tempfile
-from pathlib import Path
-
 import numpy as np
 import pytest
 
-from ced_ml.plotting.roc_pr import plot_roc_curve, plot_pr_curve
+from ced_ml.plotting.roc_pr import plot_pr_curve, plot_roc_curve
 
 
 class TestROCCurvePlotting:
@@ -18,12 +15,13 @@ class TestROCCurvePlotting:
     def basic_predictions(self):
         """Basic binary classification predictions."""
         np.random.seed(42)
-        n = 200
         y_true = np.concatenate([np.zeros(180), np.ones(20)])
-        y_pred = np.concatenate([
-            np.random.beta(2, 5, 180),
-            np.random.beta(5, 2, 20),
-        ])
+        y_pred = np.concatenate(
+            [
+                np.random.beta(2, 5, 180),
+                np.random.beta(5, 2, 20),
+            ]
+        )
         return y_true, y_pred
 
     @pytest.fixture
@@ -38,10 +36,12 @@ class TestROCCurvePlotting:
 
         for split_id in range(n_splits):
             y_s = np.concatenate([np.zeros(36), np.ones(4)])
-            p_s = np.concatenate([
-                np.random.beta(2, 5, 36),
-                np.random.beta(5, 2, 4),
-            ])
+            p_s = np.concatenate(
+                [
+                    np.random.beta(2, 5, 36),
+                    np.random.beta(5, 2, 4),
+                ]
+            )
             y_true.append(y_s)
             y_pred.append(p_s)
             split_ids.append(np.full(n_per_split, split_id))
@@ -210,12 +210,13 @@ class TestPRCurvePlotting:
     def basic_predictions(self):
         """Basic binary classification predictions."""
         np.random.seed(42)
-        n = 200
         y_true = np.concatenate([np.zeros(180), np.ones(20)])
-        y_pred = np.concatenate([
-            np.random.beta(2, 5, 180),
-            np.random.beta(5, 2, 20),
-        ])
+        y_pred = np.concatenate(
+            [
+                np.random.beta(2, 5, 180),
+                np.random.beta(5, 2, 20),
+            ]
+        )
         return y_true, y_pred
 
     @pytest.fixture
@@ -230,10 +231,12 @@ class TestPRCurvePlotting:
 
         for split_id in range(n_splits):
             y_s = np.concatenate([np.zeros(36), np.ones(4)])
-            p_s = np.concatenate([
-                np.random.beta(2, 5, 36),
-                np.random.beta(5, 2, 4),
-            ])
+            p_s = np.concatenate(
+                [
+                    np.random.beta(2, 5, 36),
+                    np.random.beta(5, 2, 4),
+                ]
+            )
             y_true.append(y_s)
             y_pred.append(p_s)
             split_ids.append(np.full(n_per_split, split_id))
@@ -376,10 +379,12 @@ class TestPRCurvePlotting:
         """Test PR curve with extreme class imbalance."""
         np.random.seed(42)
         y_true = np.concatenate([np.zeros(990), np.ones(10)])
-        y_pred = np.concatenate([
-            np.random.beta(1, 10, 990),
-            np.random.beta(10, 1, 10),
-        ])
+        y_pred = np.concatenate(
+            [
+                np.random.beta(1, 10, 990),
+                np.random.beta(10, 1, 10),
+            ]
+        )
         out_path = tmp_path / "pr_imbalanced.png"
 
         plot_pr_curve(
@@ -398,8 +403,9 @@ class TestPlotMetadataHelper:
 
     def test_metadata_with_lines(self, tmp_path):
         """Test metadata application with lines."""
-        from ced_ml.plotting.roc_pr import _apply_plot_metadata
         import matplotlib.pyplot as plt
+
+        from ced_ml.plotting.roc_pr import _apply_plot_metadata
 
         fig, ax = plt.subplots()
         meta_lines = ["Line 1", "Line 2", "Line 3"]
@@ -411,8 +417,9 @@ class TestPlotMetadataHelper:
 
     def test_metadata_without_lines(self):
         """Test metadata application without lines."""
-        from ced_ml.plotting.roc_pr import _apply_plot_metadata
         import matplotlib.pyplot as plt
+
+        from ced_ml.plotting.roc_pr import _apply_plot_metadata
 
         fig, ax = plt.subplots()
         margin = _apply_plot_metadata(fig, None)
@@ -422,8 +429,9 @@ class TestPlotMetadataHelper:
 
     def test_metadata_empty_list(self):
         """Test metadata with empty list."""
-        from ced_ml.plotting.roc_pr import _apply_plot_metadata
         import matplotlib.pyplot as plt
+
+        from ced_ml.plotting.roc_pr import _apply_plot_metadata
 
         fig, ax = plt.subplots()
         margin = _apply_plot_metadata(fig, [])
@@ -433,8 +441,9 @@ class TestPlotMetadataHelper:
 
     def test_metadata_caps_at_30_percent(self):
         """Test metadata margin caps at 30%."""
-        from ced_ml.plotting.roc_pr import _apply_plot_metadata
         import matplotlib.pyplot as plt
+
+        from ced_ml.plotting.roc_pr import _apply_plot_metadata
 
         fig, ax = plt.subplots()
         many_lines = [f"Line {i}" for i in range(50)]

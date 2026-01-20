@@ -6,9 +6,10 @@ This module handles:
 - Prediction export to CSV
 """
 
+from typing import Any, Dict, Optional, Union
+
 import numpy as np
 import pandas as pd
-from typing import Dict, Any, Optional, Union
 from sklearn.pipeline import Pipeline
 
 from ..models.prevalence import PrevalenceAdjustedModel
@@ -366,9 +367,7 @@ def predict_on_holdout(
         }
     else:
         if train_prevalence is None or target_prevalence is None:
-            raise ValueError(
-                "train_prevalence and target_prevalence required for Pipeline models"
-            )
+            raise ValueError("train_prevalence and target_prevalence required for Pipeline models")
 
         preds = generate_predictions_with_adjustment(
             model=model,

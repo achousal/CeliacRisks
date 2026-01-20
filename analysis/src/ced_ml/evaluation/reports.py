@@ -12,14 +12,14 @@ Design:
 - Atomic writes where feasible
 """
 
-import os
 import json
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+import os
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List
 
-import pandas as pd
 import joblib
+import pandas as pd
 
 from ..utils.logging import get_logger
 
@@ -51,6 +51,7 @@ class OutputDirectories:
         diag_dca: Decision curve analysis
         diag_tuning: Hyperparameter tuning diagnostics
     """
+
     root: str
     core: str
     cv: str
@@ -184,12 +185,7 @@ class ResultsWriter:
 
     # ========== Metrics ==========
 
-    def save_val_metrics(
-        self,
-        metrics: Dict[str, Any],
-        scenario: str,
-        model: str
-    ) -> str:
+    def save_val_metrics(self, metrics: Dict[str, Any], scenario: str, model: str) -> str:
         """
         Save validation metrics to core/val_metrics.csv.
 
@@ -210,12 +206,7 @@ class ResultsWriter:
         logger.info(f"Saved validation metrics: {path}")
         return path
 
-    def save_test_metrics(
-        self,
-        metrics: Dict[str, Any],
-        scenario: str,
-        model: str
-    ) -> str:
+    def save_test_metrics(self, metrics: Dict[str, Any], scenario: str, model: str) -> str:
         """
         Save test metrics to core/test_metrics.csv.
 
@@ -237,10 +228,7 @@ class ResultsWriter:
         return path
 
     def save_cv_repeat_metrics(
-        self,
-        cv_results: List[Dict[str, Any]],
-        scenario: str,
-        model: str
+        self, cv_results: List[Dict[str, Any]], scenario: str, model: str
     ) -> str:
         """
         Save cross-validation repeat metrics to cv/cv_repeat_metrics.csv.
@@ -262,12 +250,7 @@ class ResultsWriter:
         logger.info(f"Saved CV repeat metrics: {path}")
         return path
 
-    def save_bootstrap_ci_metrics(
-        self,
-        metrics: Dict[str, Any],
-        scenario: str,
-        model: str
-    ) -> str:
+    def save_bootstrap_ci_metrics(self, metrics: Dict[str, Any], scenario: str, model: str) -> str:
         """
         Save bootstrap CI metrics to core/test_bootstrap_ci.csv.
 
@@ -290,11 +273,7 @@ class ResultsWriter:
 
     # ========== Cross-Validation Artifacts ==========
 
-    def save_best_params_per_split(
-        self,
-        best_params: List[Dict[str, Any]],
-        scenario: str
-    ) -> str:
+    def save_best_params_per_split(self, best_params: List[Dict[str, Any]], scenario: str) -> str:
         """
         Save best hyperparameters per outer split to cv/best_params_per_split.csv.
 
@@ -314,9 +293,7 @@ class ResultsWriter:
         return path
 
     def save_selected_proteins_per_split(
-        self,
-        selected_proteins: List[Dict[str, Any]],
-        scenario: str
+        self, selected_proteins: List[Dict[str, Any]], scenario: str
     ) -> str:
         """
         Save selected proteins per outer split to cv/selected_proteins_per_outer_split.csv.
@@ -338,12 +315,7 @@ class ResultsWriter:
 
     # ========== Predictions ==========
 
-    def save_test_predictions(
-        self,
-        predictions_df: pd.DataFrame,
-        scenario: str,
-        model: str
-    ) -> str:
+    def save_test_predictions(self, predictions_df: pd.DataFrame, scenario: str, model: str) -> str:
         """
         Save test predictions to preds/test_preds/{scenario}__test_preds__{model}.csv.
 
@@ -361,12 +333,7 @@ class ResultsWriter:
         logger.info(f"Saved test predictions: {path}")
         return path
 
-    def save_val_predictions(
-        self,
-        predictions_df: pd.DataFrame,
-        scenario: str,
-        model: str
-    ) -> str:
+    def save_val_predictions(self, predictions_df: pd.DataFrame, scenario: str, model: str) -> str:
         """
         Save validation predictions to preds/val_preds/{scenario}__val_preds__{model}.csv.
 
@@ -385,10 +352,7 @@ class ResultsWriter:
         return path
 
     def save_train_oof_predictions(
-        self,
-        predictions_df: pd.DataFrame,
-        scenario: str,
-        model: str
+        self, predictions_df: pd.DataFrame, scenario: str, model: str
     ) -> str:
         """
         Save train out-of-fold predictions to preds/train_oof/{scenario}__train_oof__{model}.csv.
@@ -408,10 +372,7 @@ class ResultsWriter:
         return path
 
     def save_controls_predictions(
-        self,
-        predictions_df: pd.DataFrame,
-        scenario: str,
-        model: str
+        self, predictions_df: pd.DataFrame, scenario: str, model: str
     ) -> str:
         """
         Save control subjects predictions to preds/controls/{scenario}__controls_risk__{model}__oof_mean.csv.
@@ -432,12 +393,7 @@ class ResultsWriter:
 
     # ========== Reports ==========
 
-    def save_feature_report(
-        self,
-        report_df: pd.DataFrame,
-        scenario: str,
-        model: str
-    ) -> str:
+    def save_feature_report(self, report_df: pd.DataFrame, scenario: str, model: str) -> str:
         """
         Save feature importance report to reports/feature_reports/{scenario}__{model}__feature_report_train.csv.
 
@@ -456,10 +412,7 @@ class ResultsWriter:
         return path
 
     def save_stable_panel_report(
-        self,
-        panel_df: pd.DataFrame,
-        scenario: str,
-        panel_type: str = "KBest"
+        self, panel_df: pd.DataFrame, scenario: str, panel_type: str = "KBest"
     ) -> str:
         """
         Save stable panel report to reports/stable_panel/{scenario}__stable_panel__{panel_type}.csv.
@@ -479,11 +432,7 @@ class ResultsWriter:
         return path
 
     def save_panel_manifest(
-        self,
-        manifest: Dict[str, Any],
-        scenario: str,
-        model: str,
-        panel_size: int
+        self, manifest: Dict[str, Any], scenario: str, model: str, panel_size: int
     ) -> str:
         """
         Save panel manifest to reports/panels/{scenario}__{model}__N{size}__panel_manifest.json.
@@ -504,12 +453,7 @@ class ResultsWriter:
         logger.info(f"Saved panel manifest: {path}")
         return path
 
-    def save_subgroup_metrics(
-        self,
-        subgroup_df: pd.DataFrame,
-        scenario: str,
-        model: str
-    ) -> str:
+    def save_subgroup_metrics(self, subgroup_df: pd.DataFrame, scenario: str, model: str) -> str:
         """
         Save subgroup analysis to reports/subgroups/{scenario}__{model}__test_subgroup_metrics.csv.
 
@@ -530,11 +474,7 @@ class ResultsWriter:
     # ========== Model Artifacts ==========
 
     def save_model_artifact(
-        self,
-        model: Any,
-        metadata: Dict[str, Any],
-        scenario: str,
-        model_name: str
+        self, model: Any, metadata: Dict[str, Any], scenario: str, model_name: str
     ) -> str:
         """
         Save trained model artifact to core/{scenario}__{model}__final_model.joblib.
@@ -567,7 +507,7 @@ class ResultsWriter:
             return path
         except Exception as e:
             logger.error(f"Failed to save model artifact: {e}")
-            raise IOError(f"Model serialization failed: {e}") from e
+            raise OSError(f"Model serialization failed: {e}") from e
 
     def load_model_artifact(self, scenario: str, model_name: str) -> Dict[str, Any]:
         """
@@ -596,15 +536,12 @@ class ResultsWriter:
             return bundle
         except Exception as e:
             logger.error(f"Failed to load model artifact: {e}")
-            raise IOError(f"Model deserialization failed: {e}") from e
+            raise OSError(f"Model deserialization failed: {e}") from e
 
     # ========== Diagnostics ==========
 
     def save_calibration_curve(
-        self,
-        calibration_df: pd.DataFrame,
-        scenario: str,
-        model: str
+        self, calibration_df: pd.DataFrame, scenario: str, model: str
     ) -> str:
         """
         Save calibration curve data to diagnostics/calibration/{scenario}__{model}__calibration.csv.
@@ -624,10 +561,7 @@ class ResultsWriter:
         return path
 
     def save_learning_curve(
-        self,
-        learning_curve_df: pd.DataFrame,
-        scenario: str,
-        model: str
+        self, learning_curve_df: pd.DataFrame, scenario: str, model: str
     ) -> str:
         """
         Save learning curve data to diagnostics/learning/{scenario}__{model}__learning_curve.csv.
@@ -646,11 +580,7 @@ class ResultsWriter:
         logger.debug(f"Saved learning curve: {path}")
         return path
 
-    def save_split_trace(
-        self,
-        split_trace_df: pd.DataFrame,
-        scenario: str
-    ) -> str:
+    def save_split_trace(self, split_trace_df: pd.DataFrame, scenario: str) -> str:
         """
         Save split trace to diagnostics/splits/{scenario}__train_test_split_trace.csv.
 

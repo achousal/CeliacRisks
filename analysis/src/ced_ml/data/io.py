@@ -5,18 +5,17 @@ This module handles reading proteomics CSV files with schema validation,
 dtype coercion, and quality checks.
 """
 
-from typing import Dict, Any, Optional, Callable
-import pandas as pd
-import numpy as np
 from pathlib import Path
+from typing import Any, Callable, Dict, Optional
+
+import pandas as pd
 
 from ced_ml.data.schema import (
-    ID_COL,
-    TARGET_COL,
-    CED_DATE_COL,
-    META_NUM_COLS,
     CAT_COLS,
-    CONTROL_LABEL,
+    CED_DATE_COL,
+    ID_COL,
+    META_NUM_COLS,
+    TARGET_COL,
 )
 from ced_ml.utils.logging import get_logger
 
@@ -38,6 +37,7 @@ def usecols_for_proteomics() -> Callable[[str], bool]:
     Returns:
         Function that takes column name and returns True if column should be loaded
     """
+
     def _filter(col: str) -> bool:
         if col in (ID_COL, TARGET_COL, CED_DATE_COL):
             return True
@@ -48,6 +48,7 @@ def usecols_for_proteomics() -> Callable[[str], bool]:
         if isinstance(col, str) and col.endswith("_resid"):
             return True
         return False
+
     return _filter
 
 
@@ -114,16 +115,13 @@ def validate_required_columns(df: pd.DataFrame) -> None:
     missing = [col for col in required if col not in df.columns]
     if missing:
         raise ValueError(
-            f"Required columns missing: {missing}. "
-            f"Available columns: {list(df.columns)}"
+            f"Required columns missing: {missing}. " f"Available columns: {list(df.columns)}"
         )
     logger.debug(f"Validated required columns: {required}")
 
 
 def coerce_numeric_columns(
-    df: pd.DataFrame,
-    columns: list[str],
-    inplace: bool = False
+    df: pd.DataFrame, columns: list[str], inplace: bool = False
 ) -> pd.DataFrame:
     """
     Coerce columns to numeric dtype, converting errors to NaN.
@@ -159,10 +157,7 @@ def coerce_numeric_columns(
 
 
 def fill_missing_categorical(
-    df: pd.DataFrame,
-    columns: list[str],
-    fill_value: str = "Missing",
-    inplace: bool = False
+    df: pd.DataFrame, columns: list[str], fill_value: str = "Missing", inplace: bool = False
 ) -> pd.DataFrame:
     """
     Fill missing values in categorical columns with explicit category.
@@ -192,7 +187,7 @@ def fill_missing_categorical(
             logger.warning(f"Column '{col}' not found, skipping missing fill")
             continue
         # Convert to string and replace nan/None representations
-        df[col] = df[col].astype(str).replace(['nan', 'None'], fill_value)
+        df[col] = df[col].astype(str).replace(["nan", "None"], fill_value)
         logger.debug(f"Filled missing values in '{col}' with '{fill_value}'")
 
     return df
@@ -216,14 +211,10 @@ def identify_protein_columns(df: pd.DataFrame) -> list[str]:
         >>> proteins = identify_protein_columns(df)
         >>> assert proteins == ["APOE_resid", "IL6_resid"]
     """
-    protein_cols = sorted([
-        c for c in df.columns
-        if isinstance(c, str) and c.endswith("_resid")
-    ])
+    protein_cols = sorted([c for c in df.columns if isinstance(c, str) and c.endswith("_resid")])
     if not protein_cols:
         raise ValueError(
-            "No protein columns (*_resid) found. "
-            "Check column naming or usecols filter."
+            "No protein columns (*_resid) found. " "Check column naming or usecols filter."
         )
     logger.info(f"Identified {len(protein_cols):,} protein columns")
     return protein_cols

@@ -5,11 +5,8 @@ Tests the full pipeline from CLI invocation through split generation
 to verify D.1.4 CLI integration is complete.
 """
 
-import os
 import json
-import tempfile
-import shutil
-from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -17,9 +14,11 @@ from click.testing import CliRunner
 
 from ced_ml.cli.main import cli
 from ced_ml.data.schema import (
-    ID_COL, TARGET_COL,
-    CONTROL_LABEL, INCIDENT_LABEL, PREVALENT_LABEL,
-    META_NUM_COLS, CAT_COLS,
+    CONTROL_LABEL,
+    ID_COL,
+    INCIDENT_LABEL,
+    PREVALENT_LABEL,
+    TARGET_COL,
 )
 
 
@@ -34,11 +33,7 @@ def toy_proteomics_csv(tmp_path):
     # Use balanced groups to ensure sufficient samples in each stratum
     data = {
         ID_COL: [f"SAMPLE_{i:04d}" for i in range(n_samples)],
-        TARGET_COL: (
-            [CONTROL_LABEL] * 800 +
-            [INCIDENT_LABEL] * 100 +
-            [PREVALENT_LABEL] * 100
-        ),
+        TARGET_COL: ([CONTROL_LABEL] * 800 + [INCIDENT_LABEL] * 100 + [PREVALENT_LABEL] * 100),
         "age": np.random.randint(30, 70, n_samples),  # Narrower age range for better stratification
         "BMI": np.random.uniform(18, 35, n_samples),
         "sex": np.random.choice(["M", "F"], n_samples),
@@ -87,24 +82,38 @@ class TestSaveSplitsDevelopmentMode:
         outdir.mkdir()
 
         runner = CliRunner()
-        result = runner.invoke(cli, [
-            "save-splits",
-            "--infile", str(toy_proteomics_csv),
-            "--outdir", str(outdir),
-            "--mode", "development",
-            "--scenarios", "IncidentOnly",
-            "--n-splits", "1",
-            "--val-size", "0.25",
-            "--test-size", "0.25",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "save-splits",
+                "--infile",
+                str(toy_proteomics_csv),
+                "--outdir",
+                str(outdir),
+                "--mode",
+                "development",
+                "--scenarios",
+                "IncidentOnly",
+                "--n-splits",
+                "1",
+                "--val-size",
+                "0.25",
+                "--test-size",
+                "0.25",
+            ],
+        )
 
         if result.exit_code != 0:
             print("STDOUT:", result.output)
             if result.exception:
                 import traceback
-                print("EXCEPTION:", traceback.format_exception(
-                    type(result.exception), result.exception, result.exception.__traceback__
-                ))
+
+                print(
+                    "EXCEPTION:",
+                    traceback.format_exception(
+                        type(result.exception), result.exception, result.exception.__traceback__
+                    ),
+                )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
 
@@ -149,18 +158,29 @@ class TestSaveSplitsDevelopmentMode:
         outdir.mkdir()
 
         runner = CliRunner()
-        result = runner.invoke(cli, [
-            "save-splits",
-            "--infile", str(toy_proteomics_csv),
-            "--outdir", str(outdir),
-            "--mode", "development",
-            "--scenarios", "IncidentPlusPrevalent",
-            "--n-splits", "1",
-            "--val-size", "0.25",
-            "--test-size", "0.25",
-            "--prevalent-train-only",
-            "--prevalent-train-frac", "0.5",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "save-splits",
+                "--infile",
+                str(toy_proteomics_csv),
+                "--outdir",
+                str(outdir),
+                "--mode",
+                "development",
+                "--scenarios",
+                "IncidentPlusPrevalent",
+                "--n-splits",
+                "1",
+                "--val-size",
+                "0.25",
+                "--test-size",
+                "0.25",
+                "--prevalent-train-only",
+                "--prevalent-train-frac",
+                "0.5",
+            ],
+        )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
 
@@ -171,7 +191,6 @@ class TestSaveSplitsDevelopmentMode:
 
         # Load original data to verify prevalent handling
         df = pd.read_csv(toy_proteomics_csv)
-        train_idx = pd.read_csv(outdir / "IncidentPlusPrevalent_train_idx_seed0.csv")["idx"].values
         val_idx = pd.read_csv(outdir / "IncidentPlusPrevalent_val_idx_seed0.csv")["idx"].values
         test_idx = pd.read_csv(outdir / "IncidentPlusPrevalent_test_idx_seed0.csv")["idx"].values
 
@@ -182,9 +201,7 @@ class TestSaveSplitsDevelopmentMode:
         assert PREVALENT_LABEL not in val_labels
         assert PREVALENT_LABEL not in test_labels
 
-        # TRAIN may have prevalent
-        train_labels = df.loc[train_idx, TARGET_COL].values
-        # (Could have prevalent, but not guaranteed with small sample size)
+        # TRAIN may have prevalent (not verified with assertion due to small sample size)
 
     def test_control_downsampling(self, toy_proteomics_csv, tmp_path):
         """Test control downsampling works."""
@@ -192,17 +209,28 @@ class TestSaveSplitsDevelopmentMode:
         outdir.mkdir()
 
         runner = CliRunner()
-        result = runner.invoke(cli, [
-            "save-splits",
-            "--infile", str(toy_proteomics_csv),
-            "--outdir", str(outdir),
-            "--mode", "development",
-            "--scenarios", "IncidentOnly",
-            "--n-splits", "1",
-            "--val-size", "0.25",
-            "--test-size", "0.25",
-            "--train-control-per-case", "5.0",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "save-splits",
+                "--infile",
+                str(toy_proteomics_csv),
+                "--outdir",
+                str(outdir),
+                "--mode",
+                "development",
+                "--scenarios",
+                "IncidentOnly",
+                "--n-splits",
+                "1",
+                "--val-size",
+                "0.25",
+                "--test-size",
+                "0.25",
+                "--train-control-per-case",
+                "5.0",
+            ],
+        )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
 
@@ -225,17 +253,28 @@ class TestSaveSplitsDevelopmentMode:
         outdir.mkdir()
 
         runner = CliRunner()
-        result = runner.invoke(cli, [
-            "save-splits",
-            "--infile", str(toy_proteomics_csv),
-            "--outdir", str(outdir),
-            "--mode", "development",
-            "--scenarios", "IncidentOnly",
-            "--n-splits", "3",
-            "--val-size", "0.25",
-            "--test-size", "0.25",
-            "--seed-start", "100",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "save-splits",
+                "--infile",
+                str(toy_proteomics_csv),
+                "--outdir",
+                str(outdir),
+                "--mode",
+                "development",
+                "--scenarios",
+                "IncidentOnly",
+                "--n-splits",
+                "3",
+                "--val-size",
+                "0.25",
+                "--test-size",
+                "0.25",
+                "--seed-start",
+                "100",
+            ],
+        )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
 
@@ -263,27 +302,43 @@ class TestSaveSplitsHoldoutMode:
         outdir.mkdir()
 
         runner = CliRunner()
-        result = runner.invoke(cli, [
-            "save-splits",
-            "--infile", str(toy_proteomics_csv),
-            "--outdir", str(outdir),
-            "--mode", "holdout",
-            "--scenarios", "IncidentOnly",
-            "--n-splits", "1",
-            "--val-size", "0.25",
-            "--test-size", "0.25",
-            "--holdout-size", "0.20",  # Reduced to 20% to leave more for dev splits
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "save-splits",
+                "--infile",
+                str(toy_proteomics_csv),
+                "--outdir",
+                str(outdir),
+                "--mode",
+                "holdout",
+                "--scenarios",
+                "IncidentOnly",
+                "--n-splits",
+                "1",
+                "--val-size",
+                "0.25",
+                "--test-size",
+                "0.25",
+                "--holdout-size",
+                "0.20",  # Reduced to 20% to leave more for dev splits
+            ],
+        )
 
         if result.exit_code != 0:
             print(f"CLI FAILED with exit code {result.exit_code}")
             print(f"Output:\n{result.output}")
             if result.exception:
                 import traceback
-                print("Exception:")
-                traceback.print_exception(type(result.exception), result.exception, result.exception.__traceback__)
 
-        assert result.exit_code == 0, f"CLI failed with code {result.exit_code}: {result.output[:500]}"
+                print("Exception:")
+                traceback.print_exception(
+                    type(result.exception), result.exception, result.exception.__traceback__
+                )
+
+        assert (
+            result.exit_code == 0
+        ), f"CLI failed with code {result.exit_code}: {result.output[:500]}"
 
         # Check holdout files
         assert (outdir / "IncidentOnly_HOLDOUT_idx.csv").exists()
@@ -324,29 +379,49 @@ class TestSaveSplitsErrorHandling:
         runner = CliRunner()
 
         # First run should succeed
-        result1 = runner.invoke(cli, [
-            "save-splits",
-            "--infile", str(toy_proteomics_csv),
-            "--outdir", str(outdir),
-            "--mode", "development",
-            "--scenarios", "IncidentOnly",
-            "--n-splits", "1",
-            "--val-size", "0.25",
-            "--test-size", "0.25",
-        ])
+        result1 = runner.invoke(
+            cli,
+            [
+                "save-splits",
+                "--infile",
+                str(toy_proteomics_csv),
+                "--outdir",
+                str(outdir),
+                "--mode",
+                "development",
+                "--scenarios",
+                "IncidentOnly",
+                "--n-splits",
+                "1",
+                "--val-size",
+                "0.25",
+                "--test-size",
+                "0.25",
+            ],
+        )
         assert result1.exit_code == 0
 
         # Second run without --overwrite should fail
-        result2 = runner.invoke(cli, [
-            "save-splits",
-            "--infile", str(toy_proteomics_csv),
-            "--outdir", str(outdir),
-            "--mode", "development",
-            "--scenarios", "IncidentOnly",
-            "--n-splits", "1",
-            "--val-size", "0.25",
-            "--test-size", "0.25",
-        ])
+        result2 = runner.invoke(
+            cli,
+            [
+                "save-splits",
+                "--infile",
+                str(toy_proteomics_csv),
+                "--outdir",
+                str(outdir),
+                "--mode",
+                "development",
+                "--scenarios",
+                "IncidentOnly",
+                "--n-splits",
+                "1",
+                "--val-size",
+                "0.25",
+                "--test-size",
+                "0.25",
+            ],
+        )
         assert result2.exit_code != 0
         # Check for error message in exception string
         exc_str = str(result2.exception)
@@ -358,12 +433,18 @@ class TestSaveSplitsErrorHandling:
         outdir.mkdir()
 
         runner = CliRunner()
-        result = runner.invoke(cli, [
-            "save-splits",
-            "--infile", str(toy_proteomics_csv),
-            "--outdir", str(outdir),
-            "--scenarios", "InvalidScenario",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "save-splits",
+                "--infile",
+                str(toy_proteomics_csv),
+                "--outdir",
+                str(outdir),
+                "--scenarios",
+                "InvalidScenario",
+            ],
+        )
 
         assert result.exit_code != 0
 
@@ -381,31 +462,53 @@ class TestSaveSplitsReproducibility:
         runner = CliRunner()
 
         # Run 1
-        result1 = runner.invoke(cli, [
-            "save-splits",
-            "--infile", str(toy_proteomics_csv),
-            "--outdir", str(outdir1),
-            "--mode", "development",
-            "--scenarios", "IncidentOnly",
-            "--n-splits", "1",
-            "--val-size", "0.25",
-            "--test-size", "0.25",
-            "--seed-start", "42",
-        ])
+        result1 = runner.invoke(
+            cli,
+            [
+                "save-splits",
+                "--infile",
+                str(toy_proteomics_csv),
+                "--outdir",
+                str(outdir1),
+                "--mode",
+                "development",
+                "--scenarios",
+                "IncidentOnly",
+                "--n-splits",
+                "1",
+                "--val-size",
+                "0.25",
+                "--test-size",
+                "0.25",
+                "--seed-start",
+                "42",
+            ],
+        )
         assert result1.exit_code == 0
 
         # Run 2 with same seed
-        result2 = runner.invoke(cli, [
-            "save-splits",
-            "--infile", str(toy_proteomics_csv),
-            "--outdir", str(outdir2),
-            "--mode", "development",
-            "--scenarios", "IncidentOnly",
-            "--n-splits", "1",
-            "--val-size", "0.25",
-            "--test-size", "0.25",
-            "--seed-start", "42",
-        ])
+        result2 = runner.invoke(
+            cli,
+            [
+                "save-splits",
+                "--infile",
+                str(toy_proteomics_csv),
+                "--outdir",
+                str(outdir2),
+                "--mode",
+                "development",
+                "--scenarios",
+                "IncidentOnly",
+                "--n-splits",
+                "1",
+                "--val-size",
+                "0.25",
+                "--test-size",
+                "0.25",
+                "--seed-start",
+                "42",
+            ],
+        )
         assert result2.exit_code == 0
 
         # Compare indices
@@ -421,7 +524,14 @@ class TestSaveSplitsReproducibility:
             meta2 = json.load(f)
 
         # Check key fields match
-        for key in ["n_train", "n_val", "n_test", "split_id_train", "split_id_val", "split_id_test"]:
+        for key in [
+            "n_train",
+            "n_val",
+            "n_test",
+            "split_id_train",
+            "split_id_val",
+            "split_id_test",
+        ]:
             assert meta1[key] == meta2[key], f"Mismatch in {key}"
 
 

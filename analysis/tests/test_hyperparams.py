@@ -11,15 +11,15 @@ Tests cover:
 
 import numpy as np
 import pytest
+from conftest import make_mock_config
 
 from ced_ml.models.hyperparams import (
-    get_param_distributions,
     _make_logspace,
     _parse_class_weight_options,
-    _randomize_int_list,
     _randomize_float_list,
+    _randomize_int_list,
+    get_param_distributions,
 )
-from conftest import make_mock_config
 
 
 @pytest.fixture
@@ -30,16 +30,10 @@ def minimal_config():
     return make_mock_config(
         models=SimpleNamespace(
             lr=SimpleNamespace(
-                C_min=0.01,
-                C_max=100.0,
-                C_points=10,
-                class_weight_options="None,balanced"
+                C_min=0.01, C_max=100.0, C_points=10, class_weight_options="None,balanced"
             ),
             svm=SimpleNamespace(
-                C_min=0.01,
-                C_max=100.0,
-                C_points=10,
-                class_weight_options="balanced"
+                C_min=0.01, C_max=100.0, C_points=10, class_weight_options="balanced"
             ),
             rf=SimpleNamespace(
                 n_estimators_grid=[100, 200, 500],
@@ -47,7 +41,7 @@ def minimal_config():
                 min_samples_split_grid=[2, 5, 10],
                 min_samples_leaf_grid=[1, 2, 4],
                 max_features_grid=[0.3, 0.5, 0.7],
-                class_weight_options="None,balanced"
+                class_weight_options="None,balanced",
             ),
             xgboost=SimpleNamespace(
                 n_estimators_grid=[100, 200],
@@ -56,13 +50,14 @@ def minimal_config():
                 subsample_grid=[0.7, 0.8, 1.0],
                 colsample_bytree_grid=[0.7, 0.8, 1.0],
                 scale_pos_weight=None,
-                scale_pos_weight_grid=[1.0, 5.0, 10.0]
-            )
+                scale_pos_weight_grid=[1.0, 5.0, 10.0],
+            ),
         )
     )
 
 
 # ==================== Parameter Distribution Tests ====================
+
 
 def test_get_param_distributions_lr(minimal_config):
     """Test LR parameter distributions."""
@@ -167,6 +162,7 @@ def test_get_param_distributions_unknown_model(minimal_config):
 
 # ==================== Grid Randomization Tests ====================
 
+
 def test_randomize_int_list():
     """Test integer list randomization."""
     rng = np.random.RandomState(42)
@@ -239,6 +235,7 @@ def test_get_param_distributions_with_randomization(minimal_config):
 
 
 # ==================== Utility Function Tests ====================
+
 
 def test_make_logspace():
     """Test log-spaced grid generation."""
@@ -327,6 +324,7 @@ def test_parse_class_weight_options_whitespace():
 
 
 # ==================== Integration Tests ====================
+
 
 def test_all_models_have_params(minimal_config):
     """Test that all standard models return parameters."""

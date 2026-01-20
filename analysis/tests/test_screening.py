@@ -29,17 +29,15 @@ def sample_data():
     X_data = {}
     for i in range(10):
         # High in cases
-        X_data[f"protein_{i}_resid"] = np.concatenate([
-            np.random.normal(0, 1, n_controls),
-            np.random.normal(2, 1, n_cases)  # Higher mean
-        ])
+        X_data[f"protein_{i}_resid"] = np.concatenate(
+            [np.random.normal(0, 1, n_controls), np.random.normal(2, 1, n_cases)]  # Higher mean
+        )
 
     for i in range(10, 20):
         # Low in cases
-        X_data[f"protein_{i}_resid"] = np.concatenate([
-            np.random.normal(0, 1, n_controls),
-            np.random.normal(-2, 1, n_cases)  # Lower mean
-        ])
+        X_data[f"protein_{i}_resid"] = np.concatenate(
+            [np.random.normal(0, 1, n_controls), np.random.normal(-2, 1, n_cases)]  # Lower mean
+        )
 
     for i in range(20, n_proteins):
         # Non-discriminative
@@ -57,9 +55,7 @@ def test_mann_whitney_screen_basic(sample_data):
     """Test basic Mann-Whitney screening."""
     X, y, protein_cols = sample_data
 
-    selected, stats = mann_whitney_screen(
-        X, y, protein_cols, top_n=10, min_n_per_group=5
-    )
+    selected, stats = mann_whitney_screen(X, y, protein_cols, top_n=10, min_n_per_group=5)
 
     assert len(selected) == 10
     assert len(stats) == len(protein_cols)  # All proteins tested
@@ -81,9 +77,7 @@ def test_mann_whitney_screen_with_missing(sample_data):
     X_miss = X.copy()
     X_miss.iloc[:10, 0] = np.nan  # 10 missing in first protein
 
-    selected, stats = mann_whitney_screen(
-        X_miss, y, protein_cols, top_n=10, min_n_per_group=5
-    )
+    selected, stats = mann_whitney_screen(X_miss, y, protein_cols, top_n=10, min_n_per_group=5)
 
     assert len(selected) <= 10
     assert "nonmissing_frac" in stats.columns
@@ -174,16 +168,12 @@ def test_screen_proteins_wrapper(sample_data):
     X, y, protein_cols = sample_data
 
     # Test Mann-Whitney
-    selected_mw, stats_mw = screen_proteins(
-        X, y, protein_cols, method="mannwhitney", top_n=10
-    )
+    selected_mw, stats_mw = screen_proteins(X, y, protein_cols, method="mannwhitney", top_n=10)
     assert len(selected_mw) == 10
     assert "p_value" in stats_mw.columns
 
     # Test F-statistic
-    selected_f, stats_f = screen_proteins(
-        X, y, protein_cols, method="f_classif", top_n=10
-    )
+    selected_f, stats_f = screen_proteins(X, y, protein_cols, method="f_classif", top_n=10)
     assert len(selected_f) == 10
     assert "F_score" in stats_f.columns
 
@@ -211,12 +201,14 @@ def test_variance_missingness_prefilter_basic():
     np.random.seed(42)
 
     # Create proteins with different characteristics
-    X = pd.DataFrame({
-        "good_protein_resid": np.random.normal(0, 1, 100),  # Good: high variance, no missing
-        "low_var_protein_resid": np.ones(100),  # Bad: zero variance
-        "high_missing_protein_resid": [np.nan] * 50 + [1.0] * 50,  # Bad: 50% missing
-        "another_good_resid": np.random.normal(5, 2, 100),  # Good
-    })
+    X = pd.DataFrame(
+        {
+            "good_protein_resid": np.random.normal(0, 1, 100),  # Good: high variance, no missing
+            "low_var_protein_resid": np.ones(100),  # Bad: zero variance
+            "high_missing_protein_resid": [np.nan] * 50 + [1.0] * 50,  # Bad: 50% missing
+            "another_good_resid": np.random.normal(5, 2, 100),  # Good
+        }
+    )
     protein_cols = [col for col in X.columns if col.endswith("_resid")]
 
     kept, report = variance_missingness_prefilter(
@@ -243,10 +235,12 @@ def test_variance_missingness_prefilter_basic():
 
 def test_variance_missingness_prefilter_strict_mode():
     """Test strict mode raises error when all proteins fail."""
-    X = pd.DataFrame({
-        "low_var_1_resid": np.ones(100),
-        "low_var_2_resid": np.ones(100),
-    })
+    X = pd.DataFrame(
+        {
+            "low_var_1_resid": np.ones(100),
+            "low_var_2_resid": np.ones(100),
+        }
+    )
     protein_cols = [col for col in X.columns if col.endswith("_resid")]
 
     with pytest.raises(ValueError, match="failed variance filter"):
@@ -257,10 +251,12 @@ def test_variance_missingness_prefilter_strict_mode():
 
 def test_variance_missingness_prefilter_nonstrict_fallback():
     """Test non-strict mode returns all proteins with warning when all fail."""
-    X = pd.DataFrame({
-        "low_var_1_resid": np.ones(100),
-        "low_var_2_resid": np.ones(100),
-    })
+    X = pd.DataFrame(
+        {
+            "low_var_1_resid": np.ones(100),
+            "low_var_2_resid": np.ones(100),
+        }
+    )
     protein_cols = [col for col in X.columns if col.endswith("_resid")]
 
     kept, report = variance_missingness_prefilter(
@@ -289,9 +285,7 @@ def test_mann_whitney_effect_size_ordering(sample_data):
     """Test that effect size (abs_delta) is used as tiebreaker."""
     X, y, protein_cols = sample_data
 
-    selected, stats = mann_whitney_screen(
-        X, y, protein_cols, top_n=20, min_n_per_group=5
-    )
+    selected, stats = mann_whitney_screen(X, y, protein_cols, top_n=20, min_n_per_group=5)
 
     # For proteins with similar p-values, higher abs_delta should rank higher
     top20_stats = stats.head(20)
@@ -305,10 +299,12 @@ def test_mann_whitney_effect_size_ordering(sample_data):
 
 def test_f_statistic_handles_constant_features():
     """Test F-statistic correctly filters out constant features."""
-    X = pd.DataFrame({
-        "constant_resid": np.ones(100),  # Zero variance
-        "variable_resid": np.random.normal(0, 1, 100),
-    })
+    X = pd.DataFrame(
+        {
+            "constant_resid": np.ones(100),  # Zero variance
+            "variable_resid": np.random.normal(0, 1, 100),
+        }
+    )
     y = np.array([0] * 50 + [1] * 50)
     protein_cols = [col for col in X.columns if col.endswith("_resid")]
 
@@ -322,10 +318,14 @@ def test_f_statistic_handles_constant_features():
 def test_screen_proteins_default_parameters():
     """Test screen_proteins with default parameters."""
     np.random.seed(42)
-    X = pd.DataFrame({
-        "protein_1_resid": np.concatenate([np.random.normal(0, 1, 50), np.random.normal(2, 1, 50)]),
-        "protein_2_resid": np.random.normal(0, 1, 100),
-    })
+    X = pd.DataFrame(
+        {
+            "protein_1_resid": np.concatenate(
+                [np.random.normal(0, 1, 50), np.random.normal(2, 1, 50)]
+            ),
+            "protein_2_resid": np.random.normal(0, 1, 100),
+        }
+    )
     y = np.array([0] * 50 + [1] * 50)
     protein_cols = [col for col in X.columns if col.endswith("_resid")]
 
@@ -342,18 +342,17 @@ def test_mann_whitney_asymmetric_group_sizes():
     n_controls = 1000
     n_cases = 50
 
-    X = pd.DataFrame({
-        "protein_1_resid": np.concatenate([
-            np.random.normal(0, 1, n_controls),
-            np.random.normal(1.5, 1, n_cases)
-        ])
-    })
+    X = pd.DataFrame(
+        {
+            "protein_1_resid": np.concatenate(
+                [np.random.normal(0, 1, n_controls), np.random.normal(1.5, 1, n_cases)]
+            )
+        }
+    )
     y = np.array([0] * n_controls + [1] * n_cases)
     protein_cols = ["protein_1_resid"]
 
-    selected, stats = mann_whitney_screen(
-        X, y, protein_cols, top_n=10, min_n_per_group=10
-    )
+    selected, stats = mann_whitney_screen(X, y, protein_cols, top_n=10, min_n_per_group=10)
 
     assert len(selected) == 1
     assert stats.iloc[0]["p_value"] < 0.05  # Should detect difference

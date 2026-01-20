@@ -13,14 +13,16 @@ import pandas as pd
 
 try:
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from sklearn.metrics import (
-        roc_curve,
-        roc_auc_score,
-        precision_recall_curve,
         average_precision_score,
+        precision_recall_curve,
+        roc_auc_score,
+        roc_curve,
     )
+
     _HAS_PLOTTING = True
 except ImportError:
     _HAS_PLOTTING = False

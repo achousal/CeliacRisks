@@ -11,33 +11,31 @@ It handles:
 
 import json
 import os
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import joblib
 import numpy as np
 import pandas as pd
 
+from ced_ml.data.io import identify_protein_columns, load_data
 from ced_ml.data.schema import (
-    TARGET_COL,
     CONTROL_LABEL,
+    TARGET_COL,
     get_scenario_labels,
-    get_protein_columns,
 )
-from ced_ml.data.io import load_data, identify_protein_columns
 from ced_ml.metrics import (
     binary_metrics_at_threshold,
-    compute_discrimination_metrics,
     compute_brier_score,
+    compute_discrimination_metrics,
+    generate_dca_thresholds,
+    parse_dca_report_points,
     save_dca_results,
     top_risk_capture,
-    parse_dca_report_points,
-    generate_dca_thresholds,
 )
 from ced_ml.models.calibration import (
+    adjust_probabilities_for_prevalence,
     calibration_intercept_slope,
     expected_calibration_error,
-    adjust_probabilities_for_prevalence,
 )
 
 
@@ -96,8 +94,7 @@ def extract_holdout_data(
     """
     if len(holdout_idx) > 0 and holdout_idx.max() >= len(df_filtered):
         raise ValueError(
-            f"Holdout index exceeds dataset rows "
-            f"({holdout_idx.max()} >= {len(df_filtered)})."
+            f"Holdout index exceeds dataset rows " f"({holdout_idx.max()} >= {len(df_filtered)})."
         )
 
     # Convert to int indices for proper indexing
@@ -261,14 +258,16 @@ def save_holdout_predictions(
         proba_eval: Predicted probabilities
         proba_adjusted: Prevalence-adjusted probabilities
     """
-    out = pd.DataFrame({
-        "idx": holdout_idx,
-        TARGET_COL: df_holdout[TARGET_COL].astype(str),
-        "y_true": y_true.astype(int),
-        "risk_holdout": proba_eval,
-        "risk_holdout_adjusted": proba_adjusted,
-        "risk_holdout_raw": proba_eval,
-    })
+    out = pd.DataFrame(
+        {
+            "idx": holdout_idx,
+            TARGET_COL: df_holdout[TARGET_COL].astype(str),
+            "y_true": y_true.astype(int),
+            "risk_holdout": proba_eval,
+            "risk_holdout_adjusted": proba_adjusted,
+            "risk_holdout_raw": proba_eval,
+        }
+    )
     out.to_csv(os.path.join(outdir, "holdout_predictions.csv"), index=False)
 
 
@@ -349,9 +348,7 @@ def evaluate_holdout(
 
     # Extract holdout subset
     holdout_idx = load_holdout_indices(holdout_idx_file)
-    df_holdout, X_holdout, y_holdout = extract_holdout_data(
-        df_filtered, X_all, y_all, holdout_idx
-    )
+    df_holdout, X_holdout, y_holdout = extract_holdout_data(df_filtered, X_all, y_all, holdout_idx)
 
     # Generate predictions
     proba_eval = np.clip(model.predict_proba(X_holdout)[:, 1], 0.0, 1.0)
@@ -362,7 +359,11 @@ def evaluate_holdout(
     if not np.isfinite(train_prev):
         train_prev = float(y_holdout.mean())
 
-    target_prev = target_prevalence if target_prevalence is not None else prevalence_meta.get("target", train_prev)
+    target_prev = (
+        target_prevalence
+        if target_prevalence is not None
+        else prevalence_meta.get("target", train_prev)
+    )
     if target_prev is None or not np.isfinite(target_prev):
         target_prev = train_prev
     target_prev = float(np.clip(target_prev, 1e-6, 1.0 - 1e-6))
@@ -370,8 +371,12 @@ def evaluate_holdout(
     proba_adjusted = adjust_probabilities_for_prevalence(proba_eval, train_prev, target_prev)
 
     # Parse clinical thresholds
-    clinical_points_src = clinical_threshold_points or bundle.get("args", {}).get("clinical_threshold_points", "")
-    clinical_points = sorted({float(t.strip()) for t in (clinical_points_src or "").split(",") if t.strip()})
+    clinical_points_src = clinical_threshold_points or bundle.get("args", {}).get(
+        "clinical_threshold_points", ""
+    )
+    clinical_points = sorted(
+        {float(t.strip()) for t in (clinical_points_src or "").split(",") if t.strip()}
+    )
 
     # Compute metrics
     metrics = compute_holdout_metrics(
@@ -404,9 +409,21 @@ def evaluate_holdout(
 
     # Decision curve analysis
     if compute_dca:
-        min_thr = dca_threshold_min if dca_threshold_min is not None else bundle.get("args", {}).get("dca_threshold_min", 0.001)
-        max_thr = dca_threshold_max if dca_threshold_max is not None else bundle.get("args", {}).get("dca_threshold_max", 0.10)
-        step_thr = dca_threshold_step if dca_threshold_step is not None else bundle.get("args", {}).get("dca_threshold_step", 0.001)
+        min_thr = (
+            dca_threshold_min
+            if dca_threshold_min is not None
+            else bundle.get("args", {}).get("dca_threshold_min", 0.001)
+        )
+        max_thr = (
+            dca_threshold_max
+            if dca_threshold_max is not None
+            else bundle.get("args", {}).get("dca_threshold_max", 0.10)
+        )
+        step_thr = (
+            dca_threshold_step
+            if dca_threshold_step is not None
+            else bundle.get("args", {}).get("dca_threshold_step", 0.001)
+        )
 
         dca_thresholds = generate_dca_thresholds(min_thr, max_thr, step_thr)
         report_points = parse_dca_report_points(dca_report_points) or parse_dca_report_points(

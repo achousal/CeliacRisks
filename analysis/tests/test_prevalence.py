@@ -10,12 +10,11 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 
 from ced_ml.models.prevalence import (
-    _logit,
-    _inv_logit,
-    adjust_probabilities_for_prevalence,
     PrevalenceAdjustedModel,
+    _inv_logit,
+    _logit,
+    adjust_probabilities_for_prevalence,
 )
-
 
 # =============================================================================
 # Logit/Inverse Logit Tests

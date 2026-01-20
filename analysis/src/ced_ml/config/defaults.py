@@ -5,7 +5,7 @@ This module serves as the single source of truth for all default parameter value
 ensuring behavioral equivalence with the legacy codebase.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
 
 # Valid scenario names
 VALID_SCENARIOS = [

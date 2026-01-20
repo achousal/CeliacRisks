@@ -7,32 +7,31 @@ Tests cover:
 - Parameter parsing utilities
 """
 
-import pytest
 import numpy as np
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import LinearSVC
-from sklearn.ensemble import RandomForestClassifier
+import pytest
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
 
+from ced_ml.config.schema import TrainingConfig
 from ced_ml.models.registry import (
-    build_logistic_regression,
-    build_linear_svm_calibrated,
-    build_random_forest,
-    build_xgboost,
-    build_models,
-    get_param_distributions,
-    parse_class_weight_options,
-    make_logspace,
-    compute_scale_pos_weight_from_y,
-    _parse_float_list,
-    _parse_int_list,
-    _require_int_list,
+    XGBOOST_AVAILABLE,
     _coerce_int_or_none_list,
     _coerce_min_samples_leaf_list,
+    _parse_float_list,
+    _parse_int_list,
     _randomize_numeric_list,
-    XGBOOST_AVAILABLE,
+    _require_int_list,
+    build_linear_svm_calibrated,
+    build_logistic_regression,
+    build_models,
+    build_random_forest,
+    build_xgboost,
+    compute_scale_pos_weight_from_y,
+    get_param_distributions,
+    make_logspace,
+    parse_class_weight_options,
 )
-from ced_ml.config.schema import TrainingConfig
 
 
 # ----------------------------
@@ -41,12 +40,7 @@ from ced_ml.config.schema import TrainingConfig
 def test_build_logistic_regression():
     """Test LogisticRegression instantiation."""
     lr = build_logistic_regression(
-        solver="saga",
-        C=0.1,
-        max_iter=1000,
-        tol=1e-3,
-        random_state=123,
-        l1_ratio=0.5
+        solver="saga", C=0.1, max_iter=1000, tol=1e-3, random_state=123, l1_ratio=0.5
     )
     assert isinstance(lr, LogisticRegression)
     assert lr.solver == "saga"
@@ -59,11 +53,7 @@ def test_build_logistic_regression():
 def test_build_linear_svm_calibrated():
     """Test CalibratedClassifierCV with LinearSVC."""
     svm = build_linear_svm_calibrated(
-        C=1.0,
-        max_iter=2000,
-        calibration_method="sigmoid",
-        calibration_cv=3,
-        random_state=456
+        C=1.0, max_iter=2000, calibration_method="sigmoid", calibration_cv=3, random_state=456
     )
     assert isinstance(svm, CalibratedClassifierCV)
     assert svm.method == "sigmoid"
@@ -73,11 +63,7 @@ def test_build_linear_svm_calibrated():
 def test_build_random_forest():
     """Test RandomForestClassifier instantiation."""
     rf = build_random_forest(
-        n_estimators=100,
-        max_depth=10,
-        min_samples_leaf=5,
-        random_state=789,
-        n_jobs=2
+        n_estimators=100, max_depth=10, min_samples_leaf=5, random_state=789, n_jobs=2
     )
     assert isinstance(rf, RandomForestClassifier)
     assert rf.n_estimators == 100
@@ -89,11 +75,7 @@ def test_build_random_forest():
 
 def test_build_random_forest_with_max_samples():
     """Test RF with max_samples parameter."""
-    rf = build_random_forest(
-        n_estimators=100,
-        max_samples=0.8,
-        random_state=42
-    )
+    rf = build_random_forest(n_estimators=100, max_samples=0.8, random_state=42)
     assert rf.max_samples == 0.8
 
 
@@ -106,7 +88,7 @@ def test_build_xgboost():
         learning_rate=0.05,
         scale_pos_weight=2.0,
         random_state=111,
-        n_jobs=1
+        n_jobs=1,
     )
     assert xgb.n_estimators == 500
     assert xgb.max_depth == 5
@@ -249,7 +231,7 @@ def test_compute_scale_pos_weight_edge_case():
     y = np.array([1, 1, 1])
     spw = compute_scale_pos_weight_from_y(y)
     # All positive: neg=0 -> max(1, 0) = 1, pos=3 -> spw = 1/3
-    assert np.isclose(spw, 1/3)
+    assert np.isclose(spw, 1 / 3)
 
 
 # ----------------------------
@@ -313,7 +295,7 @@ def test_get_param_distributions_lr_en(training_config):
         feature_select="none",
         k_grid=[],
         kbest_scope="protein",
-        randomize_grids=False
+        randomize_grids=False,
     )
     assert "clf__C" in grid
     assert "clf__l1_ratio" in grid
@@ -329,7 +311,7 @@ def test_get_param_distributions_lr_l1(training_config):
         feature_select="none",
         k_grid=[],
         kbest_scope="protein",
-        randomize_grids=False
+        randomize_grids=False,
     )
     assert "clf__C" in grid
     assert "clf__class_weight" in grid
@@ -344,7 +326,7 @@ def test_get_param_distributions_linsvm_cal(training_config):
         feature_select="none",
         k_grid=[],
         kbest_scope="protein",
-        randomize_grids=False
+        randomize_grids=False,
     )
     # Check for estimator or base_estimator key
     assert any("__C" in k for k in grid.keys())
@@ -359,7 +341,7 @@ def test_get_param_distributions_rf(training_config):
         feature_select="none",
         k_grid=[],
         kbest_scope="protein",
-        randomize_grids=False
+        randomize_grids=False,
     )
     assert "clf__n_estimators" in grid
     assert "clf__max_depth" in grid
@@ -380,7 +362,7 @@ def test_get_param_distributions_xgboost(training_config):
         k_grid=[],
         kbest_scope="protein",
         xgb_scale_pos_weight=2.0,
-        randomize_grids=False
+        randomize_grids=False,
     )
     assert "clf__n_estimators" in grid
     assert "clf__max_depth" in grid
@@ -398,7 +380,7 @@ def test_get_param_distributions_with_kbest_protein(training_config):
         feature_select="kbest",
         k_grid=[50, 100, 200],
         kbest_scope="protein",
-        randomize_grids=False
+        randomize_grids=False,
     )
     assert "prot_sel__k" in grid
     assert grid["prot_sel__k"] == [50, 100, 200]
@@ -412,7 +394,7 @@ def test_get_param_distributions_with_kbest_transformed(training_config):
         feature_select="kbest",
         k_grid=[50, 100, 200],
         kbest_scope="transformed",
-        randomize_grids=False
+        randomize_grids=False,
     )
     assert "sel__k" in grid
     assert grid["sel__k"] == [50, 100, 200]
@@ -428,7 +410,7 @@ def test_get_param_distributions_kbest_missing_grid():
             feature_select="kbest",
             k_grid=[],
             kbest_scope="protein",
-            randomize_grids=False
+            randomize_grids=False,
         )
 
 
@@ -442,7 +424,7 @@ def test_get_param_distributions_randomized(training_config):
         k_grid=[],
         kbest_scope="protein",
         grid_rng=rng,
-        randomize_grids=True
+        randomize_grids=True,
     )
     rng2 = np.random.RandomState(123)
     grid2 = get_param_distributions(
@@ -452,7 +434,7 @@ def test_get_param_distributions_randomized(training_config):
         k_grid=[],
         kbest_scope="protein",
         grid_rng=rng2,
-        randomize_grids=True
+        randomize_grids=True,
     )
     # With new config, grids come from config not randomization
     # Randomization only applies to l1_ratio
@@ -469,7 +451,7 @@ def test_get_param_distributions_empty_model():
         feature_select="none",
         k_grid=[],
         kbest_scope="protein",
-        randomize_grids=False
+        randomize_grids=False,
     )
     assert grid == {}
 

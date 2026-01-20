@@ -13,7 +13,7 @@ Reference:
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -154,21 +154,23 @@ def decision_curve_analysis(
         else:
             relative_utility = np.nan
 
-        results.append({
-            "threshold": t,
-            "threshold_pct": t * 100,
-            "net_benefit_model": nb_model,
-            "net_benefit_all": nb_all,
-            "net_benefit_none": nb_none,
-            "relative_utility": relative_utility,
-            "tp": int(tp),
-            "fp": int(fp),
-            "tn": int(tn),
-            "fn": int(fn),
-            "n_treat": int(tp + fp),
-            "sensitivity": tp / (tp + fn) if (tp + fn) > 0 else np.nan,
-            "specificity": tn / (tn + fp) if (tn + fp) > 0 else np.nan,
-        })
+        results.append(
+            {
+                "threshold": t,
+                "threshold_pct": t * 100,
+                "net_benefit_model": nb_model,
+                "net_benefit_all": nb_all,
+                "net_benefit_none": nb_none,
+                "relative_utility": relative_utility,
+                "tp": int(tp),
+                "fp": int(fp),
+                "tn": int(tn),
+                "fn": int(fn),
+                "n_treat": int(tp + fp),
+                "sensitivity": tp / (tp + fn) if (tp + fn) > 0 else np.nan,
+                "specificity": tn / (tn + fp) if (tn + fp) > 0 else np.nan,
+            }
+        )
 
     return pd.DataFrame(results)
 
@@ -205,34 +207,40 @@ def decision_curve_table(
     rows = []
     for pt in thresholds:
         # Treat none strategy (net benefit = 0)
-        rows.append({
-            "scenario": scenario,
-            "threshold": float(pt),
-            "model": "treat_none",
-            "net_benefit": 0.0,
-        })
+        rows.append(
+            {
+                "scenario": scenario,
+                "threshold": float(pt),
+                "model": "treat_none",
+                "net_benefit": 0.0,
+            }
+        )
 
         # Treat all strategy
         if np.isfinite(prev):
             nb_all = net_benefit_treat_all(prev, pt)
         else:
             nb_all = np.nan
-        rows.append({
-            "scenario": scenario,
-            "threshold": float(pt),
-            "model": "treat_all",
-            "net_benefit": float(nb_all),
-        })
+        rows.append(
+            {
+                "scenario": scenario,
+                "threshold": float(pt),
+                "model": "treat_all",
+                "net_benefit": float(nb_all),
+            }
+        )
 
         # Each model
         for model_name, p in pred_dict.items():
             nb = net_benefit(y, p, pt)
-            rows.append({
-                "scenario": scenario,
-                "threshold": float(pt),
-                "model": model_name,
-                "net_benefit": float(nb),
-            })
+            rows.append(
+                {
+                    "scenario": scenario,
+                    "threshold": float(pt),
+                    "model": model_name,
+                    "net_benefit": float(nb),
+                }
+            )
 
     return pd.DataFrame(rows)
 

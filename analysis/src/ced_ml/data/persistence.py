@@ -18,15 +18,12 @@ Behavioral equivalence:
 
 import json
 import os
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
-from ..config.schema import SplitsConfig
 from .splits import compute_split_id
-
 
 # ============================================================================
 # Split Validation
@@ -193,12 +190,10 @@ def save_split_indices(
 
     # Check for existing files
     has_val = val_idx is not None and len(val_idx) > 0
-    files_exist, existing = check_split_files_exist(
-        outdir, scenario, seed, has_val, n_splits
-    )
+    files_exist, existing = check_split_files_exist(outdir, scenario, seed, has_val, n_splits)
     if files_exist and not overwrite:
         raise FileExistsError(
-            f"Split files already exist. Use overwrite=True to replace:\n"
+            "Split files already exist. Use overwrite=True to replace:\n"
             + "\n".join(f"  {p}" for p in existing)
         )
 
@@ -252,8 +247,7 @@ def save_holdout_indices(
 
     if os.path.exists(holdout_path) and not overwrite:
         raise FileExistsError(
-            f"Holdout file already exists: {holdout_path}\n"
-            f"Use overwrite=True to replace."
+            f"Holdout file already exists: {holdout_path}\n" f"Use overwrite=True to replace."
         )
 
     os.makedirs(outdir, exist_ok=True)

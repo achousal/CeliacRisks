@@ -10,9 +10,10 @@ Key classes:
         adjustment to predict_proba() outputs
 """
 
+from typing import Any
+
 import numpy as np
 from sklearn.base import BaseEstimator
-from typing import Any
 
 
 def _logit(p: np.ndarray) -> np.ndarray:
@@ -87,9 +88,7 @@ def adjust_probabilities_for_prevalence(
         return probs
 
     # Compute prevalence shift on logit scale
-    delta = np.log(target_prev / (1.0 - target_prev)) - np.log(
-        sample_prev / (1.0 - sample_prev)
-    )
+    delta = np.log(target_prev / (1.0 - target_prev)) - np.log(sample_prev / (1.0 - sample_prev))
 
     # Apply shift: logit(p_adjusted) = logit(p_raw) + delta
     logits = _logit(probs)
