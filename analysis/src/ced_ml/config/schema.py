@@ -154,7 +154,9 @@ class SVMConfig(BaseModel):
 
     C: List[float] = Field(default_factory=lambda: [0.01, 0.1, 1.0, 10.0])
     kernel: List[str] = Field(default_factory=lambda: ["linear", "rbf"])
-    gamma: List[Union[str, float]] = Field(default_factory=lambda: ["scale", "auto", 0.001, 0.01])
+    gamma: List[Union[str, float]] = Field(
+        default_factory=lambda: ["scale", "auto", 0.001, 0.01]
+    )
     class_weight: Optional[str] = "balanced"
     max_iter: int = 5000
     probability: bool = True
@@ -168,7 +170,9 @@ class RFConfig(BaseModel):
     max_depth: List[Optional[int]] = Field(default_factory=lambda: [None, 10, 20, 30])
     min_samples_split: List[int] = Field(default_factory=lambda: [2, 5, 10])
     min_samples_leaf: List[int] = Field(default_factory=lambda: [1, 2, 4])
-    max_features: List[Union[str, float]] = Field(default_factory=lambda: ["sqrt", "log2", 0.5])
+    max_features: List[Union[str, float]] = Field(
+        default_factory=lambda: ["sqrt", "log2", 0.5]
+    )
     class_weight: Optional[str] = "balanced"
     n_jobs: int = -1
     random_state: int = 0
@@ -208,7 +212,9 @@ class CalibrationConfig(BaseModel):
 class ThresholdConfig(BaseModel):
     """Configuration for threshold selection."""
 
-    objective: Literal["max_f1", "max_fbeta", "youden", "fixed_spec", "fixed_ppv"] = "max_f1"
+    objective: Literal["max_f1", "max_fbeta", "youden", "fixed_spec", "fixed_ppv"] = (
+        "max_f1"
+    )
     fbeta: float = Field(default=1.0, gt=0.0)
     fixed_spec: float = Field(default=0.90, ge=0.0, le=1.0)
     fixed_ppv: float = Field(default=0.10, ge=0.0, le=1.0)
@@ -233,14 +239,18 @@ class EvaluationConfig(BaseModel):
 
     # Learning curves
     learning_curve: bool = False
-    lc_train_sizes: List[float] = Field(default_factory=lambda: [0.1, 0.25, 0.5, 0.75, 1.0])
+    lc_train_sizes: List[float] = Field(
+        default_factory=lambda: [0.1, 0.25, 0.5, 0.75, 1.0]
+    )
 
     # Feature importance
     feature_reports: bool = True
     feature_report_max: int = 100
 
     # Specificity/sensitivity targets
-    control_spec_targets: List[float] = Field(default_factory=lambda: [0.90, 0.95, 0.99])
+    control_spec_targets: List[float] = Field(
+        default_factory=lambda: [0.90, 0.95, 0.99]
+    )
     toprisk_fracs: List[float] = Field(default_factory=lambda: [0.01, 0.05, 0.10])
 
 
@@ -256,7 +266,9 @@ class DCAConfig(BaseModel):
     dca_threshold_min: float = Field(default=0.0005, ge=0.0, le=1.0)
     dca_threshold_max: float = Field(default=1.0, ge=0.0, le=1.0)
     dca_threshold_step: float = Field(default=0.001, gt=0.0)
-    dca_report_points: List[float] = Field(default_factory=lambda: [0.01, 0.05, 0.10, 0.20])
+    dca_report_points: List[float] = Field(
+        default_factory=lambda: [0.01, 0.05, 0.10, 0.20]
+    )
 
 
 # ============================================================================

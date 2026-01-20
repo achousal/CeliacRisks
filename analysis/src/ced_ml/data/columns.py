@@ -6,7 +6,7 @@ Supports auto-detection of metadata columns from data or explicit specification.
 
 import logging
 from dataclasses import dataclass
-from typing import List, Set, Union
+from typing import List, Union
 
 import pandas as pd
 

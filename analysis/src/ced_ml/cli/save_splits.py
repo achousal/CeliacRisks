@@ -83,7 +83,9 @@ def run_save_splits(
     all_overrides = list(overrides) if overrides else []
     if cli_args:
         for key, value in cli_args.items():
-            if value is not None and key != "infile":  # Skip infile - not part of config
+            if (
+                value is not None and key != "infile"
+            ):  # Skip infile - not part of config
                 # Skip scenarios - handle separately
                 if key == "scenarios":
                     continue
@@ -123,7 +125,9 @@ def run_save_splits(
         logger.info(f"Holdout size: {config.holdout_size:.2%}")
 
     if config.prevalent_train_only:
-        logger.info(f"Prevalent: TRAIN only ({config.prevalent_train_frac:.0%} sampled)")
+        logger.info(
+            f"Prevalent: TRAIN only ({config.prevalent_train_frac:.0%} sampled)"
+        )
     else:
         logger.info("Prevalent: All splits")
 
@@ -184,25 +188,35 @@ def _generate_scenario_splits(
         train_case_labels = [INCIDENT_LABEL]
 
     logger.info(f"\n{'='*60}")
-    logger.info(f"=== Preparing {scenario} scenario ({scenario_def['description']}) ===")
+    logger.info(
+        f"=== Preparing {scenario} scenario ({scenario_def['description']}) ==="
+    )
     logger.info(f"{'='*60}")
 
     if config.prevalent_train_only and PREVALENT_LABEL in positives:
-        logger.info(f"  Prevalent handling: TRAIN only (frac={config.prevalent_train_frac:.2f})")
+        logger.info(
+            f"  Prevalent handling: TRAIN only (frac={config.prevalent_train_frac:.2f})"
+        )
 
     # Filter to scenario
     keep_labels = [CONTROL_LABEL] + positives
     mask = df[TARGET_COL].isin(keep_labels)
     df_scenario_raw = df[mask].copy()
-    logger.info(f"  {scenario} (raw, pre row-filters): {len(df_scenario_raw):,} samples")
+    logger.info(
+        f"  {scenario} (raw, pre row-filters): {len(df_scenario_raw):,} samples"
+    )
 
     # Apply training row filters
     df_scenario, rf_stats = apply_row_filters(df_scenario_raw)
     logger.info("  Row-filter alignment (to match training dataset):")
     logger.info("    - drop_uncertain_controls=True")
     logger.info("    - dropna_meta_num=True")
-    logger.info(f"    - removed_uncertain_controls={rf_stats['n_removed_uncertain_controls']:,}")
-    logger.info(f"    - removed_dropna_meta_num={rf_stats['n_removed_dropna_meta_num']:,}")
+    logger.info(
+        f"    - removed_uncertain_controls={rf_stats['n_removed_uncertain_controls']:,}"
+    )
+    logger.info(
+        f"    - removed_dropna_meta_num={rf_stats['n_removed_dropna_meta_num']:,}"
+    )
     logger.info(f"  {scenario} (post row-filters): {len(df_scenario):,} samples")
 
     if config.temporal_split:
@@ -210,8 +224,12 @@ def _generate_scenario_splits(
         order_idx = temporal_order_indices(df_scenario, config.temporal_col)
         df_scenario = df_scenario.iloc[order_idx].reset_index(drop=True)
         if len(df_scenario) > 0 and config.temporal_col in df_scenario.columns:
-            logger.info(f"    Earliest value: {df_scenario[config.temporal_col].iloc[0]}")
-            logger.info(f"    Latest value:   {df_scenario[config.temporal_col].iloc[-1]}")
+            logger.info(
+                f"    Earliest value: {df_scenario[config.temporal_col].iloc[0]}"
+            )
+            logger.info(
+                f"    Latest value:   {df_scenario[config.temporal_col].iloc[-1]}"
+            )
 
     # Create outcome variable
     y_full = df_scenario[TARGET_COL].isin(positives).astype(int).to_numpy()
@@ -262,7 +280,16 @@ def _generate_scenario_splits(
 
 
 def _create_holdout(
-    df_scenario, y_full, full_idx, scenario, positives, outdir, config, overwrite, rf_stats, logger
+    df_scenario,
+    y_full,
+    full_idx,
+    scenario,
+    positives,
+    outdir,
+    config,
+    overwrite,
+    rf_stats,
+    logger,
 ):
     """Create holdout set and return development set."""
     from sklearn.model_selection import train_test_split
@@ -347,7 +374,9 @@ def _generate_repeated_splits(
         df_base = df_work[base_mask].copy()
         base_idx = df_base.index.to_numpy(dtype=int)
         y_base = (df_base[TARGET_COL] == INCIDENT_LABEL).astype(int).to_numpy()
-        logger.info(f"  Prevalent excluded from VAL/TEST. Base split set: {len(df_base):,}")
+        logger.info(
+            f"  Prevalent excluded from VAL/TEST. Base split set: {len(df_base):,}"
+        )
     else:
         df_base = df_work
         base_idx = np.arange(len(df_work), dtype=int)
@@ -371,12 +400,21 @@ def _generate_repeated_splits(
 
         # Generate base split
         if config.temporal_split:
-            idx_train, idx_val, idx_test, y_train, y_val, y_test = temporal_train_val_test_split(
-                base_idx, y_base, config.val_size, config.test_size
+            idx_train, idx_val, idx_test, y_train, y_val, y_test = (
+                temporal_train_val_test_split(
+                    base_idx, y_base, config.val_size, config.test_size
+                )
             )
         else:
-            idx_train, idx_val, idx_test, y_train, y_val, y_test = stratified_train_val_test_split(
-                base_idx, y_base, strata_base, config.val_size, config.test_size, seed
+            idx_train, idx_val, idx_test, y_train, y_val, y_test = (
+                stratified_train_val_test_split(
+                    base_idx,
+                    y_base,
+                    strata_base,
+                    config.val_size,
+                    config.test_size,
+                    seed,
+                )
             )
 
         idx_train = np.sort(idx_train.astype(int))
@@ -398,11 +436,15 @@ def _generate_repeated_splits(
 
         # Add prevalent to TRAIN only
         if config.prevalent_train_only and PREVALENT_LABEL in positives:
-            idx_train = add_prevalent_to_train(idx_train, df_work, config.prevalent_train_frac, rng)
+            idx_train = add_prevalent_to_train(
+                idx_train, df_work, config.prevalent_train_frac, rng
+            )
             n_prev_added = len(idx_train) - len(
                 np.setdiff1d(
                     idx_train,
-                    df_work.index[df_work[TARGET_COL] == PREVALENT_LABEL].to_numpy(dtype=int),
+                    df_work.index[df_work[TARGET_COL] == PREVALENT_LABEL].to_numpy(
+                        dtype=int
+                    ),
                 )
             )
             if n_prev_added > 0:
@@ -415,23 +457,38 @@ def _generate_repeated_splits(
             idx_train, df_work, train_case_labels, config.train_control_per_case, rng
         )
 
-        if config.eval_control_per_case is not None and config.eval_control_per_case > 0:
+        if (
+            config.eval_control_per_case is not None
+            and config.eval_control_per_case > 0
+        ):
             if len(idx_val) > 0:
                 idx_val = downsample_controls(
-                    idx_val, df_work, eval_case_labels, config.eval_control_per_case, rng
+                    idx_val,
+                    df_work,
+                    eval_case_labels,
+                    config.eval_control_per_case,
+                    rng,
                 )
             idx_test = downsample_controls(
                 idx_test, df_work, eval_case_labels, config.eval_control_per_case, rng
             )
 
         # Recompute y arrays after modifications
-        y_train = (df_work.loc[idx_train, TARGET_COL].isin(positives)).astype(int).to_numpy()
+        y_train = (
+            (df_work.loc[idx_train, TARGET_COL].isin(positives)).astype(int).to_numpy()
+        )
         y_val = (
-            (df_work.loc[idx_val, TARGET_COL].isin(eval_case_labels)).astype(int).to_numpy()
+            (df_work.loc[idx_val, TARGET_COL].isin(eval_case_labels))
+            .astype(int)
+            .to_numpy()
             if len(idx_val) > 0
             else np.array([], dtype=int)
         )
-        y_test = (df_work.loc[idx_test, TARGET_COL].isin(eval_case_labels)).astype(int).to_numpy()
+        y_test = (
+            (df_work.loc[idx_test, TARGET_COL].isin(eval_case_labels))
+            .astype(int)
+            .to_numpy()
+        )
 
         logger.info(
             f"  Final Train: {len(idx_train):,} samples ({int(y_train.sum())} cases, {y_train.mean()*100:.3f}%)"

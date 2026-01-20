@@ -43,7 +43,9 @@ def _apply_plot_metadata(fig, meta_lines: Optional[Sequence[str]] = None) -> flo
     if not lines:
         return 0.10
 
-    fig.text(0.5, 0.005, "\n".join(lines), ha="center", va="bottom", fontsize=8, wrap=True)
+    fig.text(
+        0.5, 0.005, "\n".join(lines), ha="center", va="bottom", fontsize=8, wrap=True
+    )
     required_bottom = 0.10 + (0.018 * len(lines))
     return min(required_bottom, 0.30)
 
@@ -125,7 +127,9 @@ def plot_roc_curve(
             auc_mean = float(np.mean(aucs))
             auc_sd = float(np.std(aucs))
 
-            ax.fill_between(base_fpr, tpr_lo, tpr_hi, color="steelblue", alpha=0.15, label="95% CI")
+            ax.fill_between(
+                base_fpr, tpr_lo, tpr_hi, color="steelblue", alpha=0.15, label="95% CI"
+            )
             ax.fill_between(
                 base_fpr,
                 np.maximum(0, tpr_mean - tpr_sd),
@@ -315,11 +319,19 @@ def plot_pr_curve(
         else:
             precision, recall, _ = precision_recall_curve(y, p)
             ap = average_precision_score(y, p)
-            ax.plot(recall, precision, color="steelblue", linewidth=2, label=f"AP = {ap:.3f}")
+            ax.plot(
+                recall,
+                precision,
+                color="steelblue",
+                linewidth=2,
+                label=f"AP = {ap:.3f}",
+            )
     else:
         precision, recall, _ = precision_recall_curve(y, p)
         ap = average_precision_score(y, p)
-        ax.plot(recall, precision, color="steelblue", linewidth=2, label=f"AP = {ap:.3f}")
+        ax.plot(
+            recall, precision, color="steelblue", linewidth=2, label=f"AP = {ap:.3f}"
+        )
 
     ax.set_xlabel("Recall (Sensitivity)")
     ax.set_ylabel("Precision (PPV)")

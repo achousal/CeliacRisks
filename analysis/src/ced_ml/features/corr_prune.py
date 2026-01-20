@@ -260,7 +260,9 @@ def compute_univariate_strength(
                 )
             except TypeError:
                 # Older scipy version
-                _, p_val = stats.mannwhitneyu(x_case, x_control, alternative="two-sided")
+                _, p_val = stats.mannwhitneyu(
+                    x_case, x_control, alternative="two-sided"
+                )
             p_val = float(p_val)
         except Exception:
             p_val = np.nan
@@ -430,7 +432,9 @@ def prune_correlated_proteins(
 
     # Create mapping DataFrame
     df_map = pd.DataFrame(rows).sort_values(
-        ["kept", "selection_freq", "protein"], ascending=[False, False, True], na_position="last"
+        ["kept", "selection_freq", "protein"],
+        ascending=[False, False, True],
+        na_position="last",
     )
 
     # Sort kept proteins by selection frequency
@@ -597,7 +601,9 @@ def prune_and_refill_panel(
     df_map = df_map.copy()
     if not df_map.empty:
         df_map["representative_flag"] = df_map["kept"].astype(bool)
-        df_map["removed_due_to_corr_with"] = np.where(df_map["kept"], "", df_map["rep_protein"])
+        df_map["removed_due_to_corr_with"] = np.where(
+            df_map["kept"], "", df_map["rep_protein"]
+        )
 
     # Step 2: Check if refill needed
     if len(kept) >= target_size:

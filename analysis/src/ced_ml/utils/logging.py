@@ -116,7 +116,9 @@ def log_section(logger: logging.Logger, title: str, width: int = 80, char: str =
     logger.info(char * width)
 
 
-def log_dict(logger: logging.Logger, data: dict, indent: int = 0, level: int = logging.INFO):
+def log_dict(
+    logger: logging.Logger, data: dict, indent: int = 0, level: int = logging.INFO
+):
     """Log a dictionary in a readable format."""
     for key, value in data.items():
         if isinstance(value, dict):

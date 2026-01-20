@@ -89,7 +89,11 @@ class TestMakeStrata:
     def test_outcome_sex_age3(self):
         """Should stratify by outcome, sex, and age3."""
         strata = make_strata(self.df, "outcome+sex+age3")
-        expected = ["Controls_Male_young", "Incident_Female_middle", "Controls_Male_old"]
+        expected = [
+            "Controls_Male_young",
+            "Incident_Female_middle",
+            "Controls_Male_old",
+        ]
         assert strata.tolist() == expected
 
     def test_missing_values_filled(self):
@@ -178,7 +182,12 @@ class TestBuildWorkingStrata:
         df = pd.DataFrame(
             {
                 TARGET_COL: ["Controls", "Controls", "Incident", "Incident"],
-                "sex": ["Male", "Female", "Male", "Female"],  # Each outcome+sex combo appears once
+                "sex": [
+                    "Male",
+                    "Female",
+                    "Male",
+                    "Female",
+                ],  # Each outcome+sex combo appears once
                 "age": [25, 30, 35, 40],  # Different ages
             }
         )
@@ -340,7 +349,12 @@ class TestStratifiedTrainValTestSplit:
     def test_three_way_split_sizes(self):
         """Should produce correct split sizes."""
         idx_tr, idx_val, idx_te, y_tr, y_val, y_te = stratified_train_val_test_split(
-            self.indices, self.y, self.strata, val_size=0.25, test_size=0.25, random_state=42
+            self.indices,
+            self.y,
+            self.strata,
+            val_size=0.25,
+            test_size=0.25,
+            random_state=42,
         )
         # 50% train, 25% val, 25% test
         assert len(idx_tr) == 50
@@ -350,7 +364,12 @@ class TestStratifiedTrainValTestSplit:
     def test_two_way_split_no_val(self):
         """Should handle val_size=0."""
         idx_tr, idx_val, idx_te, y_tr, y_val, y_te = stratified_train_val_test_split(
-            self.indices, self.y, self.strata, val_size=0.0, test_size=0.30, random_state=42
+            self.indices,
+            self.y,
+            self.strata,
+            val_size=0.0,
+            test_size=0.30,
+            random_state=42,
         )
         assert len(idx_tr) == 70
         assert len(idx_val) == 0
@@ -359,10 +378,20 @@ class TestStratifiedTrainValTestSplit:
     def test_reproducible_with_seed(self):
         """Should produce same splits with same seed."""
         result1 = stratified_train_val_test_split(
-            self.indices, self.y, self.strata, val_size=0.25, test_size=0.25, random_state=42
+            self.indices,
+            self.y,
+            self.strata,
+            val_size=0.25,
+            test_size=0.25,
+            random_state=42,
         )
         result2 = stratified_train_val_test_split(
-            self.indices, self.y, self.strata, val_size=0.25, test_size=0.25, random_state=42
+            self.indices,
+            self.y,
+            self.strata,
+            val_size=0.25,
+            test_size=0.25,
+            random_state=42,
         )
         assert (result1[0] == result2[0]).all()  # Same train indices
 

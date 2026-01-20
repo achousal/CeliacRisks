@@ -38,7 +38,10 @@ def make_mock_config(**overrides):
         "compute": SimpleNamespace(cpus=2, tune_n_jobs=None),
         "models": SimpleNamespace(
             lr=SimpleNamespace(
-                C_min=0.01, C_max=100.0, C_points=5, class_weight_options="None,balanced"
+                C_min=0.01,
+                C_max=100.0,
+                C_points=5,
+                class_weight_options="None,balanced",
             ),
             svm=SimpleNamespace(
                 C_min=0.01, C_max=100.0, C_points=5, class_weight_options="balanced"

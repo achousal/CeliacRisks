@@ -41,7 +41,9 @@ def get_param_distributions(
     if feature_select in ("kbest", "hybrid"):
         k_grid = config.features.selection.k_grid
         if not k_grid:
-            raise ValueError(f"feature_select={feature_select} requires features.selection.k_grid")
+            raise ValueError(
+                f"feature_select={feature_select} requires features.selection.k_grid"
+            )
 
         kbest_scope = config.features.selection.kbest_scope
         if kbest_scope == "protein":
@@ -78,7 +80,9 @@ def _get_lr_params(
     )
 
     # Class weights
-    class_weight_options = _parse_class_weight_options(config.models.lr.class_weight_options)
+    class_weight_options = _parse_class_weight_options(
+        config.models.lr.class_weight_options
+    )
 
     params = {"clf__C": C_grid}
     if class_weight_options:
@@ -100,7 +104,9 @@ def _get_svm_params(
     )
 
     # Class weights
-    class_weight_options = _parse_class_weight_options(config.models.svm.class_weight_options)
+    class_weight_options = _parse_class_weight_options(
+        config.models.svm.class_weight_options
+    )
 
     # Parameter prefix depends on sklearn version
     # Newer: estimator__C, older: base_estimator__C
@@ -124,10 +130,18 @@ def _get_rf_params(
 
     if randomize and rng:
         n_estimators_grid = _randomize_int_list(n_estimators_grid, rng, min_val=10)
-        max_depth_grid = _randomize_int_list(max_depth_grid, rng, min_val=1, unique=True)
-        min_samples_split_grid = _randomize_int_list(min_samples_split_grid, rng, min_val=2)
-        min_samples_leaf_grid = _randomize_int_list(min_samples_leaf_grid, rng, min_val=1)
-        max_features_grid = _randomize_float_list(max_features_grid, rng, min_val=0.1, max_val=1.0)
+        max_depth_grid = _randomize_int_list(
+            max_depth_grid, rng, min_val=1, unique=True
+        )
+        min_samples_split_grid = _randomize_int_list(
+            min_samples_split_grid, rng, min_val=2
+        )
+        min_samples_leaf_grid = _randomize_int_list(
+            min_samples_leaf_grid, rng, min_val=1
+        )
+        max_features_grid = _randomize_float_list(
+            max_features_grid, rng, min_val=0.1, max_val=1.0
+        )
 
     params = {
         "clf__n_estimators": n_estimators_grid,
@@ -138,7 +152,9 @@ def _get_rf_params(
     }
 
     # Class weights
-    class_weight_options = _parse_class_weight_options(config.models.rf.class_weight_options)
+    class_weight_options = _parse_class_weight_options(
+        config.models.rf.class_weight_options
+    )
     if class_weight_options:
         params["clf__class_weight"] = class_weight_options
 
@@ -167,12 +183,18 @@ def _get_xgb_params(
 
     if randomize and rng:
         n_estimators_grid = _randomize_int_list(n_estimators_grid, rng, min_val=1)
-        max_depth_grid = _randomize_int_list(max_depth_grid, rng, min_val=1, unique=True)
+        max_depth_grid = _randomize_int_list(
+            max_depth_grid, rng, min_val=1, unique=True
+        )
         learning_rate_grid = _randomize_float_list(
             learning_rate_grid, rng, min_val=1e-4, log_scale=True
         )
-        subsample_grid = _randomize_float_list(subsample_grid, rng, min_val=0.1, max_val=1.0)
-        colsample_grid = _randomize_float_list(colsample_grid, rng, min_val=0.1, max_val=1.0)
+        subsample_grid = _randomize_float_list(
+            subsample_grid, rng, min_val=0.1, max_val=1.0
+        )
+        colsample_grid = _randomize_float_list(
+            colsample_grid, rng, min_val=0.1, max_val=1.0
+        )
         spw_grid = _randomize_float_list(spw_grid, rng, min_val=1e-3)
 
     return {
@@ -186,7 +208,10 @@ def _get_xgb_params(
 
 
 def _make_logspace(
-    min_val: float, max_val: float, n_points: int, rng: Optional[np.random.RandomState] = None
+    min_val: float,
+    max_val: float,
+    n_points: int,
+    rng: Optional[np.random.RandomState] = None,
 ) -> List[float]:
     """
     Create log-spaced grid.
@@ -275,7 +300,10 @@ def _parse_class_weight_options(options_str: str) -> List:
 
 
 def _randomize_int_list(
-    values: List[int], rng: np.random.RandomState, min_val: int = 1, unique: bool = False
+    values: List[int],
+    rng: np.random.RandomState,
+    min_val: int = 1,
+    unique: bool = False,
 ) -> List[int]:
     """
     Perturb integer grid values for sensitivity analysis.

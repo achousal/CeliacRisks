@@ -124,7 +124,8 @@ def validate_required_columns(df: pd.DataFrame) -> None:
     missing = [col for col in required if col not in df.columns]
     if missing:
         raise ValueError(
-            f"Required columns missing: {missing}. " f"Available columns: {list(df.columns)}"
+            f"Required columns missing: {missing}. "
+            f"Available columns: {list(df.columns)}"
         )
     logger.debug(f"Validated required columns: {required}")
 
@@ -166,7 +167,10 @@ def coerce_numeric_columns(
 
 
 def fill_missing_categorical(
-    df: pd.DataFrame, columns: list[str], fill_value: str = "Missing", inplace: bool = False
+    df: pd.DataFrame,
+    columns: list[str],
+    fill_value: str = "Missing",
+    inplace: bool = False,
 ) -> pd.DataFrame:
     """
     Fill missing values in categorical columns with explicit category.
@@ -220,10 +224,13 @@ def identify_protein_columns(df: pd.DataFrame) -> list[str]:
         >>> proteins = identify_protein_columns(df)
         >>> assert proteins == ["APOE_resid", "IL6_resid"]
     """
-    protein_cols = sorted([c for c in df.columns if isinstance(c, str) and c.endswith("_resid")])
+    protein_cols = sorted(
+        [c for c in df.columns if isinstance(c, str) and c.endswith("_resid")]
+    )
     if not protein_cols:
         raise ValueError(
-            "No protein columns (*_resid) found. " "Check column naming or usecols filter."
+            "No protein columns (*_resid) found. "
+            "Check column naming or usecols filter."
         )
     logger.info(f"Identified {len(protein_cols):,} protein columns")
     return protein_cols

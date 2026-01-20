@@ -79,7 +79,9 @@ def compute_univariate_strength(
                 )
             except TypeError:
                 # Fallback for older scipy
-                _, p_value = stats.mannwhitneyu(x_case, x_control, alternative="two-sided")
+                _, p_value = stats.mannwhitneyu(
+                    x_case, x_control, alternative="two-sided"
+                )
             p_value = float(p_value)
         except Exception:
             p_value = np.nan
@@ -404,7 +406,9 @@ def prune_and_refill_panel(
                 }
             )
 
-        component_map = pd.concat([component_map, pd.DataFrame(backfill_rows)], ignore_index=True)
+        component_map = pd.concat(
+            [component_map, pd.DataFrame(backfill_rows)], ignore_index=True
+        )
 
     return component_map, final_panel
 

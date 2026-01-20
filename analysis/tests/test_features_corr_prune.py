@@ -599,7 +599,9 @@ class TestPruneAndRefillPanel:
 
         # Check refilled proteins have singleton components
         refilled = [
-            p for p in final_panel if df_map[df_map["protein"] == p]["component_size"].iloc[0] == 1
+            p
+            for p in final_panel
+            if df_map[df_map["protein"] == p]["component_size"].iloc[0] == 1
         ]
         assert len(refilled) >= 0  # May or may not have refilled proteins
 

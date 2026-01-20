@@ -44,7 +44,14 @@ class TestParseLegacyArgs:
 
     def test_parse_nested_training_args(self):
         """Test mapping training args to nested structure."""
-        args = ["--folds", "10", "--screen-top-n", "2000", "--threshold-objective", "youden"]
+        args = [
+            "--folds",
+            "10",
+            "--screen-top-n",
+            "2000",
+            "--threshold-objective",
+            "youden",
+        ]
         result = _parse_legacy_args(args, "train")
 
         # Should be mapped to nested structure by _map_to_nested_key

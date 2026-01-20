@@ -30,7 +30,10 @@ def minimal_config():
     return make_mock_config(
         models=SimpleNamespace(
             lr=SimpleNamespace(
-                C_min=0.01, C_max=100.0, C_points=10, class_weight_options="None,balanced"
+                C_min=0.01,
+                C_max=100.0,
+                C_points=10,
+                class_weight_options="None,balanced",
             ),
             svm=SimpleNamespace(
                 C_min=0.01, C_max=100.0, C_points=10, class_weight_options="balanced"

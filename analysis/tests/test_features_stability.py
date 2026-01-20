@@ -272,7 +272,9 @@ class TestExtractStablePanel:
         """Empty log returns empty results."""
         log = pd.DataFrame(columns=["repeat", "fold", "selected_proteins_split"])
 
-        panel, stable, unions = extract_stable_panel(log, n_repeats=3, stability_threshold=0.75)
+        panel, stable, unions = extract_stable_panel(
+            log, n_repeats=3, stability_threshold=0.75
+        )
 
         assert panel.empty
         assert stable == []
@@ -280,7 +282,9 @@ class TestExtractStablePanel:
 
     def test_none_log(self):
         """None log returns empty results."""
-        panel, stable, unions = extract_stable_panel(None, n_repeats=3, stability_threshold=0.75)
+        panel, stable, unions = extract_stable_panel(
+            None, n_repeats=3, stability_threshold=0.75
+        )
 
         assert panel.empty
         assert stable == []
@@ -300,7 +304,9 @@ class TestExtractStablePanel:
             }
         )
 
-        panel, stable, unions = extract_stable_panel(log, n_repeats=2, stability_threshold=1.0)
+        panel, stable, unions = extract_stable_panel(
+            log, n_repeats=2, stability_threshold=1.0
+        )
 
         assert stable == ["A"]
         assert unions[0] == {"A"}  # repeat 0 (malformed skipped)
@@ -413,7 +419,9 @@ class TestIntegrationScenarios:
                 # Top 10 always selected
                 selected = all_proteins[:10].copy()
                 # Add 5 random proteins
-                selected.extend(np.random.choice(all_proteins[10:], size=5, replace=False).tolist())
+                selected.extend(
+                    np.random.choice(all_proteins[10:], size=5, replace=False).tolist()
+                )
                 rows.append(
                     {
                         "repeat": repeat,
@@ -432,7 +440,9 @@ class TestIntegrationScenarios:
             assert freqs[f"PROT_{i:03d}"] == 1.0
 
         # Extract stable panel with high threshold (1.0 = must appear in ALL repeats)
-        panel, stable, _ = extract_stable_panel(log, n_repeats=10, stability_threshold=1.0)
+        panel, stable, _ = extract_stable_panel(
+            log, n_repeats=10, stability_threshold=1.0
+        )
 
         # Top 10 proteins should be stable (appear in 10/10 repeats = 100%)
         # Random proteins may appear in multiple repeats but not ALL repeats

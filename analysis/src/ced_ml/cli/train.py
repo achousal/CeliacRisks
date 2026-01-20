@@ -20,10 +20,7 @@ from ced_ml.data.columns import get_available_columns_from_file, resolve_columns
 from ced_ml.data.filters import apply_row_filters
 from ced_ml.data.io import read_proteomics_csv, usecols_for_proteomics
 from ced_ml.data.schema import (
-    CAT_COLS,
     CONTROL_LABEL,
-    META_NUM_COLS,
-    PROTEIN_SUFFIX,
     SCENARIO_DEFINITIONS,
     TARGET_COL,
 )
@@ -82,7 +79,9 @@ def build_preprocessor(
         transformers.append(
             (
                 "cat",
-                OneHotEncoder(drop="first", sparse_output=False, handle_unknown="ignore"),
+                OneHotEncoder(
+                    drop="first", sparse_output=False, handle_unknown="ignore"
+                ),
                 cat_cols,
             )
         )
@@ -115,7 +114,9 @@ def build_training_pipeline(
     steps = [("pre", preprocessor)]
 
     if config.features.feature_select and config.features.feature_select != "none":
-        k_val = config.features.kbest_max if hasattr(config.features, "kbest_max") else 500
+        k_val = (
+            config.features.kbest_max if hasattr(config.features, "kbest_max") else 500
+        )
         kbest = build_kbest_pipeline_step(k=k_val)
         steps.append(("sel", kbest))
 
@@ -193,8 +194,12 @@ def evaluate_on_split(
 
     metrics = compute_discrimination_metrics(y, y_probs_adj)
 
-    threshold_obj = config.thresholds.objective if hasattr(config, "thresholds") else "youden"
-    threshold_name, threshold = choose_threshold_objective(y, y_probs_adj, objective=threshold_obj)
+    threshold_obj = (
+        config.thresholds.objective if hasattr(config, "thresholds") else "youden"
+    )
+    threshold_name, threshold = choose_threshold_objective(
+        y, y_probs_adj, objective=threshold_obj
+    )
 
     binary_metrics = binary_metrics_at_threshold(y, y_probs_adj, threshold)
 
@@ -257,7 +262,7 @@ def run_train(
     available_columns = get_available_columns_from_file(str(config.infile))
     resolved = resolve_columns(available_columns, config.columns)
 
-    logger.info(f"Resolved columns:")
+    logger.info("Resolved columns:")
     logger.info(f"  Proteins: {len(resolved.protein_cols)}")
     logger.info(f"  Numeric metadata: {resolved.numeric_metadata}")
     logger.info(f"  Categorical metadata: {resolved.categorical_metadata}")
@@ -277,8 +282,12 @@ def run_train(
         df_raw, meta_num_cols=resolved.numeric_metadata
     )
     logger.info(f"Filtered: {filter_stats['n_in']:,} → {filter_stats['n_out']:,} rows")
-    logger.info(f"  Removed {filter_stats['n_removed_uncertain_controls']} uncertain controls")
-    logger.info(f"  Removed {filter_stats['n_removed_dropna_meta_num']} rows with missing metadata")
+    logger.info(
+        f"  Removed {filter_stats['n_removed_uncertain_controls']} uncertain controls"
+    )
+    logger.info(
+        f"  Removed {filter_stats['n_removed_dropna_meta_num']} rows with missing metadata"
+    )
 
     # Step 4: Use resolved columns
     protein_cols = resolved.protein_cols
@@ -343,7 +352,9 @@ def run_train(
     )
 
     if config.model not in classifiers:
-        raise ValueError(f"Unknown model: {config.model}. Available: {list(classifiers.keys())}")
+        raise ValueError(
+            f"Unknown model: {config.model}. Available: {list(classifiers.keys())}"
+        )
 
     classifier = classifiers[config.model]
 
@@ -361,14 +372,16 @@ def run_train(
     log_section(logger, "Nested Cross-Validation")
     logger.info(f"Running {config.cv.folds}-fold CV × {config.cv.repeats} repeats...")
 
-    oof_preds, elapsed_sec, best_params_df, selected_proteins_df = oof_predictions_with_nested_cv(
-        pipeline=pipeline,
-        model_name=config.model,
-        X=X_train,
-        y=y_train,
-        protein_cols=protein_cols,
-        config=config,
-        random_state=seed,
+    oof_preds, elapsed_sec, best_params_df, selected_proteins_df = (
+        oof_predictions_with_nested_cv(
+            pipeline=pipeline,
+            model_name=config.model,
+            X=X_train,
+            y=y_train,
+            protein_cols=protein_cols,
+            config=config,
+            random_state=seed,
+        )
     )
 
     logger.info(f"CV completed in {elapsed_sec:.1f}s")
@@ -414,7 +427,9 @@ def run_train(
 
     # Step 13: Wrap in prevalence-adjusted model
     prevalence_model = PrevalenceAdjustedModel(
-        base_model=final_pipeline, sample_prevalence=train_prev, target_prevalence=target_prev
+        base_model=final_pipeline,
+        sample_prevalence=train_prev,
+        target_prevalence=target_prev,
     )
 
     # Step 14: Save outputs
@@ -475,7 +490,11 @@ def run_train(
 
     # Save predictions
     test_preds_df = pd.DataFrame(
-        {"idx": test_idx, "y_true": y_test, "y_prob": prevalence_model.predict_proba(X_test)[:, 1]}
+        {
+            "idx": test_idx,
+            "y_true": y_test,
+            "y_prob": prevalence_model.predict_proba(X_test)[:, 1],
+        }
     )
     test_preds_path = (
         Path(outdirs.preds_test) / f"{config.scenario}__test_preds__{config.model}.csv"
@@ -484,9 +503,15 @@ def run_train(
     logger.info(f"Test predictions saved: {test_preds_path}")
 
     val_preds_df = pd.DataFrame(
-        {"idx": val_idx, "y_true": y_val, "y_prob": prevalence_model.predict_proba(X_val)[:, 1]}
+        {
+            "idx": val_idx,
+            "y_true": y_val,
+            "y_prob": prevalence_model.predict_proba(X_val)[:, 1],
+        }
     )
-    val_preds_path = Path(outdirs.preds_val) / f"{config.scenario}__val_preds__{config.model}.csv"
+    val_preds_path = (
+        Path(outdirs.preds_val) / f"{config.scenario}__val_preds__{config.model}.csv"
+    )
     val_preds_df.to_csv(val_preds_path, index=False)
     logger.info(f"Val predictions saved: {val_preds_path}")
 
@@ -500,7 +525,8 @@ def run_train(
     for repeat in range(oof_preds.shape[0]):
         oof_preds_df[f"y_prob_repeat{repeat}"] = oof_preds[repeat, :]
     oof_preds_path = (
-        Path(outdirs.preds_train_oof) / f"{config.scenario}__train_oof__{config.model}.csv"
+        Path(outdirs.preds_train_oof)
+        / f"{config.scenario}__train_oof__{config.model}.csv"
     )
     oof_preds_df.to_csv(oof_preds_path, index=False)
     logger.info(f"OOF predictions saved: {oof_preds_path}")

@@ -141,7 +141,9 @@ class TestValidateRequiredColumns:
     def test_missing_target_column(self):
         """Should raise for missing target column."""
         df = pd.DataFrame({"eid": [1, 2]})
-        with pytest.raises(ValueError, match="Required columns missing.*CeD_comparison"):
+        with pytest.raises(
+            ValueError, match="Required columns missing.*CeD_comparison"
+        ):
             validate_required_columns(df)
 
     def test_missing_both_columns(self):

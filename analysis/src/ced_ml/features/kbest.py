@@ -312,7 +312,9 @@ def compute_protein_statistics(
     try:
         from scipy import stats
 
-        _, p_value = stats.ttest_ind(x_case, x_control, equal_var=False, nan_policy="omit")
+        _, p_value = stats.ttest_ind(
+            x_case, x_control, equal_var=False, nan_policy="omit"
+        )
         p_ttest = float(p_value)
     except Exception:
         p_ttest = np.nan

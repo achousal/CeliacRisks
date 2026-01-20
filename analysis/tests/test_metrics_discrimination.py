@@ -59,7 +59,9 @@ class TestAUROC:
         """AUROC handles imbalanced datasets correctly."""
         # 95 negatives, 5 positives
         y_true = np.array([0] * 95 + [1] * 5)
-        y_pred = np.concatenate([np.random.uniform(0, 0.3, 95), np.random.uniform(0.7, 1.0, 5)])
+        y_pred = np.concatenate(
+            [np.random.uniform(0, 0.3, 95), np.random.uniform(0.7, 1.0, 5)]
+        )
         auc = auroc(y_true, y_pred)
         assert 0.9 <= auc <= 1.0
 
@@ -165,7 +167,9 @@ class TestYoudenJ:
     def test_imbalanced_data(self):
         """Youden J handles imbalanced data correctly."""
         y_true = np.array([0] * 95 + [1] * 5)
-        y_pred = np.concatenate([np.random.uniform(0, 0.3, 95), np.random.uniform(0.7, 1.0, 5)])
+        y_pred = np.concatenate(
+            [np.random.uniform(0, 0.3, 95), np.random.uniform(0.7, 1.0, 5)]
+        )
         j = youden_j(y_true, y_pred)
         assert 0.0 <= j <= 1.0
 
@@ -185,7 +189,9 @@ class TestAlphaSensitivityAtSpecificity:
         """Alpha = 1.0 for perfect separation at any specificity."""
         y_true = np.array([0, 0, 1, 1])
         y_pred = np.array([0.1, 0.2, 0.8, 0.9])
-        alpha = alpha_sensitivity_at_specificity(y_true, y_pred, target_specificity=0.95)
+        alpha = alpha_sensitivity_at_specificity(
+            y_true, y_pred, target_specificity=0.95
+        )
         assert alpha == 1.0
 
     def test_achievable_target(self):
@@ -194,7 +200,9 @@ class TestAlphaSensitivityAtSpecificity:
         y_true = np.array([0] * 100 + [1] * 10)
         # Negatives: scores 0.0-0.5, positives: scores 0.6-1.0
         y_pred = np.concatenate([np.linspace(0, 0.5, 100), np.linspace(0.6, 1.0, 10)])
-        alpha = alpha_sensitivity_at_specificity(y_true, y_pred, target_specificity=0.95)
+        alpha = alpha_sensitivity_at_specificity(
+            y_true, y_pred, target_specificity=0.95
+        )
         # At 95% specificity (5% FPR), should catch most positives
         assert alpha > 0.5
 
@@ -203,16 +211,24 @@ class TestAlphaSensitivityAtSpecificity:
         # All predictions are identical, cannot achieve any specific specificity
         y_true = np.array([0, 0, 1, 1])
         y_pred = np.array([0.5, 0.5, 0.5, 0.5])
-        alpha = alpha_sensitivity_at_specificity(y_true, y_pred, target_specificity=0.99)
+        alpha = alpha_sensitivity_at_specificity(
+            y_true, y_pred, target_specificity=0.99
+        )
         # Should return sensitivity at closest achievable specificity
         assert 0.0 <= alpha <= 1.0
 
     def test_different_targets(self):
         """Alpha varies with target specificity."""
         y_true = np.array([0] * 100 + [1] * 10)
-        y_pred = np.concatenate([np.random.uniform(0, 0.5, 100), np.random.uniform(0.5, 1.0, 10)])
-        alpha_95 = alpha_sensitivity_at_specificity(y_true, y_pred, target_specificity=0.95)
-        alpha_99 = alpha_sensitivity_at_specificity(y_true, y_pred, target_specificity=0.99)
+        y_pred = np.concatenate(
+            [np.random.uniform(0, 0.5, 100), np.random.uniform(0.5, 1.0, 10)]
+        )
+        alpha_95 = alpha_sensitivity_at_specificity(
+            y_true, y_pred, target_specificity=0.95
+        )
+        alpha_99 = alpha_sensitivity_at_specificity(
+            y_true, y_pred, target_specificity=0.99
+        )
         # Higher specificity requirement typically yields lower sensitivity
         assert alpha_99 <= alpha_95
 
@@ -235,7 +251,9 @@ class TestAlphaSensitivityAtSpecificity:
         y_true = np.array([0, 0, 1, 1])
         y_pred = np.array([0.1, 0.2, 0.8, 0.9])
         alpha_default = alpha_sensitivity_at_specificity(y_true, y_pred)
-        alpha_explicit = alpha_sensitivity_at_specificity(y_true, y_pred, target_specificity=0.95)
+        alpha_explicit = alpha_sensitivity_at_specificity(
+            y_true, y_pred, target_specificity=0.95
+        )
         assert alpha_default == alpha_explicit
 
 
@@ -284,7 +302,9 @@ class TestComputeDiscriminationMetrics:
     def test_custom_alpha_target(self):
         """Custom alpha target specificity is respected."""
         y_true = np.array([0] * 100 + [1] * 10)
-        y_pred = np.concatenate([np.random.uniform(0, 0.5, 100), np.random.uniform(0.5, 1.0, 10)])
+        y_pred = np.concatenate(
+            [np.random.uniform(0, 0.5, 100), np.random.uniform(0.5, 1.0, 10)]
+        )
         metrics_95 = compute_discrimination_metrics(
             y_true, y_pred, include_alpha=True, alpha_target_specificity=0.95
         )

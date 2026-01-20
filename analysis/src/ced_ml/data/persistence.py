@@ -137,7 +137,9 @@ def check_split_files_exist(
         expected_files.append(os.path.join(outdir, f"{scenario}_val_idx{suffix}.csv"))
 
     # Also check metadata
-    expected_files.append(os.path.join(outdir, f"{scenario}_split_meta_seed{seed}.json"))
+    expected_files.append(
+        os.path.join(outdir, f"{scenario}_split_meta_seed{seed}.json")
+    )
 
     existing = [f for f in expected_files if os.path.exists(f)]
 
@@ -190,7 +192,9 @@ def save_split_indices(
 
     # Check for existing files
     has_val = val_idx is not None and len(val_idx) > 0
-    files_exist, existing = check_split_files_exist(outdir, scenario, seed, has_val, n_splits)
+    files_exist, existing = check_split_files_exist(
+        outdir, scenario, seed, has_val, n_splits
+    )
     if files_exist and not overwrite:
         raise FileExistsError(
             "Split files already exist. Use overwrite=True to replace:\n"
@@ -247,7 +251,8 @@ def save_holdout_indices(
 
     if os.path.exists(holdout_path) and not overwrite:
         raise FileExistsError(
-            f"Holdout file already exists: {holdout_path}\n" f"Use overwrite=True to replace."
+            f"Holdout file already exists: {holdout_path}\n"
+            f"Use overwrite=True to replace."
         )
 
     os.makedirs(outdir, exist_ok=True)

@@ -142,7 +142,9 @@ class TestApplyRowFilters:
         assert stats["n_in"] == 10
         assert stats["n_out"] == 5
         assert stats["n_removed_uncertain_controls"] == 2
-        assert stats["n_removed_dropna_meta_num"] == 3  # After uncertain controls removed
+        assert (
+            stats["n_removed_dropna_meta_num"] == 3
+        )  # After uncertain controls removed
 
         # Verify correct rows kept
         remaining_ids = df_out[ID_COL].tolist()

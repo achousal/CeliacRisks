@@ -64,7 +64,10 @@ def sample_metrics():
 def sample_model():
     """Sample trained model."""
     return Pipeline(
-        [("scaler", StandardScaler()), ("classifier", LogisticRegression(random_state=42))]
+        [
+            ("scaler", StandardScaler()),
+            ("classifier", LogisticRegression(random_state=42)),
+        ]
     )
 
 
@@ -173,7 +176,9 @@ def test_save_val_metrics(results_writer, sample_metrics):
 
 def test_save_test_metrics(results_writer, sample_metrics):
     """Test save_test_metrics."""
-    path = results_writer.save_test_metrics(sample_metrics, scenario="IncidentOnly", model="RF")
+    path = results_writer.save_test_metrics(
+        sample_metrics, scenario="IncidentOnly", model="RF"
+    )
 
     assert os.path.exists(path)
     df = pd.read_csv(path)
@@ -231,7 +236,9 @@ def test_save_best_params_per_split(results_writer):
         {"outer_split": 2, "C": 0.01, "penalty": "l1", "solver": "saga"},
     ]
 
-    path = results_writer.save_best_params_per_split(best_params, scenario="IncidentPlusPrevalent")
+    path = results_writer.save_best_params_per_split(
+        best_params, scenario="IncidentPlusPrevalent"
+    )
 
     assert os.path.exists(path)
     df = pd.read_csv(path)
@@ -272,7 +279,9 @@ def test_save_test_predictions(results_writer):
         }
     )
 
-    path = results_writer.save_test_predictions(preds_df, scenario="IncidentOnly", model="RF")
+    path = results_writer.save_test_predictions(
+        preds_df, scenario="IncidentOnly", model="RF"
+    )
 
     assert os.path.exists(path)
     df = pd.read_csv(path)
@@ -413,7 +422,9 @@ def test_save_subgroup_metrics(results_writer):
         }
     )
 
-    path = results_writer.save_subgroup_metrics(subgroup_df, scenario="IncidentOnly", model="RF")
+    path = results_writer.save_subgroup_metrics(
+        subgroup_df, scenario="IncidentOnly", model="RF"
+    )
 
     assert os.path.exists(path)
     df = pd.read_csv(path)
@@ -451,7 +462,9 @@ def test_load_model_artifact(results_writer, sample_model):
         sample_model, metadata, scenario="IncidentOnly", model_name="RF"
     )
 
-    bundle = results_writer.load_model_artifact(scenario="IncidentOnly", model_name="RF")
+    bundle = results_writer.load_model_artifact(
+        scenario="IncidentOnly", model_name="RF"
+    )
 
     assert bundle["scenario"] == "IncidentOnly"
     assert bundle["model_name"] == "RF"
@@ -462,7 +475,9 @@ def test_load_model_artifact(results_writer, sample_model):
 def test_load_model_artifact_not_found(results_writer):
     """Test load_model_artifact with missing file."""
     with pytest.raises(FileNotFoundError, match="Model artifact not found"):
-        results_writer.load_model_artifact(scenario="NonExistent", model_name="FakeModel")
+        results_writer.load_model_artifact(
+            scenario="NonExistent", model_name="FakeModel"
+        )
 
 
 # ========== ResultsWriter: Diagnostics ==========
@@ -498,7 +513,9 @@ def test_save_learning_curve(results_writer):
         }
     )
 
-    path = results_writer.save_learning_curve(lc_df, scenario="IncidentOnly", model="XGBoost")
+    path = results_writer.save_learning_curve(
+        lc_df, scenario="IncidentOnly", model="XGBoost"
+    )
 
     assert os.path.exists(path)
     df = pd.read_csv(path)
@@ -528,7 +545,9 @@ def test_save_split_trace(results_writer):
 
 def test_summarize_outputs(results_writer, sample_metrics):
     """Test summarize_outputs."""
-    results_writer.save_test_metrics(sample_metrics, scenario="IncidentOnly", model="RF")
+    results_writer.save_test_metrics(
+        sample_metrics, scenario="IncidentOnly", model="RF"
+    )
     results_writer.save_run_settings({"scenario": "IncidentOnly"})
 
     summary = results_writer.summarize_outputs()
@@ -562,7 +581,9 @@ def test_full_workflow(results_writer, sample_model, sample_metrics):
 
     # Model
     metadata = {"threshold_obj": 0.15}
-    results_writer.save_model_artifact(sample_model, metadata, "IncidentPlusPrevalent", "LR_EN")
+    results_writer.save_model_artifact(
+        sample_model, metadata, "IncidentPlusPrevalent", "LR_EN"
+    )
 
     # Verify all exist
     summary = results_writer.summarize_outputs()

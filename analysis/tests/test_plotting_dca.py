@@ -33,7 +33,10 @@ def binary_classification_data():
     """Create sample binary classification data."""
     np.random.seed(42)
     y_true = np.array([0] * 800 + [1] * 200)
-    y_pred = np.random.beta(2, 5, size=800).tolist() + np.random.beta(5, 2, size=200).tolist()
+    y_pred = (
+        np.random.beta(2, 5, size=800).tolist()
+        + np.random.beta(5, 2, size=200).tolist()
+    )
     return np.array(y_true), np.array(y_pred)
 
 
@@ -149,7 +152,9 @@ class TestPlotDCACurve:
         """Test plot_dca_curve with subtitle."""
         y_true, y_pred = binary_classification_data
         out_path = tmp_path / "dca_subtitle.png"
-        plot_dca_curve(y_true, y_pred, str(out_path), title="Test DCA", subtitle="Validation Set")
+        plot_dca_curve(
+            y_true, y_pred, str(out_path), title="Test DCA", subtitle="Validation Set"
+        )
         assert out_path.exists()
 
     def test_plot_with_metadata(self, binary_classification_data, tmp_path):
@@ -164,7 +169,9 @@ class TestPlotDCACurve:
         """Test plot_dca_curve with custom threshold range."""
         y_true, y_pred = binary_classification_data
         out_path = tmp_path / "dca_custom_range.png"
-        plot_dca_curve(y_true, y_pred, str(out_path), title="Test DCA", max_pt=0.10, step=0.01)
+        plot_dca_curve(
+            y_true, y_pred, str(out_path), title="Test DCA", max_pt=0.10, step=0.01
+        )
         assert out_path.exists()
 
     def test_handles_empty_predictions(self, tmp_path):
@@ -188,7 +195,9 @@ class TestPlotDCACurve:
         y_true, y_pred = binary_classification_data
         split_ids = np.ones(len(y_true))
         out_path = tmp_path / "dca_single_split.png"
-        plot_dca_curve(y_true, y_pred, str(out_path), title="Single Split", split_ids=split_ids)
+        plot_dca_curve(
+            y_true, y_pred, str(out_path), title="Single Split", split_ids=split_ids
+        )
         assert out_path.exists()
 
     def test_multi_split_averaging(self, binary_classification_data, tmp_path):
@@ -214,7 +223,11 @@ class TestPlotDCACurve:
         split_ids = np.array([0, 0, 1, 1, 2, 2])  # Split 2 has only class 0
         out_path = tmp_path / "dca_insufficient.png"
         plot_dca_curve(
-            y_true, y_pred, str(out_path), title="Insufficient Data", split_ids=split_ids
+            y_true,
+            y_pred,
+            str(out_path),
+            title="Insufficient Data",
+            split_ids=split_ids,
         )
         # Should handle gracefully and create plot with valid splits
         assert out_path.exists()
@@ -226,7 +239,9 @@ class TestPlotDCACurve:
         y_pred = np.array([0.2, 0.8, 0.3])
         split_ids = np.array([0, 1, 2])
         out_path = tmp_path / "dca_all_fail.png"
-        plot_dca_curve(y_true, y_pred, str(out_path), title="All Splits Fail", split_ids=split_ids)
+        plot_dca_curve(
+            y_true, y_pred, str(out_path), title="All Splits Fail", split_ids=split_ids
+        )
         # Should fall back to single curve using all data
         assert out_path.exists()
 
@@ -271,7 +286,9 @@ class TestDCAPlottingIntegration:
         dca_df_pct["threshold_pct"] = dca_df_pct["threshold"] * 100
 
         plot_dca(dca_df_pct, str(out1))
-        plot_dca_curve(y_true, y_pred, str(out2), title="DCA Curve", max_pt=0.20, step=0.005)
+        plot_dca_curve(
+            y_true, y_pred, str(out2), title="DCA Curve", max_pt=0.20, step=0.005
+        )
 
         assert out1.exists()
         assert out2.exists()
@@ -287,7 +304,10 @@ class TestDCAPlottingIntegration:
 
         for i in range(5):
             y = np.array([0] * 160 + [1] * 40)
-            p = np.random.beta(2, 5, size=160).tolist() + np.random.beta(5, 2, size=40).tolist()
+            p = (
+                np.random.beta(2, 5, size=160).tolist()
+                + np.random.beta(5, 2, size=40).tolist()
+            )
             y_true_list.append(y)
             y_pred_list.append(p)
             split_ids_list.append(np.ones(len(y)) * i)

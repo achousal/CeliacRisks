@@ -85,7 +85,9 @@ def _require_int_list(s: str, name: str) -> List[int]:
     """Parse and validate non-empty integer list."""
     values = _parse_int_list(s)
     if not values:
-        raise ValueError(f"{name} must be a non-empty comma-separated list (e.g. '200,500').")
+        raise ValueError(
+            f"{name} must be a non-empty comma-separated list (e.g. '200,500')."
+        )
     return values
 
 
@@ -198,7 +200,9 @@ def _coerce_min_samples_leaf_list(
                     raise ValueError(f"{name}: int must be >= 1, got {iv}")
                 out.append(iv)
                 continue
-            raise ValueError(f"{name}: float must be in (0,1) or an integer value, got {v}")
+            raise ValueError(
+                f"{name}: float must be in (0,1) or an integer value, got {v}"
+            )
         if isinstance(v, str):
             vv = v.strip().lower()
             try:
@@ -222,7 +226,9 @@ def _coerce_min_samples_leaf_list(
                     continue
             except Exception:
                 pass
-            raise ValueError(f"{name}: could not parse '{v}' as int>=1 or float in (0,1)")
+            raise ValueError(
+                f"{name}: could not parse '{v}' as int>=1 or float in (0,1)"
+            )
         raise ValueError(f"{name}: unsupported type {type(v).__name__}={v}")
     return out
 
@@ -410,9 +416,13 @@ def _randomize_numeric_list(
             low_int = int(low) if min_int is None else int(min_int)
             high_int = int(high) if max_int is None else int(max_int)
             if unique_int:
-                sampled_vals = list(rng.choice(range(low_int, high_int + 1), size=n, replace=False))
+                sampled_vals = list(
+                    rng.choice(range(low_int, high_int + 1), size=n, replace=False)
+                )
             else:
-                sampled_vals = [int(rng.randint(low_int, high_int + 1)) for _ in range(n)]
+                sampled_vals = [
+                    int(rng.randint(low_int, high_int + 1)) for _ in range(n)
+                ]
     else:
         # Float sampling
         if log_scale:
@@ -515,7 +525,9 @@ def build_linear_svm_calibrated(
     base_svm = LinearSVC(
         C=C, class_weight=None, random_state=int(random_state), max_iter=int(max_iter)
     )
-    return CalibratedClassifierCV(base_svm, method=str(calibration_method), cv=int(calibration_cv))
+    return CalibratedClassifierCV(
+        base_svm, method=str(calibration_method), cv=int(calibration_cv)
+    )
 
 
 def build_random_forest(
@@ -694,7 +706,11 @@ def build_models(
         max_d = config.xgboost.max_depth[0] if config.xgboost.max_depth else 5
         lr = config.xgboost.learning_rate[0] if config.xgboost.learning_rate else 0.05
         sub = config.xgboost.subsample[0] if config.xgboost.subsample else 0.8
-        col = config.xgboost.colsample_bytree[0] if config.xgboost.colsample_bytree else 0.8
+        col = (
+            config.xgboost.colsample_bytree[0]
+            if config.xgboost.colsample_bytree
+            else 0.8
+        )
         spw = 1.0  # Default, will be computed later
         return build_xgboost(
             n_estimators=n_est,
@@ -704,14 +720,20 @@ def build_models(
             colsample_bytree=col,
             scale_pos_weight=spw,
             reg_alpha=config.xgboost.reg_alpha[0] if config.xgboost.reg_alpha else 0.0,
-            reg_lambda=config.xgboost.reg_lambda[0] if config.xgboost.reg_lambda else 1.0,
+            reg_lambda=(
+                config.xgboost.reg_lambda[0] if config.xgboost.reg_lambda else 1.0
+            ),
             min_child_weight=(
-                config.xgboost.min_child_weight[0] if config.xgboost.min_child_weight else 1
+                config.xgboost.min_child_weight[0]
+                if config.xgboost.min_child_weight
+                else 1
             ),
             gamma=config.xgboost.gamma[0] if config.xgboost.gamma else 0.0,
             tree_method=config.xgboost.tree_method,
             random_state=random_state,
-            n_jobs=int(max(1, n_jobs)) if config.xgboost.tree_method != "gpu_hist" else 1,
+            n_jobs=(
+                int(max(1, n_jobs)) if config.xgboost.tree_method != "gpu_hist" else 1
+            ),
         )
 
     else:
@@ -808,33 +830,62 @@ def get_param_distributions(
 
     if model_name == "RF":
         n_estimators_grid = (
-            config.rf.n_estimators if hasattr(config.rf, "n_estimators") else [100, 300, 500]
+            config.rf.n_estimators
+            if hasattr(config.rf, "n_estimators")
+            else [100, 300, 500]
         )
         if rng is not None:
             n_estimators_grid = _randomize_numeric_list(
-                n_estimators_grid, rng, as_int=True, min_int=1, unique_int=True, perturb_mode=True
+                n_estimators_grid,
+                rng,
+                as_int=True,
+                min_int=1,
+                unique_int=True,
+                perturb_mode=True,
             )
 
-        max_depth = config.rf.max_depth if hasattr(config.rf, "max_depth") else [None, 10, 20, 40]
+        max_depth = (
+            config.rf.max_depth
+            if hasattr(config.rf, "max_depth")
+            else [None, 10, 20, 40]
+        )
         if rng is not None:
             max_depth = _randomize_numeric_list(
-                max_depth, rng, as_int=True, min_int=1, unique_int=True, perturb_mode=True
+                max_depth,
+                rng,
+                as_int=True,
+                min_int=1,
+                unique_int=True,
+                perturb_mode=True,
             )
 
         min_leaf = (
-            config.rf.min_samples_leaf if hasattr(config.rf, "min_samples_leaf") else [1, 2, 4]
+            config.rf.min_samples_leaf
+            if hasattr(config.rf, "min_samples_leaf")
+            else [1, 2, 4]
         )
         min_split = (
-            config.rf.min_samples_split if hasattr(config.rf, "min_samples_split") else [2, 5, 10]
+            config.rf.min_samples_split
+            if hasattr(config.rf, "min_samples_split")
+            else [2, 5, 10]
         )
-        max_feat = config.rf.max_features if hasattr(config.rf, "max_features") else ["sqrt", 0.5]
+        max_feat = (
+            config.rf.max_features
+            if hasattr(config.rf, "max_features")
+            else ["sqrt", 0.5]
+        )
 
         if rng is not None:
             max_feat = _randomize_numeric_list(
                 max_feat, rng, min_float=0.1, max_float=1.0, perturb_mode=True
             )
             min_split = _randomize_numeric_list(
-                min_split, rng, as_int=True, min_int=2, unique_int=True, perturb_mode=True
+                min_split,
+                rng,
+                as_int=True,
+                min_int=2,
+                unique_int=True,
+                perturb_mode=True,
             )
 
         d.update(
@@ -857,7 +908,9 @@ def get_param_distributions(
             else [100, 300, 500]
         )
         max_depth_grid = (
-            config.xgboost.max_depth if hasattr(config.xgboost, "max_depth") else [3, 5, 7]
+            config.xgboost.max_depth
+            if hasattr(config.xgboost, "max_depth")
+            else [3, 5, 7]
         )
         learning_rate_grid = (
             config.xgboost.learning_rate
@@ -865,24 +918,37 @@ def get_param_distributions(
             else [0.01, 0.05, 0.1]
         )
         subsample_grid = (
-            config.xgboost.subsample if hasattr(config.xgboost, "subsample") else [0.7, 0.8, 1.0]
+            config.xgboost.subsample
+            if hasattr(config.xgboost, "subsample")
+            else [0.7, 0.8, 1.0]
         )
         colsample_grid = (
             config.xgboost.colsample_bytree
             if hasattr(config.xgboost, "colsample_bytree")
             else [0.7, 0.8, 1.0]
         )
-        spw_grid = [float(xgb_scale_pos_weight)] if xgb_scale_pos_weight is not None else [1.0]
+        spw_grid = (
+            [float(xgb_scale_pos_weight)] if xgb_scale_pos_weight is not None else [1.0]
+        )
 
         if rng is not None:
             n_estimators_grid = _randomize_numeric_list(
                 n_estimators_grid, rng, as_int=True, min_int=1, perturb_mode=True
             )
             max_depth_grid = _randomize_numeric_list(
-                max_depth_grid, rng, as_int=True, min_int=1, unique_int=True, perturb_mode=True
+                max_depth_grid,
+                rng,
+                as_int=True,
+                min_int=1,
+                unique_int=True,
+                perturb_mode=True,
             )
             learning_rate_grid = _randomize_numeric_list(
-                learning_rate_grid, rng, min_float=1e-4, log_scale=True, perturb_mode=True
+                learning_rate_grid,
+                rng,
+                min_float=1e-4,
+                log_scale=True,
+                perturb_mode=True,
             )
             subsample_grid = _randomize_numeric_list(
                 subsample_grid, rng, min_float=0.1, max_float=1.0, perturb_mode=True
@@ -890,7 +956,9 @@ def get_param_distributions(
             colsample_grid = _randomize_numeric_list(
                 colsample_grid, rng, min_float=0.1, max_float=1.0, perturb_mode=True
             )
-            spw_grid = _randomize_numeric_list(spw_grid, rng, min_float=1e-3, perturb_mode=True)
+            spw_grid = _randomize_numeric_list(
+                spw_grid, rng, min_float=1e-3, perturb_mode=True
+            )
 
         d.update(
             {

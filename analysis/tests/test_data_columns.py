@@ -73,7 +73,9 @@ def test_resolve_columns_auto_mode_partial_metadata(sample_columns_partial_metad
 
 def test_resolve_columns_explicit_mode_empty_metadata(sample_columns_protein_only):
     """Test explicit mode with empty metadata lists (protein-only)."""
-    config = ColumnsConfig(mode="explicit", numeric_metadata=[], categorical_metadata=[])
+    config = ColumnsConfig(
+        mode="explicit", numeric_metadata=[], categorical_metadata=[]
+    )
     resolved = resolve_columns(sample_columns_protein_only, config)
 
     assert len(resolved.protein_cols) == 10
@@ -105,7 +107,9 @@ def test_resolve_columns_explicit_mode_requires_specification():
 
 def test_resolve_columns_explicit_mode_validates_existence(sample_columns_full):
     """Test that explicit mode validates specified columns exist."""
-    config = ColumnsConfig(mode="explicit", numeric_metadata=["age", "nonexistent_column"])
+    config = ColumnsConfig(
+        mode="explicit", numeric_metadata=["age", "nonexistent_column"]
+    )
 
     with pytest.raises(ValueError, match="not found in data"):
         resolve_columns(sample_columns_full, config)
@@ -132,7 +136,9 @@ def test_resolve_columns_accepts_dataframe(sample_columns_full):
 
 def test_resolved_columns_all_metadata_property():
     """Test the all_metadata property."""
-    config = ColumnsConfig(mode="explicit", numeric_metadata=["age"], categorical_metadata=["sex"])
+    config = ColumnsConfig(
+        mode="explicit", numeric_metadata=["age"], categorical_metadata=["sex"]
+    )
     columns = ["eid", "CeD_comparison", "age", "sex", "protein_1_resid"]
     resolved = resolve_columns(columns, config)
 
@@ -141,7 +147,9 @@ def test_resolved_columns_all_metadata_property():
 
 def test_resolved_columns_all_feature_cols_property():
     """Test the all_feature_cols property."""
-    config = ColumnsConfig(mode="explicit", numeric_metadata=["age"], categorical_metadata=["sex"])
+    config = ColumnsConfig(
+        mode="explicit", numeric_metadata=["age"], categorical_metadata=["sex"]
+    )
     columns = ["eid", "CeD_comparison", "age", "sex", "protein_1_resid"]
     resolved = resolve_columns(columns, config)
 

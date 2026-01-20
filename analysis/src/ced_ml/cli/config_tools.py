@@ -12,7 +12,12 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from ced_ml.config.loader import load_splits_config, load_training_config, load_yaml, save_config
+from ced_ml.config.loader import (
+    load_splits_config,
+    load_training_config,
+    load_yaml,
+    save_config,
+)
 from ced_ml.config.schema import SplitsConfig, TrainingConfig
 from ced_ml.config.validation import validate_config
 from ced_ml.utils.logging import setup_logger
@@ -59,7 +64,9 @@ def migrate_legacy_args_to_yaml(
     elif command == "train":
         config = TrainingConfig(**config_dict)
     else:
-        raise ValueError(f"Unknown command: {command}. Expected 'save-splits' or 'train'")
+        raise ValueError(
+            f"Unknown command: {command}. Expected 'save-splits' or 'train'"
+        )
 
     # Determine output file
     if output_file is None:
@@ -480,7 +487,9 @@ def run_config_migrate(
     # Get args from file or direct input
     if input_file:
         with open(input_file) as f:
-            legacy_args = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+            legacy_args = [
+                line.strip() for line in f if line.strip() and not line.startswith("#")
+            ]
     elif args:
         legacy_args = args
     else:

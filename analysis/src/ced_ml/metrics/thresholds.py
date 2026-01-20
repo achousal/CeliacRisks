@@ -162,7 +162,9 @@ def threshold_for_specificity(
     return float(th)
 
 
-def threshold_for_precision(y_true: np.ndarray, p: np.ndarray, target_ppv: float) -> float:
+def threshold_for_precision(
+    y_true: np.ndarray, p: np.ndarray, target_ppv: float
+) -> float:
     """Find the LOWEST threshold achieving precision >= target_ppv.
 
     Args:
@@ -235,7 +237,9 @@ def threshold_from_controls(p_controls: np.ndarray, target_spec: float) -> float
     return thr
 
 
-def binary_metrics_at_threshold(y_true: np.ndarray, p: np.ndarray, thr: float) -> Dict[str, Any]:
+def binary_metrics_at_threshold(
+    y_true: np.ndarray, p: np.ndarray, thr: float
+) -> Dict[str, Any]:
     """Compute classification metrics at a specific threshold.
 
     Args:
@@ -277,7 +281,9 @@ def binary_metrics_at_threshold(y_true: np.ndarray, p: np.ndarray, thr: float) -
     }
 
 
-def top_risk_capture(y_true: np.ndarray, p: np.ndarray, frac: float = 0.01) -> Dict[str, Any]:
+def top_risk_capture(
+    y_true: np.ndarray, p: np.ndarray, frac: float = 0.01
+) -> Dict[str, Any]:
     """Analyze risk capture in top fraction of predictions.
 
     Args:

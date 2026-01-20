@@ -60,7 +60,9 @@ def _apply_plot_metadata(
         return 0.10  # Default minimum bottom margin
 
     # Position metadata at very bottom with fixed offset from edge
-    fig.text(0.5, 0.005, "\n".join(lines), ha="center", va="bottom", fontsize=8, wrap=True)
+    fig.text(
+        0.5, 0.005, "\n".join(lines), ha="center", va="bottom", fontsize=8, wrap=True
+    )
 
     # Calculate required bottom margin: base + space per line
     # Each line ~0.015 height + small padding
@@ -166,7 +168,9 @@ def plot_risk_distribution(
         height_ratios = [9, 1, 1]
         figsize = (9, 11)
 
-    fig, axes = plt.subplots(n_subplots, 1, figsize=figsize, height_ratios=height_ratios)
+    fig, axes = plt.subplots(
+        n_subplots, 1, figsize=figsize, height_ratios=height_ratios
+    )
     if n_subplots == 1:
         axes = [axes]
 
@@ -287,13 +291,19 @@ def plot_risk_distribution(
     threshold_handles = []
     threshold_labels = []
 
-    if spec95_threshold is not None and metrics_at_thresholds and "spec95" in metrics_at_thresholds:
+    if (
+        spec95_threshold is not None
+        and metrics_at_thresholds
+        and "spec95" in metrics_at_thresholds
+    ):
         m = metrics_at_thresholds["spec95"]
         sens = m.get("sensitivity", np.nan)
         ppv = m.get("precision", np.nan)
         fp = m.get("fp", np.nan)
 
-        line_handle = Line2D([0], [0], color="red", linestyle="--", linewidth=2, alpha=0.7)
+        line_handle = Line2D(
+            [0], [0], color="red", linestyle="--", linewidth=2, alpha=0.7
+        )
         threshold_handles.append(line_handle)
 
         # Multi-line label format
@@ -302,13 +312,19 @@ def plot_risk_distribution(
             label_text += f"Sens {sens*100:.1f}%, PPV {ppv*100:.1f}%, FP: {int(fp)}"
         threshold_labels.append(label_text)
 
-    if youden_threshold is not None and metrics_at_thresholds and "youden" in metrics_at_thresholds:
+    if (
+        youden_threshold is not None
+        and metrics_at_thresholds
+        and "youden" in metrics_at_thresholds
+    ):
         m = metrics_at_thresholds["youden"]
         sens = m.get("sensitivity", np.nan)
         ppv = m.get("precision", np.nan)
         fp = m.get("fp", np.nan)
 
-        line_handle = Line2D([0], [0], color="green", linestyle="--", linewidth=2, alpha=0.7)
+        line_handle = Line2D(
+            [0], [0], color="green", linestyle="--", linewidth=2, alpha=0.7
+        )
         threshold_handles.append(line_handle)
 
         # Multi-line label format
@@ -317,13 +333,19 @@ def plot_risk_distribution(
             label_text += f"Sens {sens*100:.1f}%, PPV {ppv*100:.1f}%, FP: {int(fp)}"
         threshold_labels.append(label_text)
 
-    if dca_threshold is not None and metrics_at_thresholds and "dca" in metrics_at_thresholds:
+    if (
+        dca_threshold is not None
+        and metrics_at_thresholds
+        and "dca" in metrics_at_thresholds
+    ):
         m = metrics_at_thresholds["dca"]
         sens = m.get("sensitivity", np.nan)
         ppv = m.get("precision", np.nan)
         fp = m.get("fp", np.nan)
 
-        line_handle = Line2D([0], [0], color="purple", linestyle="--", linewidth=2, alpha=0.7)
+        line_handle = Line2D(
+            [0], [0], color="purple", linestyle="--", linewidth=2, alpha=0.7
+        )
         threshold_handles.append(line_handle)
 
         # Multi-line label format
@@ -373,7 +395,9 @@ def plot_risk_distribution(
                 kde = gaussian_kde(incident_scores, bw_method="scott")
                 x_range = np.linspace(0, 1, 200)
                 density = kde(x_range)
-                ax_incident.plot(x_range, density, color="firebrick", linewidth=2, alpha=0.8)
+                ax_incident.plot(
+                    x_range, density, color="firebrick", linewidth=2, alpha=0.8
+                )
                 ax_incident.fill_between(x_range, density, alpha=0.3, color="firebrick")
             except Exception:
                 # Fallback to histogram if KDE fails (e.g., too few points)
@@ -442,8 +466,12 @@ def plot_risk_distribution(
                 kde = gaussian_kde(prevalent_scores, bw_method="scott")
                 x_range = np.linspace(0, 1, 200)
                 density = kde(x_range)
-                ax_prevalent.plot(x_range, density, color="darkorange", linewidth=2, alpha=0.8)
-                ax_prevalent.fill_between(x_range, density, alpha=0.3, color="darkorange")
+                ax_prevalent.plot(
+                    x_range, density, color="darkorange", linewidth=2, alpha=0.8
+                )
+                ax_prevalent.fill_between(
+                    x_range, density, alpha=0.3, color="darkorange"
+                )
             except Exception:
                 # Fallback to histogram if KDE fails
                 ax_prevalent.hist(
@@ -507,6 +535,8 @@ def plot_risk_distribution(
 
     # Apply metadata and adjust layout
     bottom_margin = _apply_plot_metadata(fig, meta_lines) if meta_lines else 0.1
-    plt.subplots_adjust(left=0.12, right=0.70, top=0.92, bottom=bottom_margin, hspace=0.3)
+    plt.subplots_adjust(
+        left=0.12, right=0.70, top=0.92, bottom=bottom_margin, hspace=0.3
+    )
     plt.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.1)
     plt.close()

@@ -86,7 +86,9 @@ def mann_whitney_screen(
         try:
             # Try asymptotic method (faster, available in scipy >= 1.4.0)
             try:
-                _, p_mw = stats.mannwhitneyu(x1, x0, alternative="two-sided", method="asymptotic")
+                _, p_mw = stats.mannwhitneyu(
+                    x1, x0, alternative="two-sided", method="asymptotic"
+                )
             except TypeError:
                 # Fallback for older scipy versions
                 _, p_mw = stats.mannwhitneyu(x1, x0, alternative="two-sided")
@@ -104,7 +106,9 @@ def mann_whitney_screen(
         return protein_cols, pd.DataFrame()
 
     # Build results DataFrame
-    df_stats = pd.DataFrame(rows, columns=["protein", "p_value", "abs_delta", "nonmissing_frac"])
+    df_stats = pd.DataFrame(
+        rows, columns=["protein", "p_value", "abs_delta", "nonmissing_frac"]
+    )
 
     # Sort by p-value (ascending), then abs_delta (descending)
     df_stats = df_stats.sort_values(
@@ -189,7 +193,9 @@ def f_statistic_screen(
         )
 
         # Sort by F-score descending
-        df_stats = df_stats.sort_values(["F_score"], ascending=[False], na_position="last")
+        df_stats = df_stats.sort_values(
+            ["F_score"], ascending=[False], na_position="last"
+        )
 
         # Select top N
         selected = df_stats["protein"].head(min(top_n, len(df_stats))).tolist()
@@ -256,11 +262,15 @@ def screen_proteins(
         return protein_cols, pd.DataFrame()
 
     if method == "mannwhitney":
-        return mann_whitney_screen(X_train, y_train, protein_cols, top_n, min_n_per_group)
+        return mann_whitney_screen(
+            X_train, y_train, protein_cols, top_n, min_n_per_group
+        )
     elif method == "f_classif":
         return f_statistic_screen(X_train, y_train, protein_cols, top_n)
     else:
-        raise ValueError(f"Unknown screen_method='{method}'. Valid: 'mannwhitney', 'f_classif'")
+        raise ValueError(
+            f"Unknown screen_method='{method}'. Valid: 'mannwhitney', 'f_classif'"
+        )
 
 
 def variance_missingness_prefilter(
@@ -343,7 +353,9 @@ def variance_missingness_prefilter(
         return protein_cols, report
 
     # Filter by variance (only proteins that passed missingness)
-    var = pd.Series(np.nanvar(X_train[prot_ok].to_numpy(dtype=float), axis=0), index=prot_ok)
+    var = pd.Series(
+        np.nanvar(X_train[prot_ok].to_numpy(dtype=float), axis=0), index=prot_ok
+    )
     prot_keep = var[var >= min_var].index.tolist()
 
     if len(prot_keep) == 0:

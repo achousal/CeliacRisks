@@ -164,7 +164,9 @@ def stratified_bootstrap_diff_ci(
 
     # Validate inputs
     if not (len(y_true) == len(p1) == len(p2)):
-        raise ValueError(f"Length mismatch: y_true={len(y_true)}, p1={len(p1)}, p2={len(p2)}")
+        raise ValueError(
+            f"Length mismatch: y_true={len(y_true)}, p1={len(p1)}, p2={len(p2)}"
+        )
 
     # Compute full-sample difference
     diff_full = float(metric_fn(y_true, p1) - metric_fn(y_true, p2))
@@ -197,4 +199,8 @@ def stratified_bootstrap_diff_ci(
         return (diff_full, np.nan, np.nan)
 
     # Compute 95% CI using percentile method
-    return (diff_full, float(np.percentile(diffs, 2.5)), float(np.percentile(diffs, 97.5)))
+    return (
+        diff_full,
+        float(np.percentile(diffs, 2.5)),
+        float(np.percentile(diffs, 97.5)),
+    )

@@ -393,7 +393,9 @@ class TestHoldoutEdgeCases:
             "prevalence": {"train_sample": 0.2, "target": 0.2},
         }
 
-        metrics = compute_holdout_metrics(y_true, proba, bundle, "IncidentOnly", clinical_points=[])
+        metrics = compute_holdout_metrics(
+            y_true, proba, bundle, "IncidentOnly", clinical_points=[]
+        )
 
         # Should handle gracefully (some metrics will be NaN)
         assert "AUROC_holdout" in metrics
@@ -417,7 +419,9 @@ class TestHoldoutEdgeCases:
             "prevalence": {},  # Missing prevalence info
         }
 
-        metrics = compute_holdout_metrics(y_true, proba, bundle, "IncidentOnly", clinical_points=[])
+        metrics = compute_holdout_metrics(
+            y_true, proba, bundle, "IncidentOnly", clinical_points=[]
+        )
 
         # Should compute sample prevalence
         assert metrics["target_prevalence"] == 0.5

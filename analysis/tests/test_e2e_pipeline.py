@@ -99,7 +99,9 @@ def toy_proteomics_csv(tmp_path):
 
     # Create labels
     labels = (
-        ["Controls"] * n_controls + ["CeD_incident"] * n_incident + ["CeD_prevalent"] * n_prevalent
+        ["Controls"] * n_controls
+        + ["CeD_incident"] * n_incident
+        + ["CeD_prevalent"] * n_prevalent
     )
 
     # Create metadata
@@ -118,7 +120,9 @@ def toy_proteomics_csv(tmp_path):
         base = np.random.randn(n_total)
         # Add signal for incident cases
         signal = np.zeros(n_total)
-        signal[n_controls : n_controls + n_incident] = np.random.randn(n_incident) * 0.5 + 1.0
+        signal[n_controls : n_controls + n_incident] = (
+            np.random.randn(n_incident) * 0.5 + 1.0
+        )
         signal[n_controls + n_incident :] = np.random.randn(n_prevalent) * 0.5 + 1.5
 
         data[f"Protein{i}_resid"] = base + signal

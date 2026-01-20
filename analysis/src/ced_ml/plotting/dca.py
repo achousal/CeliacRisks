@@ -33,7 +33,9 @@ def apply_plot_metadata(
         return 0.10  # Default minimum bottom margin
 
     # Position metadata at very bottom with fixed offset from edge
-    fig.text(0.5, 0.005, "\n".join(lines), ha="center", va="bottom", fontsize=8, wrap=True)
+    fig.text(
+        0.5, 0.005, "\n".join(lines), ha="center", va="bottom", fontsize=8, wrap=True
+    )
 
     # Calculate required bottom margin: base + space per line
     # Each line ~0.015 height + small padding
@@ -65,7 +67,14 @@ def plot_dca(
     nb_all = dca_df["net_benefit_all"].values
     nb_none = dca_df["net_benefit_none"].values
 
-    ax.plot(thresholds, nb_model, color="steelblue", linestyle="-", linewidth=2, label="Model")
+    ax.plot(
+        thresholds,
+        nb_model,
+        color="steelblue",
+        linestyle="-",
+        linewidth=2,
+        label="Model",
+    )
     ax.plot(thresholds, nb_all, "r--", linewidth=1.5, label="Treat All")
     ax.plot(thresholds, nb_none, "k:", linewidth=1.5, label="Treat None")
 
@@ -193,7 +202,12 @@ def plot_dca_curve(
 
             # Plot with confidence bands
             ax.fill_between(
-                thr, nb_model_lo, nb_model_hi, color="steelblue", alpha=0.15, label="95% CI"
+                thr,
+                nb_model_lo,
+                nb_model_hi,
+                color="steelblue",
+                alpha=0.15,
+                label="95% CI",
             )
             ax.fill_between(
                 thr,
@@ -253,7 +267,10 @@ def plot_dca_curve(
                 )
                 ax.fill_between(
                     thr,
-                    np.maximum(dca_df["net_benefit_all"].values, dca_df["net_benefit_none"].values),
+                    np.maximum(
+                        dca_df["net_benefit_all"].values,
+                        dca_df["net_benefit_none"].values,
+                    ),
                     dca_df["net_benefit_model"].values,
                     where=(
                         dca_df["net_benefit_model"].values
@@ -295,7 +312,9 @@ def plot_dca_curve(
             )
             ax.fill_between(
                 thr,
-                np.maximum(dca_df["net_benefit_all"].values, dca_df["net_benefit_none"].values),
+                np.maximum(
+                    dca_df["net_benefit_all"].values, dca_df["net_benefit_none"].values
+                ),
                 dca_df["net_benefit_model"].values,
                 where=(
                     dca_df["net_benefit_model"].values

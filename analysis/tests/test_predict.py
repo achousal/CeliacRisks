@@ -29,7 +29,10 @@ def simple_model():
     y = np.random.randint(0, 2, size=100)
 
     pipe = Pipeline(
-        [("scaler", StandardScaler()), ("clf", LogisticRegression(random_state=42, max_iter=200))]
+        [
+            ("scaler", StandardScaler()),
+            ("clf", LogisticRegression(random_state=42, max_iter=200)),
+        ]
     )
     pipe.fit(X, y)
     return pipe
@@ -108,7 +111,9 @@ def test_generate_predictions_with_adjustment_basic(simple_model, test_data):
     assert np.all((preds["adjusted"] >= 0.0) & (preds["adjusted"] <= 1.0))
 
 
-def test_generate_predictions_with_adjustment_prevalence_effect(simple_model, test_data):
+def test_generate_predictions_with_adjustment_prevalence_effect(
+    simple_model, test_data
+):
     """Test that prevalence adjustment affects predictions correctly."""
     X, _ = test_data
 
@@ -219,7 +224,9 @@ def test_export_predictions_percentile(simple_model, test_data):
         df = pd.read_csv(out_path)
         assert "risk_raw_pct" in df.columns
         assert "risk_adjusted_pct" in df.columns
-        np.testing.assert_array_almost_equal(df["risk_raw_pct"].values, 100.0 * preds["raw"])
+        np.testing.assert_array_almost_equal(
+            df["risk_raw_pct"].values, 100.0 * preds["raw"]
+        )
 
 
 def test_export_predictions_no_percentile(simple_model, test_data):
@@ -339,7 +346,11 @@ def test_predict_on_holdout_pipeline(simple_model, test_data):
     """Test holdout predictions with Pipeline model."""
     X, y = test_data
     result = predict_on_holdout(
-        model=simple_model, X_holdout=X, y_holdout=y, train_prevalence=0.5, target_prevalence=0.1
+        model=simple_model,
+        X_holdout=X,
+        y_holdout=y,
+        train_prevalence=0.5,
+        target_prevalence=0.1,
     )
 
     assert "raw" in result
@@ -350,7 +361,9 @@ def test_predict_on_holdout_pipeline(simple_model, test_data):
 def test_predict_on_holdout_pipeline_missing_prevalence(simple_model, test_data):
     """Test that holdout predictions raise error when prevalence missing."""
     X, y = test_data
-    with pytest.raises(ValueError, match="train_prevalence and target_prevalence required"):
+    with pytest.raises(
+        ValueError, match="train_prevalence and target_prevalence required"
+    ):
         predict_on_holdout(model=simple_model, X_holdout=X, y_holdout=y)
 
 
@@ -375,10 +388,14 @@ def test_predict_on_holdout_metadata(simple_model, test_data):
 def test_end_to_end_prediction_workflow(simple_model):
     """Test complete prediction workflow: train → val → test → export."""
     np.random.seed(99)
-    X_val = pd.DataFrame(np.random.randn(30, 5), columns=[f"feat_{i}" for i in range(5)])
+    X_val = pd.DataFrame(
+        np.random.randn(30, 5), columns=[f"feat_{i}" for i in range(5)]
+    )
     y_val = np.random.randint(0, 2, size=30)
 
-    X_test = pd.DataFrame(np.random.randn(40, 5), columns=[f"feat_{i}" for i in range(5)])
+    X_test = pd.DataFrame(
+        np.random.randn(40, 5), columns=[f"feat_{i}" for i in range(5)]
+    )
     y_test = np.random.randint(0, 2, size=40)
 
     # Generate validation predictions

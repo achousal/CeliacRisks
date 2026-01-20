@@ -146,7 +146,9 @@ class TestPruneCorrelatedProteins:
         # Check component structure
         assert len(component_map) == 4
         abc_component = component_map[component_map["protein"].isin(["A", "B", "C"])]
-        assert abc_component["component_id"].nunique() == 1, "A, B, C should share component ID"
+        assert (
+            abc_component["component_id"].nunique() == 1
+        ), "A, B, C should share component ID"
         assert abc_component[abc_component["kept"]]["protein"].iloc[0] == "A"
 
     def test_tiebreak_by_frequency(self):
@@ -171,10 +173,16 @@ class TestPruneCorrelatedProteins:
         df = pd.DataFrame(
             {
                 "A": np.concatenate(
-                    [np.random.normal(0, 1, 20), np.random.normal(0.5, 1, 20)]  # Weak effect
+                    [
+                        np.random.normal(0, 1, 20),
+                        np.random.normal(0.5, 1, 20),
+                    ]  # Weak effect
                 ),
                 "B": np.concatenate(
-                    [np.random.normal(0, 1, 20), np.random.normal(2.0, 1, 20)]  # Strong effect
+                    [
+                        np.random.normal(0, 1, 20),
+                        np.random.normal(2.0, 1, 20),
+                    ]  # Strong effect
                 ),
             }
         )
@@ -185,7 +193,12 @@ class TestPruneCorrelatedProteins:
         freqs = {"A": 0.8, "B": 0.8}  # Equal frequencies
 
         component_map, kept = prune_correlated_proteins(
-            df, y, ["A", "B"], freqs, corr_threshold=0.50, tiebreak_method="freq_then_univariate"
+            df,
+            y,
+            ["A", "B"],
+            freqs,
+            corr_threshold=0.50,
+            tiebreak_method="freq_then_univariate",
         )
 
         # B should be kept (stronger univariate association)
@@ -196,7 +209,9 @@ class TestPruneCorrelatedProteins:
         """Handle empty protein list."""
         df = pd.DataFrame({"A": [1, 2, 3]})
 
-        component_map, kept = prune_correlated_proteins(df, None, [], {}, corr_threshold=0.80)
+        component_map, kept = prune_correlated_proteins(
+            df, None, [], {}, corr_threshold=0.80
+        )
 
         assert len(kept) == 0
         assert component_map.empty
@@ -354,7 +369,9 @@ class TestBuildMultiSizePanels:
         """Build panels of different sizes."""
         np.random.seed(42)
         n_proteins = 50
-        df = pd.DataFrame({f"P{i}": np.random.normal(0, 1, 100) for i in range(n_proteins)})
+        df = pd.DataFrame(
+            {f"P{i}": np.random.normal(0, 1, 100) for i in range(n_proteins)}
+        )
         freqs = {f"P{i}": 1.0 - i * 0.01 for i in range(n_proteins)}
 
         panels = build_multi_size_panels(
@@ -427,7 +444,9 @@ class TestBuildMultiSizePanels:
         df = pd.DataFrame({"A": [1, 2, 3]})
         freqs = {"A": 0.9}
 
-        panels = build_multi_size_panels(df, None, freqs, panel_sizes=[], corr_threshold=0.80)
+        panels = build_multi_size_panels(
+            df, None, freqs, panel_sizes=[], corr_threshold=0.80
+        )
 
         assert len(panels) == 0
 
@@ -437,7 +456,12 @@ class TestBuildMultiSizePanels:
         freqs = {f"P{i}": 1.0 - i * 0.01 for i in range(20)}
 
         panels = build_multi_size_panels(
-            df, None, freqs, panel_sizes=[10, 5, 15], corr_threshold=0.99, pool_limit=20  # Unsorted
+            df,
+            None,
+            freqs,
+            panel_sizes=[10, 5, 15],
+            corr_threshold=0.99,
+            pool_limit=20,  # Unsorted
         )
 
         # Should handle all sizes despite unsorted input
@@ -508,7 +532,9 @@ class TestIntegration:
         np.random.seed(42)
         n_proteins = 500
 
-        df = pd.DataFrame({f"PROT_{i:03d}": np.random.normal(0, 1, 200) for i in range(n_proteins)})
+        df = pd.DataFrame(
+            {f"PROT_{i:03d}": np.random.normal(0, 1, 200) for i in range(n_proteins)}
+        )
         freqs = {f"PROT_{i:03d}": 1.0 - i * 0.001 for i in range(n_proteins)}
 
         panels = build_multi_size_panels(

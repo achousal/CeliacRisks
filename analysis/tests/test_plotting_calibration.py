@@ -157,7 +157,14 @@ class TestPlotProbCalibrationPanel:
         bin_centers = (bins[:-1] + bins[1:]) / 2
 
         _plot_prob_calibration_panel(
-            ax, y_true, probs, bins, bin_centers, 10, "uniform", panel_title="Test Calibration"
+            ax,
+            y_true,
+            probs,
+            bins,
+            bin_centers,
+            10,
+            "uniform",
+            panel_title="Test Calibration",
         )
 
         # Should have created plot elements
@@ -219,7 +226,9 @@ class TestPlotProbCalibrationPanel:
         bins_u = np.linspace(0, 1, 11)
         bin_centers_u = (bins_u[:-1] + bins_u[1:]) / 2
 
-        _plot_prob_calibration_panel(ax2, y_true, probs, bins_u, bin_centers_u, 10, "uniform")
+        _plot_prob_calibration_panel(
+            ax2, y_true, probs, bins_u, bin_centers_u, 10, "uniform"
+        )
 
         # Both should create valid plots
         assert len(ax1.lines) > 0
@@ -329,7 +338,9 @@ class TestPlotCalibrationCurve:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "calibration.png"
 
-            plot_calibration_curve(y_true, probs, out_path, title="Test Calibration", n_bins=10)
+            plot_calibration_curve(
+                y_true, probs, out_path, title="Test Calibration", n_bins=10
+            )
 
             # File should be created
             assert out_path.exists()
@@ -345,7 +356,11 @@ class TestPlotCalibrationCurve:
             meta_lines = ["Model: Random Forest", "Dataset: Test", "N=500"]
 
             plot_calibration_curve(
-                y_true, probs, out_path, title="Calibration with Metadata", meta_lines=meta_lines
+                y_true,
+                probs,
+                out_path,
+                title="Calibration with Metadata",
+                meta_lines=meta_lines,
             )
 
             assert out_path.exists()
@@ -466,7 +481,9 @@ class TestEdgeCases:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "extreme_probs.png"
 
-            plot_calibration_curve(y_true, probs, out_path, title="Extreme Probabilities")
+            plot_calibration_curve(
+                y_true, probs, out_path, title="Extreme Probabilities"
+            )
 
             assert out_path.exists()
 
@@ -487,7 +504,9 @@ class TestEdgeCases:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "imbalanced.png"
 
-            plot_calibration_curve(y_true, probs, out_path, title="Imbalanced Data (1:100)")
+            plot_calibration_curve(
+                y_true, probs, out_path, title="Imbalanced Data (1:100)"
+            )
 
             assert out_path.exists()
 

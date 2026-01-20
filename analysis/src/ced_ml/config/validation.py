@@ -130,7 +130,10 @@ def validate_training_config(config: TrainingConfig):
 
 
 def check_split_overlap(
-    train_idx: List[int], val_idx: List[int], test_idx: List[int], strictness: str = "warn"
+    train_idx: List[int],
+    val_idx: List[int],
+    test_idx: List[int],
+    strictness: str = "warn",
 ):
     """
     Check for overlap between train/val/test splits.
