@@ -435,9 +435,7 @@ def test_choose_threshold_objective_youden(balanced_data):
 def test_choose_threshold_objective_fixed_spec(balanced_data):
     """Test threshold selection with fixed_spec objective."""
     y, p = balanced_data
-    name, thr = choose_threshold_objective(
-        y, p, objective="fixed_spec", fixed_spec=0.95
-    )
+    name, thr = choose_threshold_objective(y, p, objective="fixed_spec", fixed_spec=0.95)
 
     assert name == "fixed_spec"
     assert 0.0 <= thr <= 1.0

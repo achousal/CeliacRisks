@@ -40,9 +40,7 @@ def load_yaml(file_path: Union[str, Path]) -> Dict[str, Any]:
     return config_dict or {}
 
 
-def apply_overrides(
-    config_dict: Dict[str, Any], overrides: list[str]
-) -> Dict[str, Any]:
+def apply_overrides(config_dict: Dict[str, Any], overrides: list[str]) -> Dict[str, Any]:
     """
     Apply CLI overrides to config dictionary.
 
@@ -68,9 +66,7 @@ def apply_overrides(
 
     for override in overrides:
         if "=" not in override:
-            raise ValueError(
-                f"Invalid override format: {override}. Expected 'key=value'"
-            )
+            raise ValueError(f"Invalid override format: {override}. Expected 'key=value'")
 
         key_path, value_str = override.split("=", 1)
         keys = key_path.split(".")
@@ -227,9 +223,7 @@ def load_training_config(
         raise ValueError(f"Invalid training configuration:\n{e}") from e
 
 
-def save_config(
-    config: Union[SplitsConfig, TrainingConfig], output_path: Union[str, Path]
-):
+def save_config(config: Union[SplitsConfig, TrainingConfig], output_path: Union[str, Path]):
     """Save resolved configuration to YAML file."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)

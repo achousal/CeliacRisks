@@ -16,9 +16,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.svm import LinearSVC
 
 
-def calibration_intercept_slope(
-    y_true: np.ndarray, p: np.ndarray
-) -> Tuple[float, float]:
+def calibration_intercept_slope(y_true: np.ndarray, p: np.ndarray) -> Tuple[float, float]:
     """
     Compute calibration intercept and slope using logistic regression on logit scale.
 
@@ -72,9 +70,7 @@ def calib_slope_metric(y: np.ndarray, p: np.ndarray) -> float:
     return float(b)
 
 
-def expected_calibration_error(
-    y_true: np.ndarray, y_pred: np.ndarray, n_bins: int = 10
-) -> float:
+def expected_calibration_error(y_true: np.ndarray, y_pred: np.ndarray, n_bins: int = 10) -> float:
     """
     Compute Expected Calibration Error (ECE).
 
@@ -147,9 +143,7 @@ def adjust_probabilities_for_prevalence(
     sample_prev = np.clip(sample_prev, eps, 1.0 - eps)
     target_prev = np.clip(target_prev, eps, 1.0 - eps)
 
-    shift = np.log(target_prev / (1.0 - target_prev)) - np.log(
-        sample_prev / (1.0 - sample_prev)
-    )
+    shift = np.log(target_prev / (1.0 - target_prev)) - np.log(sample_prev / (1.0 - sample_prev))
     adjusted_logit = logit_p + shift
 
     adjusted_probs = 1.0 / (1.0 + np.exp(-adjusted_logit))

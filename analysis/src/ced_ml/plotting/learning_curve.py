@@ -178,9 +178,7 @@ def save_learning_curve_csv(
             )
             logger.info(f"[plot] Saved learning curve plot: {out_plot}")
         except Exception as e:
-            logger.warning(
-                f"[plot] WARNING: Failed to generate learning curve plot: {e}"
-            )
+            logger.warning(f"[plot] WARNING: Failed to generate learning curve plot: {e}")
 
 
 def plot_learning_curve(
@@ -454,9 +452,7 @@ def plot_learning_curve_summary(
                 )
 
     # Plot bands (train first, then val to layer properly)
-    _plot_band(
-        "train_mean", "train_sd", "train_ci_lo", "train_ci_hi", "steelblue", "Train"
-    )
+    _plot_band("train_mean", "train_sd", "train_ci_lo", "train_ci_hi", "steelblue", "Train")
     _plot_band("val_mean", "val_sd", "val_ci_lo", "val_ci_hi", "darkorange", "Val")
 
     # Plot individual validation data points if available
@@ -500,14 +496,10 @@ def plot_learning_curve_summary(
 
     # Format axis labels with metric direction
     metric_label = (
-        str(df["metric_label"].iloc[0])
-        if "metric_label" in df.columns and len(df)
-        else "Score"
+        str(df["metric_label"].iloc[0]) if "metric_label" in df.columns and len(df) else "Score"
     )
     metric_direction = (
-        str(df["metric_direction"].iloc[0])
-        if "metric_direction" in df.columns and len(df)
-        else ""
+        str(df["metric_direction"].iloc[0]) if "metric_direction" in df.columns and len(df) else ""
     )
     ylabel = metric_label.replace("_", " ").upper()
     if metric_direction == "lower_is_better":

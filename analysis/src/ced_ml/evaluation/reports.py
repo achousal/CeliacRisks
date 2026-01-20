@@ -185,9 +185,7 @@ class ResultsWriter:
 
     # ========== Metrics ==========
 
-    def save_val_metrics(
-        self, metrics: Dict[str, Any], scenario: str, model: str
-    ) -> str:
+    def save_val_metrics(self, metrics: Dict[str, Any], scenario: str, model: str) -> str:
         """
         Save validation metrics to core/val_metrics.csv.
 
@@ -208,9 +206,7 @@ class ResultsWriter:
         logger.info(f"Saved validation metrics: {path}")
         return path
 
-    def save_test_metrics(
-        self, metrics: Dict[str, Any], scenario: str, model: str
-    ) -> str:
+    def save_test_metrics(self, metrics: Dict[str, Any], scenario: str, model: str) -> str:
         """
         Save test metrics to core/test_metrics.csv.
 
@@ -254,9 +250,7 @@ class ResultsWriter:
         logger.info(f"Saved CV repeat metrics: {path}")
         return path
 
-    def save_bootstrap_ci_metrics(
-        self, metrics: Dict[str, Any], scenario: str, model: str
-    ) -> str:
+    def save_bootstrap_ci_metrics(self, metrics: Dict[str, Any], scenario: str, model: str) -> str:
         """
         Save bootstrap CI metrics to core/test_bootstrap_ci.csv.
 
@@ -279,9 +273,7 @@ class ResultsWriter:
 
     # ========== Cross-Validation Artifacts ==========
 
-    def save_best_params_per_split(
-        self, best_params: List[Dict[str, Any]], scenario: str
-    ) -> str:
+    def save_best_params_per_split(self, best_params: List[Dict[str, Any]], scenario: str) -> str:
         """
         Save best hyperparameters per outer split to cv/best_params_per_split.csv.
 
@@ -323,9 +315,7 @@ class ResultsWriter:
 
     # ========== Predictions ==========
 
-    def save_test_predictions(
-        self, predictions_df: pd.DataFrame, scenario: str, model: str
-    ) -> str:
+    def save_test_predictions(self, predictions_df: pd.DataFrame, scenario: str, model: str) -> str:
         """
         Save test predictions to preds/test_preds/{scenario}__test_preds__{model}.csv.
 
@@ -343,9 +333,7 @@ class ResultsWriter:
         logger.info(f"Saved test predictions: {path}")
         return path
 
-    def save_val_predictions(
-        self, predictions_df: pd.DataFrame, scenario: str, model: str
-    ) -> str:
+    def save_val_predictions(self, predictions_df: pd.DataFrame, scenario: str, model: str) -> str:
         """
         Save validation predictions to preds/val_preds/{scenario}__val_preds__{model}.csv.
 
@@ -405,9 +393,7 @@ class ResultsWriter:
 
     # ========== Reports ==========
 
-    def save_feature_report(
-        self, report_df: pd.DataFrame, scenario: str, model: str
-    ) -> str:
+    def save_feature_report(self, report_df: pd.DataFrame, scenario: str, model: str) -> str:
         """
         Save feature importance report to reports/feature_reports/{scenario}__{model}__feature_report_train.csv.
 
@@ -467,9 +453,7 @@ class ResultsWriter:
         logger.info(f"Saved panel manifest: {path}")
         return path
 
-    def save_subgroup_metrics(
-        self, subgroup_df: pd.DataFrame, scenario: str, model: str
-    ) -> str:
+    def save_subgroup_metrics(self, subgroup_df: pd.DataFrame, scenario: str, model: str) -> str:
         """
         Save subgroup analysis to reports/subgroups/{scenario}__{model}__test_subgroup_metrics.csv.
 

@@ -84,16 +84,14 @@ def test_oof_predictions_basic(toy_data, simple_pipeline, minimal_config):
     """Test basic OOF prediction generation."""
     X, y, protein_cols = toy_data
 
-    preds, elapsed, best_params_df, selected_proteins_df = (
-        oof_predictions_with_nested_cv(
-            simple_pipeline,
-            "LR_EN",
-            X,
-            y,
-            protein_cols,
-            minimal_config,
-            random_state=42,
-        )
+    preds, elapsed, best_params_df, selected_proteins_df = oof_predictions_with_nested_cv(
+        simple_pipeline,
+        "LR_EN",
+        X,
+        y,
+        protein_cols,
+        minimal_config,
+        random_state=42,
     )
 
     # Check shape
@@ -120,16 +118,14 @@ def test_oof_predictions_no_cv(toy_data, simple_pipeline, minimal_config):
     X, y, protein_cols = toy_data
     minimal_config.cv.folds = 1
 
-    preds, elapsed, best_params_df, selected_proteins_df = (
-        oof_predictions_with_nested_cv(
-            simple_pipeline,
-            "LR_EN",
-            X,
-            y,
-            protein_cols,
-            minimal_config,
-            random_state=42,
-        )
+    preds, elapsed, best_params_df, selected_proteins_df = oof_predictions_with_nested_cv(
+        simple_pipeline,
+        "LR_EN",
+        X,
+        y,
+        protein_cols,
+        minimal_config,
+        random_state=42,
     )
 
     # Should still return predictions
@@ -306,9 +302,7 @@ def test_extract_from_model_coefficients(toy_data, minimal_config):
 
     pipeline.fit(X, y)
 
-    proteins = _extract_from_model_coefficients(
-        pipeline, "LR_EN", protein_cols, minimal_config
-    )
+    proteins = _extract_from_model_coefficients(pipeline, "LR_EN", protein_cols, minimal_config)
 
     # Should extract some proteins with non-zero coefficients
     assert isinstance(proteins, set)
@@ -337,9 +331,7 @@ def test_extract_from_model_coefficients_high_threshold(toy_data, minimal_config
 
     # Low threshold
     minimal_config.features.selection.coef_threshold = 1e-12
-    proteins_low = _extract_from_model_coefficients(
-        pipeline, "LR_EN", protein_cols, minimal_config
-    )
+    proteins_low = _extract_from_model_coefficients(pipeline, "LR_EN", protein_cols, minimal_config)
 
     # High threshold
     minimal_config.features.selection.coef_threshold = 10.0
@@ -379,10 +371,8 @@ def test_oof_predictions_with_kbest(toy_data, minimal_config):
         ]
     )
 
-    preds, elapsed, best_params_df, selected_proteins_df = (
-        oof_predictions_with_nested_cv(
-            pipeline, "LR_EN", X, y, protein_cols, minimal_config, random_state=42
-        )
+    preds, elapsed, best_params_df, selected_proteins_df = oof_predictions_with_nested_cv(
+        pipeline, "LR_EN", X, y, protein_cols, minimal_config, random_state=42
     )
 
     # Check that k was tuned
@@ -416,10 +406,8 @@ def test_oof_predictions_tracks_selected_proteins(toy_data, minimal_config):
         ]
     )
 
-    preds, elapsed, best_params_df, selected_proteins_df = (
-        oof_predictions_with_nested_cv(
-            pipeline, "LR_EN", X, y, protein_cols, minimal_config, random_state=42
-        )
+    preds, elapsed, best_params_df, selected_proteins_df = oof_predictions_with_nested_cv(
+        pipeline, "LR_EN", X, y, protein_cols, minimal_config, random_state=42
     )
 
     # Check that some proteins were selected
@@ -441,16 +429,14 @@ def test_oof_predictions_single_repeat(toy_data, simple_pipeline, minimal_config
     X, y, protein_cols = toy_data
     minimal_config.cv.repeats = 1
 
-    preds, elapsed, best_params_df, selected_proteins_df = (
-        oof_predictions_with_nested_cv(
-            simple_pipeline,
-            "LR_EN",
-            X,
-            y,
-            protein_cols,
-            minimal_config,
-            random_state=42,
-        )
+    preds, elapsed, best_params_df, selected_proteins_df = oof_predictions_with_nested_cv(
+        simple_pipeline,
+        "LR_EN",
+        X,
+        y,
+        protein_cols,
+        minimal_config,
+        random_state=42,
     )
 
     assert preds.shape == (1, len(y))
@@ -462,16 +448,14 @@ def test_oof_predictions_no_inner_tuning(toy_data, simple_pipeline, minimal_conf
     X, y, protein_cols = toy_data
     minimal_config.cv.inner_folds = 1  # Disable tuning
 
-    preds, elapsed, best_params_df, selected_proteins_df = (
-        oof_predictions_with_nested_cv(
-            simple_pipeline,
-            "LR_EN",
-            X,
-            y,
-            protein_cols,
-            minimal_config,
-            random_state=42,
-        )
+    preds, elapsed, best_params_df, selected_proteins_df = oof_predictions_with_nested_cv(
+        simple_pipeline,
+        "LR_EN",
+        X,
+        y,
+        protein_cols,
+        minimal_config,
+        random_state=42,
     )
 
     # Should still work (no tuning, just CV)

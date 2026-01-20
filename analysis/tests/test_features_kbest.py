@@ -125,9 +125,7 @@ class TestSelectKBestFeatures:
         y = np.array([0, 0, 0])  # All same class
 
         with pytest.raises(ValueError):
-            select_kbest_features(
-                X, y, k=1, protein_cols=["P1", "P2"], fallback_to_variance=False
-            )
+            select_kbest_features(X, y, k=1, protein_cols=["P1", "P2"], fallback_to_variance=False)
 
     def test_returns_deterministic_results(self, simple_protein_data):
         X, y = simple_protein_data
@@ -334,9 +332,7 @@ class TestExtractSelectedProteinsFromKBest:
         y = np.array([0, 0, 1, 1])
 
         # Build pipeline
-        preprocessor = ColumnTransformer(
-            [("num", StandardScaler(), ["P1", "P2", "P3"])]
-        )
+        preprocessor = ColumnTransformer([("num", StandardScaler(), ["P1", "P2", "P3"])])
 
         selector = SelectKBest(score_func=f_classif, k=2)
 
@@ -360,9 +356,7 @@ class TestExtractSelectedProteinsFromKBest:
     def test_returns_empty_for_missing_step(self):
         pipe = Pipeline([("dummy", StandardScaler())])
 
-        selected = extract_selected_proteins_from_kbest(
-            pipe, protein_cols=["P1"], step_name="sel"
-        )
+        selected = extract_selected_proteins_from_kbest(pipe, protein_cols=["P1"], step_name="sel")
 
         assert selected == []
 

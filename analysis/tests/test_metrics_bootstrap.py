@@ -72,23 +72,15 @@ class TestStratifiedBootstrapCI:
     def test_reproducibility(self, basic_data):
         """Should produce identical results with same seed."""
         y_true, y_pred = basic_data
-        ci1 = stratified_bootstrap_ci(
-            y_true, y_pred, roc_auc_score, n_boot=100, seed=42
-        )
-        ci2 = stratified_bootstrap_ci(
-            y_true, y_pred, roc_auc_score, n_boot=100, seed=42
-        )
+        ci1 = stratified_bootstrap_ci(y_true, y_pred, roc_auc_score, n_boot=100, seed=42)
+        ci2 = stratified_bootstrap_ci(y_true, y_pred, roc_auc_score, n_boot=100, seed=42)
         assert ci1 == ci2
 
     def test_different_seeds_differ(self, basic_data):
         """Should produce different results with different seeds."""
         y_true, y_pred = basic_data
-        ci1 = stratified_bootstrap_ci(
-            y_true, y_pred, roc_auc_score, n_boot=100, seed=42
-        )
-        ci2 = stratified_bootstrap_ci(
-            y_true, y_pred, roc_auc_score, n_boot=100, seed=999
-        )
+        ci1 = stratified_bootstrap_ci(y_true, y_pred, roc_auc_score, n_boot=100, seed=42)
+        ci2 = stratified_bootstrap_ci(y_true, y_pred, roc_auc_score, n_boot=100, seed=999)
         assert ci1 != ci2
 
     def test_insufficient_cases(self):
@@ -202,12 +194,8 @@ class TestStratifiedBootstrapDiffCI:
     def test_diff_reproducibility(self, two_model_data):
         """Should be reproducible with same seed."""
         y_true, p1, p2 = two_model_data
-        result1 = stratified_bootstrap_diff_ci(
-            y_true, p1, p2, roc_auc_score, n_boot=100, seed=42
-        )
-        result2 = stratified_bootstrap_diff_ci(
-            y_true, p1, p2, roc_auc_score, n_boot=100, seed=42
-        )
+        result1 = stratified_bootstrap_diff_ci(y_true, p1, p2, roc_auc_score, n_boot=100, seed=42)
+        result2 = stratified_bootstrap_diff_ci(y_true, p1, p2, roc_auc_score, n_boot=100, seed=42)
         assert result1 == result2
 
     def test_diff_full_sample(self, two_model_data):

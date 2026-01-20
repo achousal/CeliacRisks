@@ -312,9 +312,7 @@ class TestPlotRiskDistribution:
         scores = np.array([])
         out_path = tmp_path / "empty.png"
 
-        plot_risk_distribution(
-            y_true=None, scores=scores, out_path=out_path, title="Empty"
-        )
+        plot_risk_distribution(y_true=None, scores=scores, out_path=out_path, title="Empty")
 
         # Should not create file (early return on empty data)
         assert not out_path.exists()
@@ -324,9 +322,7 @@ class TestPlotRiskDistribution:
         scores = np.array([np.nan, np.nan, np.nan])
         out_path = tmp_path / "all_nan.png"
 
-        plot_risk_distribution(
-            y_true=None, scores=scores, out_path=out_path, title="All NaN"
-        )
+        plot_risk_distribution(y_true=None, scores=scores, out_path=out_path, title="All NaN")
 
         # Should not create file (early return after NaN filtering)
         assert not out_path.exists()
@@ -336,9 +332,7 @@ class TestPlotRiskDistribution:
         scores = np.array([0.1, np.nan, 0.3, np.inf, 0.5])
         out_path = tmp_path / "partial_nan.png"
 
-        plot_risk_distribution(
-            y_true=None, scores=scores, out_path=out_path, title="Partial NaN"
-        )
+        plot_risk_distribution(y_true=None, scores=scores, out_path=out_path, title="Partial NaN")
 
         assert out_path.exists()
 
@@ -402,9 +396,7 @@ class TestPlotRiskDistribution:
         scores = np.random.uniform(0, 1, 100)
         out_path = Path(tmp_path) / "pathlib.png"
 
-        plot_risk_distribution(
-            y_true=None, scores=scores, out_path=out_path, title="Path Object"
-        )
+        plot_risk_distribution(y_true=None, scores=scores, out_path=out_path, title="Path Object")
 
         assert out_path.exists()
 
@@ -413,8 +405,6 @@ class TestPlotRiskDistribution:
         scores = np.random.uniform(0, 1, 100)
         out_path = str(tmp_path / "string.png")
 
-        plot_risk_distribution(
-            y_true=None, scores=scores, out_path=out_path, title="String Path"
-        )
+        plot_risk_distribution(y_true=None, scores=scores, out_path=out_path, title="String Path")
 
         assert Path(out_path).exists()

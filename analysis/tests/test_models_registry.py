@@ -270,9 +270,7 @@ def test_randomize_numeric_list_int_unique():
     """Test unique integer randomization."""
     rng = np.random.RandomState(42)
     values = [10, 20, 30]
-    result = _randomize_numeric_list(
-        values, rng, as_int=True, unique_int=True, perturb_mode=True
-    )
+    result = _randomize_numeric_list(values, rng, as_int=True, unique_int=True, perturb_mode=True)
     assert len(result) == 3
     assert len(set(result)) == 3  # all unique
     assert all(isinstance(x, int) for x in result)
@@ -282,9 +280,7 @@ def test_randomize_numeric_list_with_bounds():
     """Test randomization with min/max bounds."""
     rng = np.random.RandomState(42)
     values = [1.0, 2.0, 3.0]
-    result = _randomize_numeric_list(
-        values, rng, min_float=0.5, max_float=3.5, perturb_mode=True
-    )
+    result = _randomize_numeric_list(values, rng, min_float=0.5, max_float=3.5, perturb_mode=True)
     assert all(0.5 <= x <= 3.5 for x in result)
 
 

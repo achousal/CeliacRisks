@@ -48,11 +48,7 @@ def compute_selection_frequencies(
         >>> compute_selection_frequencies(log)
         {'PROT_A': 0.75, 'PROT_B': 0.75, 'PROT_C': 0.5}
     """
-    if (
-        selection_log is None
-        or selection_log.empty
-        or selection_col not in selection_log.columns
-    ):
+    if selection_log is None or selection_log.empty or selection_col not in selection_log.columns:
         return {}
 
     n_splits = len(selection_log)
@@ -109,9 +105,9 @@ def build_frequency_panel(
     )
 
     # Sort by frequency (descending), then protein name (ascending)
-    df = df.sort_values(
-        ["selection_freq", "protein"], ascending=[False, True]
-    ).reset_index(drop=True)
+    df = df.sort_values(["selection_freq", "protein"], ascending=[False, True]).reset_index(
+        drop=True
+    )
 
     df["rank"] = np.arange(1, len(df) + 1, dtype=int)
 
@@ -121,9 +117,7 @@ def build_frequency_panel(
     elif rule == "topN":
         df = df.head(top_n).copy()
     else:
-        raise ValueError(
-            f"Unknown panel rule: {rule}. Expected 'topN' or 'freq_ge_tau'."
-        )
+        raise ValueError(f"Unknown panel rule: {rule}. Expected 'topN' or 'freq_ge_tau'.")
 
     return df
 
@@ -170,11 +164,7 @@ def extract_stable_panel(
         >>> len(unions)
         3
     """
-    if (
-        selection_log is None
-        or selection_log.empty
-        or selection_col not in selection_log.columns
-    ):
+    if selection_log is None or selection_log.empty or selection_col not in selection_log.columns:
         empty_df = pd.DataFrame(columns=["protein", "selection_freq", "kept"])
         return empty_df, [], []
 
@@ -221,9 +211,7 @@ def extract_stable_panel(
     # Fallback if no proteins meet threshold
     if len(stable_proteins) == 0:
         n_fallback = min(fallback_top_n, len(panel_df))
-        stable_proteins = panel_df.nlargest(n_fallback, "selection_freq")[
-            "protein"
-        ].tolist()
+        stable_proteins = panel_df.nlargest(n_fallback, "selection_freq")["protein"].tolist()
         panel_df["kept"] = panel_df["protein"].isin(stable_proteins)
 
     return panel_df, stable_proteins, repeat_unions
@@ -247,6 +235,4 @@ def rank_proteins_by_frequency(selection_frequencies: Dict[str, float]) -> List[
         return []
 
     # Sort by frequency (desc), then protein name (asc)
-    return sorted(
-        selection_frequencies.keys(), key=lambda p: (-selection_frequencies[p], p)
-    )
+    return sorted(selection_frequencies.keys(), key=lambda p: (-selection_frequencies[p], p))

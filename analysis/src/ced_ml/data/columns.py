@@ -92,9 +92,7 @@ def resolve_columns(
         specified = set(numeric_metadata + categorical_metadata)
         missing = specified - available_set
         if missing:
-            raise ValueError(
-                f"Specified metadata columns not found in data: {sorted(missing)}"
-            )
+            raise ValueError(f"Specified metadata columns not found in data: {sorted(missing)}")
 
         logger.info(
             f"Explicit mode: using {len(numeric_metadata)} numeric + "

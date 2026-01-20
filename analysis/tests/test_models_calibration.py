@@ -228,9 +228,7 @@ def test_prevalence_adjusted_model_fit():
     base_model = LogisticRegression(random_state=42)
     base_model.fit(X_train, y_train)
 
-    wrapper = PrevalenceAdjustedModel(
-        base_model, sample_prevalence=0.3, target_prevalence=0.1
-    )
+    wrapper = PrevalenceAdjustedModel(base_model, sample_prevalence=0.3, target_prevalence=0.1)
     result = wrapper.fit(X_train, y_train)
 
     assert result is wrapper, "fit() should return self"
@@ -246,9 +244,7 @@ def test_prevalence_adjusted_model_predict_proba():
     base_model = LogisticRegression(random_state=42)
     base_model.fit(X_train, y_train)
 
-    wrapper = PrevalenceAdjustedModel(
-        base_model, sample_prevalence=0.3, target_prevalence=0.1
-    )
+    wrapper = PrevalenceAdjustedModel(base_model, sample_prevalence=0.3, target_prevalence=0.1)
     raw_probs = base_model.predict_proba(X_test)[:, 1]
     adjusted_probs = wrapper.predict_proba(X_test)[:, 1]
 
@@ -268,15 +264,11 @@ def test_prevalence_adjusted_model_predict():
     base_model = LogisticRegression(random_state=42)
     base_model.fit(X_train, y_train)
 
-    wrapper = PrevalenceAdjustedModel(
-        base_model, sample_prevalence=0.3, target_prevalence=0.1
-    )
+    wrapper = PrevalenceAdjustedModel(base_model, sample_prevalence=0.3, target_prevalence=0.1)
     predictions = wrapper.predict(X_test)
 
     assert predictions.shape == (20,)
-    assert np.all(
-        (predictions == 0) | (predictions == 1)
-    ), "Should be binary predictions"
+    assert np.all((predictions == 0) | (predictions == 1)), "Should be binary predictions"
 
 
 # ============================================================================
@@ -393,9 +385,7 @@ def test_full_calibration_workflow():
     # Apply prevalence adjustment
     sample_prev = y_train.mean()
     target_prev = 0.1
-    adjusted_probs = adjust_probabilities_for_prevalence(
-        y_pred, sample_prev, target_prev
-    )
+    adjusted_probs = adjust_probabilities_for_prevalence(y_pred, sample_prev, target_prev)
 
     assert np.all(adjusted_probs <= y_pred), "Lower prevalence should decrease probs"
 

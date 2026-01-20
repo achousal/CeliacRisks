@@ -485,9 +485,7 @@ def test_save_split_metadata_with_val(temp_outdir, valid_split, valid_labels):
     assert abs(meta["prevalence_val"] - 0.2) < 1e-6
 
 
-def test_save_split_metadata_with_stratification(
-    temp_outdir, valid_split, valid_labels
-):
+def test_save_split_metadata_with_stratification(temp_outdir, valid_split, valid_labels):
     """Test saving metadata with stratification scheme."""
     meta_path = save_split_metadata(
         outdir=temp_outdir,

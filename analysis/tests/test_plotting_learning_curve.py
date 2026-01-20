@@ -82,9 +82,7 @@ class TestComputeLearningCurve:
         # min_frac=0.5 means 50% of that training set
         assert sizes[0] >= 0.30 * len(y)  # Conservative lower bound
 
-    def test_reproducibility_with_seed(
-        self, simple_pipeline, simple_classification_data
-    ):
+    def test_reproducibility_with_seed(self, simple_pipeline, simple_classification_data):
         X, y = simple_classification_data
 
         sizes1, train1, val1 = compute_learning_curve(
@@ -98,9 +96,7 @@ class TestComputeLearningCurve:
         np.testing.assert_array_almost_equal(train1, train2)
         np.testing.assert_array_almost_equal(val1, val2)
 
-    def test_different_scoring_metrics(
-        self, simple_pipeline, simple_classification_data
-    ):
+    def test_different_scoring_metrics(self, simple_pipeline, simple_classification_data):
         X, y = simple_classification_data
 
         # Test with different scoring metrics
@@ -162,9 +158,7 @@ class TestSaveLearningCurveCsv:
         X, y = simple_classification_data
         out_csv = tmp_path / "learning_curve.csv"
 
-        save_learning_curve_csv(
-            simple_pipeline, X, y, out_csv, scoring="roc_auc", cv=3, n_points=3
-        )
+        save_learning_curve_csv(simple_pipeline, X, y, out_csv, scoring="roc_auc", cv=3, n_points=3)
 
         assert out_csv.exists()
 
@@ -175,15 +169,11 @@ class TestSaveLearningCurveCsv:
         assert "val_score" in df.columns
         assert "scoring" in df.columns
 
-    def test_csv_content_structure(
-        self, tmp_path, simple_pipeline, simple_classification_data
-    ):
+    def test_csv_content_structure(self, tmp_path, simple_pipeline, simple_classification_data):
         X, y = simple_classification_data
         out_csv = tmp_path / "learning_curve.csv"
 
-        save_learning_curve_csv(
-            simple_pipeline, X, y, out_csv, scoring="roc_auc", cv=3, n_points=4
-        )
+        save_learning_curve_csv(simple_pipeline, X, y, out_csv, scoring="roc_auc", cv=3, n_points=4)
 
         df = pd.read_csv(out_csv)
 
@@ -196,9 +186,7 @@ class TestSaveLearningCurveCsv:
         # Check CV splits
         assert set(df["cv_split"].unique()) == {0, 1, 2}
 
-    def test_metric_metadata(
-        self, tmp_path, simple_pipeline, simple_classification_data
-    ):
+    def test_metric_metadata(self, tmp_path, simple_pipeline, simple_classification_data):
         X, y = simple_classification_data
         out_csv = tmp_path / "learning_curve_neg.csv"
 
@@ -212,9 +200,7 @@ class TestSaveLearningCurveCsv:
         assert (df["error_metric"] == "brier_score").all()
         assert (df["metric_direction"] == "lower_is_better").all()
 
-    def test_with_plot_generation(
-        self, tmp_path, simple_pipeline, simple_classification_data
-    ):
+    def test_with_plot_generation(self, tmp_path, simple_pipeline, simple_classification_data):
         X, y = simple_classification_data
         out_csv = tmp_path / "learning_curve.csv"
         out_plot = tmp_path / "learning_curve.png"
@@ -226,15 +212,11 @@ class TestSaveLearningCurveCsv:
         assert out_csv.exists()
         assert out_plot.exists()
 
-    def test_summary_statistics(
-        self, tmp_path, simple_pipeline, simple_classification_data
-    ):
+    def test_summary_statistics(self, tmp_path, simple_pipeline, simple_classification_data):
         X, y = simple_classification_data
         out_csv = tmp_path / "learning_curve.csv"
 
-        save_learning_curve_csv(
-            simple_pipeline, X, y, out_csv, scoring="roc_auc", cv=3, n_points=3
-        )
+        save_learning_curve_csv(simple_pipeline, X, y, out_csv, scoring="roc_auc", cv=3, n_points=3)
 
         df = pd.read_csv(out_csv)
 
@@ -254,12 +236,8 @@ class TestPlotLearningCurve:
 
     def test_plot_creation(self, tmp_path):
         train_sizes = np.array([50, 100, 150])
-        train_scores = np.array(
-            [[0.8, 0.82, 0.81], [0.85, 0.87, 0.86], [0.88, 0.90, 0.89]]
-        )
-        val_scores = np.array(
-            [[0.75, 0.77, 0.76], [0.78, 0.80, 0.79], [0.80, 0.82, 0.81]]
-        )
+        train_scores = np.array([[0.8, 0.82, 0.81], [0.85, 0.87, 0.86], [0.88, 0.90, 0.89]])
+        val_scores = np.array([[0.75, 0.77, 0.76], [0.78, 0.80, 0.79], [0.80, 0.82, 0.81]])
 
         out_plot = tmp_path / "lc_plot.png"
 
@@ -276,12 +254,8 @@ class TestPlotLearningCurve:
 
     def test_plot_with_error_metric(self, tmp_path):
         train_sizes = np.array([50, 100, 150])
-        train_scores = np.array(
-            [[0.2, 0.18, 0.19], [0.15, 0.13, 0.14], [0.12, 0.10, 0.11]]
-        )
-        val_scores = np.array(
-            [[0.25, 0.23, 0.24], [0.20, 0.18, 0.19], [0.18, 0.16, 0.17]]
-        )
+        train_scores = np.array([[0.2, 0.18, 0.19], [0.15, 0.13, 0.14], [0.12, 0.10, 0.11]])
+        val_scores = np.array([[0.25, 0.23, 0.24], [0.20, 0.18, 0.19], [0.18, 0.16, 0.17]])
 
         out_plot = tmp_path / "lc_error.png"
 
@@ -443,9 +417,7 @@ class TestAggregateLearningCurveRuns:
         assert result["scoring"].iloc[0] == "neg_brier_score"
 
     def test_handles_none_and_empty(self):
-        df1 = pd.DataFrame(
-            {"train_size": [50], "train_score": [0.8], "val_score": [0.75]}
-        )
+        df1 = pd.DataFrame({"train_size": [50], "train_score": [0.8], "val_score": [0.75]})
         df_empty = pd.DataFrame()
 
         result = aggregate_learning_curve_runs([None, df_empty, df1])

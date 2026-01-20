@@ -33,12 +33,8 @@ def toy_proteomics_csv(tmp_path):
     # Use balanced groups to ensure sufficient samples in each stratum
     data = {
         ID_COL: [f"SAMPLE_{i:04d}" for i in range(n_samples)],
-        TARGET_COL: (
-            [CONTROL_LABEL] * 800 + [INCIDENT_LABEL] * 100 + [PREVALENT_LABEL] * 100
-        ),
-        "age": np.random.randint(
-            30, 70, n_samples
-        ),  # Narrower age range for better stratification
+        TARGET_COL: ([CONTROL_LABEL] * 800 + [INCIDENT_LABEL] * 100 + [PREVALENT_LABEL] * 100),
+        "age": np.random.randint(30, 70, n_samples),  # Narrower age range for better stratification
         "BMI": np.random.uniform(18, 35, n_samples),
         "sex": np.random.choice(["M", "F"], n_samples),
         "Genetic_ethnic_grouping": np.random.choice(
@@ -130,9 +126,7 @@ class TestSaveSplitsDevelopmentMode:
         assert (outdir / "IncidentOnly_split_meta_seed0.json").exists()
 
         # Validate splits
-        train_idx = pd.read_csv(outdir / "IncidentOnly_train_idx_seed0.csv")[
-            "idx"
-        ].values
+        train_idx = pd.read_csv(outdir / "IncidentOnly_train_idx_seed0.csv")["idx"].values
         val_idx = pd.read_csv(outdir / "IncidentOnly_val_idx_seed0.csv")["idx"].values
         test_idx = pd.read_csv(outdir / "IncidentOnly_test_idx_seed0.csv")["idx"].values
 
@@ -199,12 +193,8 @@ class TestSaveSplitsDevelopmentMode:
 
         # Load original data to verify prevalent handling
         df = pd.read_csv(toy_proteomics_csv)
-        val_idx = pd.read_csv(outdir / "IncidentPlusPrevalent_val_idx_seed0.csv")[
-            "idx"
-        ].values
-        test_idx = pd.read_csv(outdir / "IncidentPlusPrevalent_test_idx_seed0.csv")[
-            "idx"
-        ].values
+        val_idx = pd.read_csv(outdir / "IncidentPlusPrevalent_val_idx_seed0.csv")["idx"].values
+        test_idx = pd.read_csv(outdir / "IncidentPlusPrevalent_test_idx_seed0.csv")["idx"].values
 
         # VAL and TEST should only have Incident + Controls (no prevalent)
         val_labels = df.loc[val_idx, TARGET_COL].values
@@ -248,9 +238,7 @@ class TestSaveSplitsDevelopmentMode:
 
         # Check that TRAIN has reduced controls
         df = pd.read_csv(toy_proteomics_csv)
-        train_idx = pd.read_csv(outdir / "IncidentOnly_train_idx_seed0.csv")[
-            "idx"
-        ].values
+        train_idx = pd.read_csv(outdir / "IncidentOnly_train_idx_seed0.csv")["idx"].values
         train_labels = df.loc[train_idx, TARGET_COL].values
 
         n_cases = (train_labels == INCIDENT_LABEL).sum()
@@ -300,12 +288,8 @@ class TestSaveSplitsDevelopmentMode:
             assert (outdir / f"IncidentOnly_split_meta_seed{seed}.json").exists()
 
         # Verify splits are different
-        train_100 = pd.read_csv(outdir / "IncidentOnly_train_idx_seed100.csv")[
-            "idx"
-        ].values
-        train_101 = pd.read_csv(outdir / "IncidentOnly_train_idx_seed101.csv")[
-            "idx"
-        ].values
+        train_100 = pd.read_csv(outdir / "IncidentOnly_train_idx_seed100.csv")["idx"].values
+        train_101 = pd.read_csv(outdir / "IncidentOnly_train_idx_seed101.csv")["idx"].values
 
         # Different seeds should produce different splits
         assert not np.array_equal(sorted(train_100), sorted(train_101))
@@ -371,9 +355,7 @@ class TestSaveSplitsHoldoutMode:
 
         # Load indices
         holdout_idx = pd.read_csv(outdir / "IncidentOnly_HOLDOUT_idx.csv")["idx"].values
-        train_idx = pd.read_csv(outdir / "IncidentOnly_train_idx_seed0.csv")[
-            "idx"
-        ].values
+        train_idx = pd.read_csv(outdir / "IncidentOnly_train_idx_seed0.csv")["idx"].values
         val_idx = pd.read_csv(outdir / "IncidentOnly_val_idx_seed0.csv")["idx"].values
         test_idx = pd.read_csv(outdir / "IncidentOnly_test_idx_seed0.csv")["idx"].values
 
@@ -534,12 +516,8 @@ class TestSaveSplitsReproducibility:
         assert result2.exit_code == 0
 
         # Compare indices
-        train1 = pd.read_csv(outdir1 / "IncidentOnly_train_idx_seed42.csv")[
-            "idx"
-        ].values
-        train2 = pd.read_csv(outdir2 / "IncidentOnly_train_idx_seed42.csv")[
-            "idx"
-        ].values
+        train1 = pd.read_csv(outdir1 / "IncidentOnly_train_idx_seed42.csv")["idx"].values
+        train2 = pd.read_csv(outdir2 / "IncidentOnly_train_idx_seed42.csv")["idx"].values
 
         np.testing.assert_array_equal(train1, train2)
 

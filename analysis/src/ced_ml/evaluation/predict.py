@@ -169,9 +169,7 @@ def export_predictions(
 
     for key, vals in predictions.items():
         if len(vals) != n:
-            raise ValueError(
-                f"Prediction array '{key}' has length {len(vals)}, expected {n}"
-            )
+            raise ValueError(f"Prediction array '{key}' has length {len(vals)}, expected {n}")
         data[f"risk_{key}"] = vals
         if percentile:
             data[f"risk_{key}_pct"] = 100.0 * vals
@@ -369,9 +367,7 @@ def predict_on_holdout(
         }
     else:
         if train_prevalence is None or target_prevalence is None:
-            raise ValueError(
-                "train_prevalence and target_prevalence required for Pipeline models"
-            )
+            raise ValueError("train_prevalence and target_prevalence required for Pipeline models")
 
         preds = generate_predictions_with_adjustment(
             model=model,

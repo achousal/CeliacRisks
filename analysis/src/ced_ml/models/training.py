@@ -188,9 +188,7 @@ def oof_predictions_with_nested_cv(
     # Validate: no missing OOF predictions
     for r in range(n_repeats):
         if np.isnan(preds[r]).any():
-            raise RuntimeError(
-                f"Repeat {r} has missing OOF predictions. Check CV splitting logic."
-            )
+            raise RuntimeError(f"Repeat {r} has missing OOF predictions. Check CV splitting logic.")
 
     return (
         preds,
@@ -263,9 +261,7 @@ def _build_hyperparameter_search(
     from .hyperparams import get_param_distributions
 
     # Get parameter distributions for this model
-    param_dists = get_param_distributions(
-        model_name, config, xgb_spw=xgb_spw, grid_rng=grid_rng
-    )
+    param_dists = get_param_distributions(model_name, config, xgb_spw=xgb_spw, grid_rng=grid_rng)
 
     if not param_dists:
         return None
@@ -280,15 +276,11 @@ def _build_hyperparameter_search(
 
     n_iter = config.cv.n_iter
     if n_iter < 1:
-        logger.warning(
-            f"[tune] WARNING: n_iter={n_iter} < 1; skipping hyperparameter search."
-        )
+        logger.warning(f"[tune] WARNING: n_iter={n_iter} < 1; skipping hyperparameter search.")
         return None
 
     # Build inner CV splitter
-    inner_cv = StratifiedKFold(
-        n_splits=inner_folds, shuffle=True, random_state=random_state
-    )
+    inner_cv = StratifiedKFold(n_splits=inner_folds, shuffle=True, random_state=random_state)
 
     # Determine parallelization strategy
     n_jobs = _get_search_n_jobs(model_name, config)
@@ -434,9 +426,7 @@ def _extract_selected_proteins_from_fold(
 
     # Strategy 1: Extract from screening step (if present)
     if "screen" in pipeline.named_steps:
-        screen_selected = getattr(
-            pipeline.named_steps["screen"], "selected_proteins_", []
-        )
+        screen_selected = getattr(pipeline.named_steps["screen"], "selected_proteins_", [])
         if screen_selected:
             selected_proteins.update(screen_selected)
 
@@ -448,9 +438,7 @@ def _extract_selected_proteins_from_fold(
 
         if kbest_scope == "protein" and "prot_sel" in pipeline.named_steps:
             # Protein-level K-best
-            prot_sel_proteins = getattr(
-                pipeline.named_steps["prot_sel"], "selected_proteins_", []
-            )
+            prot_sel_proteins = getattr(pipeline.named_steps["prot_sel"], "selected_proteins_", [])
             if prot_sel_proteins:
                 selected_proteins.update(prot_sel_proteins)
 
@@ -620,9 +608,7 @@ def _extract_from_rf_permutation(
         if name.startswith("num__"):
             orig = name[len("num__") :]
             if orig in protein_cols:
-                protein_importance[orig] = protein_importance.get(orig, 0.0) + float(
-                    imp
-                )
+                protein_importance[orig] = protein_importance.get(orig, 0.0) + float(imp)
 
     if not protein_importance:
         return set()

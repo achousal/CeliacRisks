@@ -168,9 +168,7 @@ def alpha_sensitivity_at_specificity(
         True
     """
     if not 0 < target_specificity < 1:
-        raise ValueError(
-            f"target_specificity must be in (0, 1), got {target_specificity}"
-        )
+        raise ValueError(f"target_specificity must be in (0, 1), got {target_specificity}")
 
     y_true = np.asarray(y_true).astype(int)
     y_pred = np.asarray(y_pred).astype(float)
@@ -253,9 +251,7 @@ def compute_discrimination_metrics(
             if np.any(meets_target):
                 metrics["Alpha"] = float(np.max(tpr[meets_target]))
             else:
-                closest_idx = int(
-                    np.argmin(np.abs(specificity - alpha_target_specificity))
-                )
+                closest_idx = int(np.argmin(np.abs(specificity - alpha_target_specificity)))
                 metrics["Alpha"] = float(tpr[closest_idx])
 
     return metrics
@@ -288,9 +284,7 @@ def compute_brier_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(brier_score_loss(y_true, y_pred))
 
 
-def compute_log_loss(
-    y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-15
-) -> float:
+def compute_log_loss(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-15) -> float:
     """
     Compute log loss (cross-entropy) with numerical stability clipping.
 

@@ -318,9 +318,7 @@ def compute_dca_summary(
 
         # Net benefit improvement over treat-all
         nb_improvement = nb_model - nb_all
-        summary["integrated_nb_improvement"] = float(
-            np.trapezoid(nb_improvement, thresholds)
-        )
+        summary["integrated_nb_improvement"] = float(np.trapezoid(nb_improvement, thresholds))
 
     # Net benefit at key clinical thresholds
     report_points = report_points or [0.005, 0.01, 0.02, 0.05]
@@ -365,9 +363,7 @@ def find_dca_zero_crossing(dca_curve_path: str) -> Optional[float]:
     try:
         dca_df = pd.read_csv(curve_path)
         if "net_benefit_model" not in dca_df.columns:
-            logger.warning(
-                f"DCA curve missing net_benefit_model column: {dca_curve_path}"
-            )
+            logger.warning(f"DCA curve missing net_benefit_model column: {dca_curve_path}")
             return None
 
         nb = dca_df["net_benefit_model"].values
@@ -388,9 +384,7 @@ def find_dca_zero_crossing(dca_curve_path: str) -> Optional[float]:
                 nb_lo, nb_hi = nb[idx], nb[idx + 1]
 
                 if abs(nb_hi - nb_lo) > 1e-10:
-                    crossing = thr_lo + (0 - nb_lo) * (thr_hi - thr_lo) / (
-                        nb_hi - nb_lo
-                    )
+                    crossing = thr_lo + (0 - nb_lo) * (thr_hi - thr_lo) / (nb_hi - nb_lo)
                     return float(crossing)
         else:
             # No crossing - find closest to zero as fallback

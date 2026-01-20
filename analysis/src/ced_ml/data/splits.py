@@ -45,9 +45,7 @@ def age_bins(age: pd.Series, scheme: str) -> pd.Series:
     """
     age = age.fillna(age.median())
     if scheme == "age3":
-        return pd.cut(
-            age, bins=[0, 40, 60, 150], labels=["young", "middle", "old"]
-        ).astype(str)
+        return pd.cut(age, bins=[0, 40, 60, 150], labels=["young", "middle", "old"]).astype(str)
     elif scheme == "age2":
         return pd.cut(age, bins=[0, 60, 150], labels=["lt60", "ge60"]).astype(str)
     else:
@@ -101,9 +99,7 @@ def make_strata(df: pd.DataFrame, scheme: str) -> pd.Series:
     raise ValueError(f"Unknown stratification scheme: {scheme}")
 
 
-def collapse_rare_strata(
-    df: pd.DataFrame, strata: pd.Series, min_count: int
-) -> pd.Series:
+def collapse_rare_strata(df: pd.DataFrame, strata: pd.Series, min_count: int) -> pd.Series:
     """
     Collapse rare strata (< min_count samples) into outcome-based groups.
 
@@ -241,9 +237,7 @@ def downsample_controls(
     n_controls = int(idx_controls.size)
 
     if n_cases == 0 or n_controls == 0:
-        logger.debug(
-            f"Skip control downsample (cases={n_cases}, controls={n_controls})"
-        )
+        logger.debug(f"Skip control downsample (cases={n_cases}, controls={n_controls})")
         return np.sort(idx_set.astype(int))
 
     target_controls = int(round(n_cases * float(controls_per_case)))
@@ -253,9 +247,7 @@ def downsample_controls(
 
     keep_controls = rng.choice(idx_controls, size=target_controls, replace=False)
     kept = np.sort(np.concatenate([idx_cases, keep_controls]).astype(int))
-    logger.info(
-        f"Downsample controls: {n_controls} → {target_controls} (cases={n_cases})"
-    )
+    logger.info(f"Downsample controls: {n_controls} → {target_controls} (cases={n_cases})")
     return kept
 
 
@@ -306,9 +298,7 @@ def temporal_order_indices(df: pd.DataFrame, col: str) -> np.ndarray:
     # Fill missing values with min - 1 (or -inf for numeric)
     if isinstance(order_vals, pd.Series):
         fill_value = order_vals.min()
-        if isinstance(fill_value, pd.Timestamp) or np.issubdtype(
-            order_vals.dtype, np.datetime64
-        ):
+        if isinstance(fill_value, pd.Timestamp) or np.issubdtype(order_vals.dtype, np.datetime64):
             fill_value = (
                 fill_value - pd.Timedelta(days=1)
                 if pd.notna(fill_value)
@@ -371,9 +361,7 @@ def add_prevalent_to_train(
         idx_prev_keep = rng.choice(idx_prev, size=n_keep, replace=False)
 
     if len(idx_prev_keep) > 0:
-        logger.info(
-            f"Added prevalent={len(idx_prev_keep):,} (frac={prevalent_frac:.2f}) to TRAIN"
-        )
+        logger.info(f"Added prevalent={len(idx_prev_keep):,} (frac={prevalent_frac:.2f}) to TRAIN")
         return np.sort(np.concatenate([train_idx, idx_prev_keep]).astype(int))
 
     return train_idx
@@ -494,14 +482,10 @@ def temporal_train_val_test_split(
     n_train = n_total - n_test - n_val
 
     if n_train < 1:
-        raise ValueError(
-            "Temporal split produced empty TRAIN. Reduce val_size/test_size."
-        )
+        raise ValueError("Temporal split produced empty TRAIN. Reduce val_size/test_size.")
 
     idx_train = indices[:n_train]
-    idx_val = (
-        indices[n_train : n_train + n_val] if n_val > 0 else np.array([], dtype=int)
-    )
+    idx_val = indices[n_train : n_train + n_val] if n_val > 0 else np.array([], dtype=int)
     idx_test = indices[n_train + n_val :]
 
     y_train = y[np.isin(indices, idx_train)]

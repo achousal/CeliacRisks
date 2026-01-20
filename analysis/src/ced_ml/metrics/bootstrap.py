@@ -164,9 +164,7 @@ def stratified_bootstrap_diff_ci(
 
     # Validate inputs
     if not (len(y_true) == len(p1) == len(p2)):
-        raise ValueError(
-            f"Length mismatch: y_true={len(y_true)}, p1={len(p1)}, p2={len(p2)}"
-        )
+        raise ValueError(f"Length mismatch: y_true={len(y_true)}, p1={len(p1)}, p2={len(p2)}")
 
     # Compute full-sample difference
     diff_full = float(metric_fn(y_true, p1) - metric_fn(y_true, p2))

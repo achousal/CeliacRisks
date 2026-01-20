@@ -94,14 +94,11 @@ def extract_holdout_data(
     """
     if len(holdout_idx) > 0 and holdout_idx.max() >= len(df_filtered):
         raise ValueError(
-            f"Holdout index exceeds dataset rows "
-            f"({holdout_idx.max()} >= {len(df_filtered)})."
+            f"Holdout index exceeds dataset rows " f"({holdout_idx.max()} >= {len(df_filtered)})."
         )
 
     # Convert to int indices for proper indexing
-    idx_int = (
-        holdout_idx.astype(int) if len(holdout_idx) > 0 else np.array([], dtype=int)
-    )
+    idx_int = holdout_idx.astype(int) if len(holdout_idx) > 0 else np.array([], dtype=int)
 
     df_holdout = df_filtered.iloc[idx_int].reset_index(drop=True)
     X_holdout = X_all.iloc[idx_int].reset_index(drop=True)
@@ -169,9 +166,7 @@ def compute_holdout_metrics(
         "split_id": bundle.get("split_id"),
         "n_holdout": int(len(y_true)),
         "n_holdout_pos": int(y_true.sum()),
-        "train_prevalence_sample": (
-            float(train_prev) if np.isfinite(train_prev) else np.nan
-        ),
+        "train_prevalence_sample": (float(train_prev) if np.isfinite(train_prev) else np.nan),
         "target_prevalence": float(target_prev),
         "AUROC_holdout": disc_metrics["AUROC"],
         "PR_AUC_holdout": disc_metrics["PR_AUC"],
@@ -353,9 +348,7 @@ def evaluate_holdout(
 
     # Extract holdout subset
     holdout_idx = load_holdout_indices(holdout_idx_file)
-    df_holdout, X_holdout, y_holdout = extract_holdout_data(
-        df_filtered, X_all, y_all, holdout_idx
-    )
+    df_holdout, X_holdout, y_holdout = extract_holdout_data(df_filtered, X_all, y_all, holdout_idx)
 
     # Generate predictions
     proba_eval = np.clip(model.predict_proba(X_holdout)[:, 1], 0.0, 1.0)
@@ -375,9 +368,7 @@ def evaluate_holdout(
         target_prev = train_prev
     target_prev = float(np.clip(target_prev, 1e-6, 1.0 - 1e-6))
 
-    proba_adjusted = adjust_probabilities_for_prevalence(
-        proba_eval, train_prev, target_prev
-    )
+    proba_adjusted = adjust_probabilities_for_prevalence(proba_eval, train_prev, target_prev)
 
     # Parse clinical thresholds
     clinical_points_src = clinical_threshold_points or bundle.get("args", {}).get(
@@ -397,19 +388,13 @@ def evaluate_holdout(
     )
 
     # Save metrics
-    pd.DataFrame([metrics]).to_csv(
-        os.path.join(outdir, "holdout_metrics.csv"), index=False
-    )
+    pd.DataFrame([metrics]).to_csv(os.path.join(outdir, "holdout_metrics.csv"), index=False)
 
     # Top-risk capture
-    top_fracs = sorted(
-        {float(t.strip()) for t in (toprisk_fracs or "").split(",") if t.strip()}
-    )
+    top_fracs = sorted({float(t.strip()) for t in (toprisk_fracs or "").split(",") if t.strip()})
     if top_fracs:
         top_risk_df = compute_top_risk_capture(y_holdout, proba_eval, top_fracs)
-        top_risk_df.to_csv(
-            os.path.join(outdir, "holdout_toprisk_capture.csv"), index=False
-        )
+        top_risk_df.to_csv(os.path.join(outdir, "holdout_toprisk_capture.csv"), index=False)
 
     # Save predictions if requested
     if save_preds:
@@ -441,9 +426,7 @@ def evaluate_holdout(
         )
 
         dca_thresholds = generate_dca_thresholds(min_thr, max_thr, step_thr)
-        report_points = parse_dca_report_points(
-            dca_report_points
-        ) or parse_dca_report_points(
+        report_points = parse_dca_report_points(dca_report_points) or parse_dca_report_points(
             bundle.get("args", {}).get("dca_report_points", "")
         )
 

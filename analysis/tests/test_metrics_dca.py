@@ -180,9 +180,7 @@ def test_decision_curve_analysis_treat_none_baseline(binary_classification_data)
 def test_decision_curve_analysis_perfect_model(perfect_classification):
     """Perfect model should beat treat-all at reasonable thresholds."""
     y_true, y_pred = perfect_classification
-    dca_df = decision_curve_analysis(
-        y_true, y_pred, thresholds=np.linspace(0.01, 0.99, 50)
-    )
+    dca_df = decision_curve_analysis(y_true, y_pred, thresholds=np.linspace(0.01, 0.99, 50))
 
     # At prevalence = 0.5, model should beat treat-all in mid-range
     beats_all = dca_df[dca_df["net_benefit_model"] > dca_df["net_benefit_all"]]
@@ -331,9 +329,7 @@ def test_compute_dca_summary_report_points():
     y_true = np.array([0] * 80 + [1] * 20)
     y_pred = np.random.RandomState(42).beta(2, 8, size=100)
 
-    dca_df = decision_curve_analysis(
-        y_true, y_pred, thresholds=np.linspace(0.001, 0.10, 100)
-    )
+    dca_df = decision_curve_analysis(y_true, y_pred, thresholds=np.linspace(0.001, 0.10, 100))
     summary = compute_dca_summary(dca_df, report_points=[0.01, 0.05])
 
     # Check report point keys (formatted as nb_model_at_1p0, nb_model_at_5p0)

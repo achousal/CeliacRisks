@@ -33,9 +33,7 @@ def apply_plot_metadata(
         return 0.10  # Default minimum bottom margin
 
     # Position metadata at very bottom with fixed offset from edge
-    fig.text(
-        0.5, 0.005, "\n".join(lines), ha="center", va="bottom", fontsize=8, wrap=True
-    )
+    fig.text(0.5, 0.005, "\n".join(lines), ha="center", va="bottom", fontsize=8, wrap=True)
 
     # Calculate required bottom margin: base + space per line
     # Each line ~0.015 height + small padding
@@ -312,9 +310,7 @@ def plot_dca_curve(
             )
             ax.fill_between(
                 thr,
-                np.maximum(
-                    dca_df["net_benefit_all"].values, dca_df["net_benefit_none"].values
-                ),
+                np.maximum(dca_df["net_benefit_all"].values, dca_df["net_benefit_none"].values),
                 dca_df["net_benefit_model"].values,
                 where=(
                     dca_df["net_benefit_model"].values
