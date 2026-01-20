@@ -15,7 +15,7 @@ from ced_ml.config.validation import validate_splits_config
 
 # Import row filtering logic from data layer
 from ced_ml.data.filters import apply_row_filters
-from ced_ml.data.io import read_proteomics_csv
+from ced_ml.data.io import read_proteomics_file
 from ced_ml.data.persistence import (
     save_holdout_indices,
     save_holdout_metadata,
@@ -137,7 +137,7 @@ def run_save_splits(
         raise ValueError("infile must be provided via cli_args")
 
     logger.info(f"Loading data from: {infile}")
-    df = read_proteomics_csv(infile, validate=True)
+    df = read_proteomics_file(infile, validate=True)
     logger.info(f"  Loaded {len(df):,} samples")
 
     # Extract flags from cli_args

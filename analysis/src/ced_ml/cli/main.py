@@ -339,6 +339,53 @@ def config_diff(ctx, config_file1, config_file2, output):
     )
 
 
+@cli.command("convert-to-parquet")
+@click.argument(
+    "csv_path",
+    type=click.Path(exists=True),
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    help="Output Parquet file path (default: same as input with .parquet extension)",
+)
+@click.option(
+    "--compression",
+    type=click.Choice(["snappy", "gzip", "brotli", "zstd", "none"]),
+    default="snappy",
+    help="Compression algorithm (default: snappy)",
+)
+@click.pass_context
+def convert_to_parquet(ctx, csv_path, output, compression):
+    """
+    Convert proteomics CSV file to Parquet format.
+
+    This command reads a CSV file and converts it to Parquet format with
+    compression. Only columns needed for modeling are included (same as
+    the training pipeline).
+
+    CSV_PATH: Path to input CSV file
+
+    Example:
+        ced convert-to-parquet data/celiac_proteomics.csv
+        ced convert-to-parquet data/celiac_proteomics.csv -o data/celiac.parquet --compression gzip
+    """
+
+    from ced_ml.data.io import convert_csv_to_parquet
+
+    try:
+        parquet_path = convert_csv_to_parquet(
+            csv_path=csv_path,
+            parquet_path=output,
+            compression=compression,
+        )
+        click.echo(f"Successfully converted to: {parquet_path}")
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        raise click.Abort() from e
+
+
 def main():
     """Entry point for console script."""
     cli(obj={})

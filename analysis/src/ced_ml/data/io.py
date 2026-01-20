@@ -106,6 +106,91 @@ def read_proteomics_csv(
     return df
 
 
+def read_proteomics_file(
+    filepath: str,
+    *,
+    usecols: Optional[Callable[[str], bool]] = None,
+    low_memory: bool = False,
+    validate: bool = True,
+) -> pd.DataFrame:
+    """
+    Read proteomics data file (CSV or Parquet) with schema-aware column filtering.
+
+    Automatically detects file format based on extension and calls the appropriate reader.
+    If a CSV file is provided but a corresponding Parquet file exists, the Parquet file
+    will be used automatically for better performance.
+
+    Args:
+        filepath: Path to CSV or Parquet file
+        usecols: Optional column filter function (default: usecols_for_proteomics())
+        low_memory: Whether to use low_memory mode for pd.read_csv (default: False; ignored for Parquet)
+        validate: Whether to validate required columns after loading (default: True)
+
+    Returns:
+        DataFrame with selected columns
+
+    Raises:
+        FileNotFoundError: If filepath does not exist
+        ValueError: If validate=True and required columns are missing, or if file format is unsupported
+
+    Example:
+        >>> df = read_proteomics_file("data/celiac_proteomics.parquet")
+        >>> assert "eid" in df.columns
+    """
+    filepath = Path(filepath)
+    if not filepath.exists():
+        raise FileNotFoundError(f"File not found: {filepath}")
+
+    suffix = filepath.suffix.lower()
+
+    # Auto-prefer Parquet if CSV is specified but Parquet exists
+    if suffix == ".csv":
+        parquet_path = filepath.with_suffix(".parquet")
+        if parquet_path.exists():
+            logger.info(f"Found Parquet version: {parquet_path}")
+            logger.info("Using Parquet for faster loading (53%+ smaller, 10x+ faster)")
+            filepath = parquet_path
+            suffix = ".parquet"
+        else:
+            # Warn user about performance
+            logger.warning(f"Reading CSV: {filepath}")
+            logger.warning(
+                "Performance tip: Convert to Parquet for 53%+ size reduction and 10x+ faster loading:"
+            )
+            logger.warning(f"  ced convert-to-parquet {filepath}")
+
+    if suffix == ".csv":
+        return read_proteomics_csv(
+            str(filepath),
+            usecols=usecols,
+            low_memory=low_memory,
+            validate=validate,
+        )
+    elif suffix == ".parquet":
+        logger.info(f"Reading Parquet: {filepath}")
+        # Read Parquet file
+        df = pd.read_parquet(filepath, engine="pyarrow")
+        logger.info(f"Loaded {len(df):,} rows × {len(df.columns):,} columns")
+
+        # Apply column filter if provided
+        if usecols is not None:
+            selected_cols = [col for col in df.columns if usecols(col)]
+            df = df[selected_cols]
+            logger.info(f"Filtered to {len(selected_cols):,} columns")
+
+        # Validate required columns
+        if validate:
+            validate_required_columns(df)
+
+        return df
+    else:
+        raise ValueError(
+            f"Unsupported file format: {suffix}. "
+            f"Expected .csv or .parquet. "
+            f"File: {filepath}"
+        )
+
+
 def validate_required_columns(df: pd.DataFrame) -> None:
     """
     Validate that required columns are present in DataFrame.
@@ -325,3 +410,80 @@ def load_data(infile: str) -> pd.DataFrame:
         >>> df = load_data("data/celiac_proteomics.csv")
     """
     return read_proteomics_csv(infile, low_memory=False)
+
+
+def convert_csv_to_parquet(
+    csv_path: str,
+    parquet_path: Optional[str] = None,
+    compression: str = "snappy",
+    usecols: Optional[Callable[[str], bool]] = None,
+    validate: bool = True,
+) -> Path:
+    """
+    Convert proteomics CSV file to Parquet format.
+
+    This function reads a CSV file and converts it to Parquet format with
+    compression. By default, only columns needed for modeling are included
+    (same as read_proteomics_csv).
+
+    Args:
+        csv_path: Path to input CSV file
+        parquet_path: Path to output Parquet file (default: same as csv_path with .parquet extension)
+        compression: Compression algorithm (default: 'snappy'; options: 'snappy', 'gzip', 'brotli', 'zstd', 'none')
+        usecols: Optional column filter function (default: usecols_for_proteomics())
+        validate: Whether to validate required columns after loading (default: True)
+
+    Returns:
+        Path to the created Parquet file
+
+    Raises:
+        FileNotFoundError: If csv_path does not exist
+        ValueError: If validate=True and required columns are missing
+
+    Example:
+        >>> parquet_file = convert_csv_to_parquet("data/celiac_proteomics.csv")
+        >>> print(f"Converted to: {parquet_file}")
+    """
+    csv_path = Path(csv_path)
+    if not csv_path.exists():
+        raise FileNotFoundError(f"CSV file not found: {csv_path}")
+
+    # Default output path: replace .csv with .parquet
+    if parquet_path is None:
+        parquet_path = csv_path.with_suffix(".parquet")
+    else:
+        parquet_path = Path(parquet_path)
+
+    logger.info(f"Converting CSV to Parquet: {csv_path}")
+    logger.info(f"Output: {parquet_path}")
+    logger.info(f"Compression: {compression}")
+
+    # Read CSV using existing function (applies column filtering and validation)
+    df = read_proteomics_csv(
+        str(csv_path),
+        usecols=usecols,
+        low_memory=False,
+        validate=validate,
+    )
+
+    # Write to Parquet with compression
+    logger.info(f"Writing Parquet file with {compression} compression...")
+    df.to_parquet(
+        parquet_path,
+        compression=compression,
+        index=False,
+        engine="pyarrow",
+    )
+
+    # Report file sizes
+    csv_size = csv_path.stat().st_size
+    parquet_size = parquet_path.stat().st_size
+    compression_ratio = 100 * (1 - parquet_size / csv_size)
+
+    logger.info("Conversion complete:")
+    logger.info(f"  CSV size:     {csv_size:,} bytes")
+    logger.info(f"  Parquet size: {parquet_size:,} bytes")
+    logger.info(f"  Compression:  {compression_ratio:.1f}% reduction")
+    logger.info(f"  Saved to:     {parquet_path}")
+
+    return parquet_path

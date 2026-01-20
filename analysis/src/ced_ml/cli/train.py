@@ -18,7 +18,7 @@ from ced_ml.config.loader import load_training_config, save_config
 from ced_ml.config.validation import validate_training_config
 from ced_ml.data.columns import get_available_columns_from_file, resolve_columns
 from ced_ml.data.filters import apply_row_filters
-from ced_ml.data.io import read_proteomics_csv, usecols_for_proteomics
+from ced_ml.data.io import read_proteomics_file, usecols_for_proteomics
 from ced_ml.data.schema import (
     CONTROL_LABEL,
     SCENARIO_DEFINITIONS,
@@ -266,7 +266,7 @@ def run_train(
         numeric_metadata=resolved.numeric_metadata,
         categorical_metadata=resolved.categorical_metadata,
     )
-    df_raw = read_proteomics_csv(config.infile, usecols=usecols_fn)
+    df_raw = read_proteomics_file(config.infile, usecols=usecols_fn)
 
     # Step 3: Apply row filters (defaults: drop_uncertain_controls=True, dropna_meta_num=True)
     logger.info("Applying row filters...")

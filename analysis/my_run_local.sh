@@ -30,7 +30,7 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 #==============================================================
 # Paths
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INFILE="${INFILE:-${BASE_DIR}/../data/Celiac_dataset_proteomics_w_demo.csv}"
+INFILE="${INFILE:-${BASE_DIR}/../data/Celiac_dataset_proteomics_w_demo.parquet}"
 SPLITS_DIR="${SPLITS_DIR:-${BASE_DIR}/splits_local}"
 RESULTS_DIR="${RESULTS_DIR:-${BASE_DIR}/results_local}"
 LOGS_DIR="${LOGS_DIR:-${BASE_DIR}/logs_local}"

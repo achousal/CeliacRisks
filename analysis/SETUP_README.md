@@ -13,7 +13,7 @@ This guide covers environment setup for both local development and HPC productio
 - Python 3.8+
 - Git (for version tracking)
 - ~2 GB disk space for dependencies
-- Input data file: `../data/Celiac_dataset_proteomics_w_demo.csv`
+- Input data file: `../data/Celiac_dataset_proteomics_w_demo.parquet`
 
 ---
 
@@ -308,7 +308,7 @@ pip install -e . --force-reinstall --no-deps
 ### Tests fail after setup
 
 **Common causes**:
-- Missing data file: Check `../data/Celiac_dataset_proteomics_w_demo.csv`
+- Missing data file: Check `../data/Celiac_dataset_proteomics_w_demo.parquet`
 - Old cached files: `rm -rf .pytest_cache __pycache__`
 - Version mismatch: `pip install -e . --upgrade`
 
