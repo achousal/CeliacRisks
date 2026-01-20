@@ -28,8 +28,8 @@ ced --help
 
 ### 1. Copy Data File
 ```bash
-# Place dataset in parent directory
-cp /path/to/shared/Celiac_dataset_proteomics.csv ../
+# Place dataset in data directory
+cp /path/to/shared/Celiac_dataset_proteomics.csv ../data/
 ```
 
 ### 2. Customize Batch Script
@@ -79,7 +79,7 @@ source venv/bin/activate
 ced train \
   --config configs/training_config.yaml \
   --model LR_EN \
-  --infile ../Celiac_dataset_proteomics.csv \
+  --infile ../data/Celiac_dataset_proteomics.csv \
   --splits-dir splits_production
 ```
 
@@ -120,7 +120,7 @@ column -t -s, results_production/COMBINED/aggregated_metrics.csv
 | Issue | Solution |
 |-------|----------|
 | `ced: command not found` | `source venv/bin/activate` |
-| `Data file not found` | Verify `../Celiac_dataset_proteomics.csv` exists |
+| `Data file not found` | Verify `../data/Celiac_dataset_proteomics.csv` exists |
 | `Out of memory` | Increase `-R "rusage[mem=16000]"` in batch script |
 | `Job timeout` | Increase `-W 24:00` in batch script |
 

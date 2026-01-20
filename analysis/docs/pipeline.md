@@ -63,7 +63,7 @@ Original (43,960) → TRAIN (50%) / VAL (25%) / TEST (25%)
 ### CLI Command
 ```bash
 ced save-splits \
-  --infile Celiac_dataset_proteomics.csv \
+  --infile ../data/Celiac_dataset_proteomics.csv \
   --outdir splits_production \
   --mode development \
   --scenarios IncidentPlusPrevalent \
@@ -181,7 +181,7 @@ TRAIN (21,980)
 ced train \
   --config configs/training_config.yaml \
   --model LR_EN \
-  --infile Celiac_dataset_proteomics.csv \
+  --infile ../data/Celiac_dataset_proteomics.csv \
   --splits-dir splits_production
 
 # Four models (HPC parallel)
@@ -241,7 +241,7 @@ ced postprocess --results-dir results_production --n-boot 500
 ```bash
 ced eval-holdout \
   --config configs/holdout_config.yaml \
-  --infile Celiac_dataset_proteomics.csv \
+  --infile ../data/Celiac_dataset_proteomics.csv \
   --holdout-idx splits/IncidentPlusPrevalent_HOLDOUT_idx.csv \
   --model-artifact results/.../core/final_model.joblib \
   --outdir results/HOLDOUT_FINAL
@@ -422,7 +422,7 @@ ced --help
 ```bash
 # Step 1: Generate splits
 ced save-splits \
-  --infile Celiac_dataset_proteomics.csv \
+  --infile ../data/Celiac_dataset_proteomics.csv \
   --outdir splits_production \
   --mode development \
   --scenarios IncidentPlusPrevalent \
@@ -458,7 +458,7 @@ MODEL=${MODELS[$LSB_JOBINDEX-1]}
 ced train \
   --config configs/training_config.yaml \
   --model $MODEL \
-  --infile ../Celiac_dataset_proteomics.csv \
+  --infile ../data/Celiac_dataset_proteomics.csv \
   --splits-dir splits_production
 ```
 

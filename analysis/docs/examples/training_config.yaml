@@ -2,7 +2,7 @@
 # This matches the current production settings (CeD_optimized.lsf)
 
 # Input data
-infile: ../../Celiac_dataset_proteomics.csv
+infile: ../../data/Celiac_dataset_proteomics.csv
 split_dir: splits_production
 scenario: IncidentPlusPrevalent
 split_seed: 0

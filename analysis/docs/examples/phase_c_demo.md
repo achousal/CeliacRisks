@@ -11,7 +11,7 @@ This document demonstrates the Phase C configuration management tools with real 
 **Legacy command:**
 ```bash
 python save_splits.py \
-  --infile ../Celiac_dataset_proteomics.csv \
+  --infile ../data/Celiac_dataset_proteomics.csv \
   --outdir splits_production \
   --mode development \
   --scenarios IncidentPlusPrevalent \
@@ -54,7 +54,7 @@ outdir: splits
 **Use it:**
 ```bash
 ced save-splits --config splits_config.yaml \
-  --infile ../Celiac_dataset_proteomics.csv
+  --infile ../data/Celiac_dataset_proteomics.csv
 ```
 
 ---
@@ -64,7 +64,7 @@ ced save-splits --config splits_config.yaml \
 **Legacy command:**
 ```bash
 python celiacML_faith.py \
-  --infile ../Celiac_dataset_proteomics.csv \
+  --infile ../data/Celiac_dataset_proteomics.csv \
   --split-dir splits_production \
   --scenario IncidentPlusPrevalent \
   --model LR_EN \
@@ -85,7 +85,7 @@ python celiacML_faith.py \
 ```bash
 # Migrate to YAML
 ced config migrate --command train \
-  --args "--infile ../Celiac_dataset_proteomics.csv" \
+  --args "--infile ../data/Celiac_dataset_proteomics.csv" \
   --args "--model LR_EN" \
   --args "--scenario IncidentPlusPrevalent" \
   --args "--folds 5" \
@@ -104,7 +104,7 @@ ced config migrate --command train \
 
 **Generated YAML:**
 ```yaml
-infile: ../Celiac_dataset_proteomics.csv
+infile: ../data/Celiac_dataset_proteomics.csv
 model: LR_EN
 scenario: IncidentPlusPrevalent
 

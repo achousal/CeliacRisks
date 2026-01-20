@@ -59,11 +59,11 @@ ced --help
 ## Phase 2: Data Preparation
 
 ```bash
-# Copy dataset to project directory
-cp /shared/storage/Celiac_dataset_proteomics.csv ../
+# Copy dataset to data directory
+cp /shared/storage/Celiac_dataset_proteomics.csv ../data/
 
 # Verify file size
-du -h ../Celiac_dataset_proteomics.csv
+du -h ../data/Celiac_dataset_proteomics.csv
 # Expected: ~2.5 GB
 
 # Customize batch script
@@ -83,7 +83,7 @@ vim CeD_production.lsf
 source venv/bin/activate
 ced save-splits \
   --config configs/splits_config.yaml \
-  --infile ../Celiac_dataset_proteomics.csv \
+  --infile ../data/Celiac_dataset_proteomics.csv \
   --n-splits 1
 
 # Check output
@@ -113,7 +113,7 @@ source venv/bin/activate
 
 ced save-splits \
   --config configs/splits_config.yaml \
-  --infile ../Celiac_dataset_proteomics.csv \
+  --infile ../data/Celiac_dataset_proteomics.csv \
   --n-splits 10
 
 # Verify
@@ -308,7 +308,7 @@ Day 2
 | `ced: command not found` | `source venv/bin/activate` |
 | Job killed (OOM) | Increase mem: `-R "rusage[mem=16000]"` |
 | Job timeout | Increase time: `-W 24:00` |
-| Data not found | Copy to `../Celiac_dataset_proteomics.csv` |
+| Data not found | Copy to `../data/Celiac_dataset_proteomics.csv` |
 | Import errors | Reinstall: `pip install -e .` |
 
 **Full troubleshooting:** [docs/HPC_SETUP.md](docs/HPC_SETUP.md)

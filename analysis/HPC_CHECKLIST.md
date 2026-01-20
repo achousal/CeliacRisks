@@ -52,10 +52,10 @@ Use this checklist for first-time HPC deployment. Print or copy to track progres
 ## Configuration (Before First Run)
 
 ### 1. Data Preparation
-- [ ] Copy dataset to parent directory
-  - `cp /path/to/source/Celiac_dataset_proteomics.csv ../`
-- [ ] Verify file size: `du -h ../Celiac_dataset_proteomics.csv` (~2.5 GB)
-- [ ] Check file permissions: `ls -lh ../Celiac_dataset_proteomics.csv`
+- [ ] Copy dataset to data directory
+  - `cp /path/to/source/Celiac_dataset_proteomics.csv ../data/`
+- [ ] Verify file size: `du -h ../data/Celiac_dataset_proteomics.csv` (~2.5 GB)
+- [ ] Check file permissions: `ls -lh ../data/Celiac_dataset_proteomics.csv`
 
 ### 2. Batch Script Customization
 - [ ] Copy template: `cp CeD_production.lsf.template CeD_production.lsf`
@@ -84,7 +84,7 @@ Use this checklist for first-time HPC deployment. Print or copy to track progres
   ```bash
   ced save-splits \
     --config configs/splits_config.yaml \
-    --infile ../Celiac_dataset_proteomics.csv \
+    --infile ../data/Celiac_dataset_proteomics.csv \
     --n-splits 1
   ```
 - [ ] Check output: `ls splits_production/`
@@ -127,7 +127,7 @@ Use this checklist for first-time HPC deployment. Print or copy to track progres
   ```bash
   ced save-splits \
     --config configs/splits_config.yaml \
-    --infile ../Celiac_dataset_proteomics.csv \
+    --infile ../data/Celiac_dataset_proteomics.csv \
     --n-splits 10
   ```
 - [ ] Verify splits created: `ls splits_production/*_seed{0..9}.csv | wc -l`
@@ -254,7 +254,7 @@ Use this checklist for first-time HPC deployment. Print or copy to track progres
 | Symptom | Check | Solution |
 |---------|-------|----------|
 | `ced: command not found` | Virtual env | `source venv/bin/activate` |
-| `Data file not found` | Data path | Copy data to `../` |
+| `Data file not found` | Data path | Copy data to `../data/` |
 | Job killed (exit 140) | Memory | Increase mem in batch script |
 | Job timeout | Wall time | Increase `-W` in batch script |
 | Module not found | Python path | Check `module load` command |

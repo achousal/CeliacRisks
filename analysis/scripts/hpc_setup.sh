@@ -151,11 +151,11 @@ success "Output directories created"
 
 # Check for data file
 info "Checking for input data file..."
-if [ -f "../Celiac_dataset_proteomics.csv" ]; then
-    DATA_SIZE=$(du -h ../Celiac_dataset_proteomics.csv | cut -f1)
+if [ -f "../data/Celiac_dataset_proteomics.csv" ]; then
+    DATA_SIZE=$(du -h ../data/Celiac_dataset_proteomics.csv | cut -f1)
     success "Data file found (size: $DATA_SIZE)"
 else
-    warning "Data file not found at ../Celiac_dataset_proteomics.csv"
+    warning "Data file not found at ../data/Celiac_dataset_proteomics.csv"
     echo "  You need to copy it from shared storage before running the pipeline."
 fi
 
@@ -216,7 +216,7 @@ echo "   Option A (Recommended): ./run_production.sh"
 echo "   Option B (Manual):"
 echo "     # Generate splits first:"
 echo "     ced save-splits --config configs/splits_config.yaml \\"
-echo "       --infile ../Celiac_dataset_proteomics.csv \\"
+echo "       --infile ../data/Celiac_dataset_proteomics.csv \\"
 echo "       --n-splits 10"
 echo "     # Then submit training:"
 echo "     bsub < CeD_production.lsf"

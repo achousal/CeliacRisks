@@ -33,7 +33,7 @@ Blood proteomics panel → ML risk score → [High risk?] → Anti-tTG antibody 
 
 ### Data File
 ```
-../Celiac_dataset_proteomics.csv (~2.5 GB)
+../data/Celiac_dataset_proteomics.csv (~2.5 GB)
 ```
 
 ---
@@ -111,7 +111,7 @@ The `ced` command provides 4 core subcommands:
 ### 1. Split Generation
 ```bash
 ced save-splits --config configs/splits_config.yaml \
-    --infile ../Celiac_dataset_proteomics.csv
+    --infile ../data/Celiac_dataset_proteomics.csv
 ```
 
 **What it does:** Creates stratified TRAIN/VAL/TEST splits with prevalent enrichment and control downsampling.
@@ -122,7 +122,7 @@ ced save-splits --config configs/splits_config.yaml \
 ```bash
 ced train --config configs/training_config.yaml \
     --model LR_EN \
-    --infile ../Celiac_dataset_proteomics.csv \
+    --infile ../data/Celiac_dataset_proteomics.csv \
     --split-dir splits_production
 ```
 
@@ -142,7 +142,7 @@ ced postprocess --results-dir results/ --n-boot 500
 ### 4. Holdout Evaluation
 ```bash
 ced eval-holdout --config configs/holdout_config.yaml \
-    --infile ../Celiac_dataset_proteomics.csv \
+    --infile ../data/Celiac_dataset_proteomics.csv \
     --holdout-idx splits/IncidentPlusPrevalent_HOLDOUT_idx.csv \
     --model-artifact results/.../core/final_model.joblib \
     --outdir results/HOLDOUT_FINAL
@@ -224,7 +224,7 @@ ced --help
 **Step 1: Generate splits**
 ```bash
 ced save-splits \
-    --infile ../Celiac_dataset_proteomics.csv \
+    --infile ../data/Celiac_dataset_proteomics.csv \
     --outdir splits_production \
     --mode development \
     --scenarios IncidentPlusPrevalent \
@@ -241,7 +241,7 @@ ced save-splits \
 # Local (single model)
 ced train --config configs/training_config.yaml \
     --model LR_EN \
-    --infile ../Celiac_dataset_proteomics.csv \
+    --infile ../data/Celiac_dataset_proteomics.csv \
     --split-dir splits_production
 
 # HPC (4 models in parallel via LSF)
@@ -383,7 +383,7 @@ MODEL=${MODELS[$LSB_JOBINDEX-1]}
 ced train \
   --config configs/training_production.yaml \
   --model $MODEL \
-  --infile ../Celiac_dataset_proteomics.csv \
+  --infile ../data/Celiac_dataset_proteomics.csv \
   --split-dir splits_production
 ```
 

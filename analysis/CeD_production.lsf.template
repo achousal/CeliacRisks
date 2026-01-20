@@ -13,7 +13,7 @@
 #    - Customize resource requests if needed
 # 3. Generate splits FIRST (required):
 #    ced save-splits --config configs/splits_config.yaml \
-#      --infile ../Celiac_dataset_proteomics.csv --n-splits 10
+#      --infile ../data/Celiac_dataset_proteomics.csv --n-splits 10
 #    OR use ./run_production.sh to handle all steps
 # 4. Submit: bsub < CeD_production.lsf
 #
@@ -67,7 +67,7 @@ echo "[$(date +'%F %T')] Python: $(which python)"
 echo "[$(date +'%F %T')] ced version: $(ced --version)"
 
 # Define remaining paths
-INFILE="${BASE_DIR}/../Celiac_dataset_proteomics.csv"
+INFILE="${BASE_DIR}/../data/Celiac_dataset_proteomics.csv"
 SPLITS_DIR="${BASE_DIR}/splits_production"
 RESULTS_DIR="${BASE_DIR}/results_production"
 LOGS_DIR="${BASE_DIR}/logs"

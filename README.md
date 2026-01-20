@@ -40,7 +40,7 @@ ced --help
 **1. Generate train/val/test splits:**
 ```bash
 ced save-splits \
-  --infile ../Celiac_dataset_proteomics.csv \
+  --infile ../data/Celiac_dataset_proteomics.csv \
   --outdir splits_production \
   --scenarios IncidentPlusPrevalent \
   --n-splits 10
@@ -52,7 +52,7 @@ ced save-splits \
 ced train \
   --config configs/training_config.yaml \
   --model LR_EN \
-  --infile ../Celiac_dataset_proteomics.csv \
+  --infile ../data/Celiac_dataset_proteomics.csv \
   --split-dir splits_production
 
 # HPC (4 models in parallel)
