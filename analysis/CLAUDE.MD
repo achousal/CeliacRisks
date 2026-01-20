@@ -79,28 +79,9 @@ TRAIN controls are downsampled to 5 controls per case (incident + prevalent)
 
 ## Package Architecture
 
-The pipeline is now a professional Python package (`ced-ml`) with modular library layers:
+**Stats:** 15,109 lines, 753 tests (82% coverage), zero duplication.
 
-```
-src/ced_ml/
-├── cli/              # Command-line interface (ced save-splits, train, etc.)
-├── config/           # Pydantic schemas, YAML loading, validation
-├── data/             # I/O, split generation, persistence
-├── features/         # Screening, k-best, stability, correlation pruning, panels
-├── models/           # Registry, hyperparameters, training, calibration, prevalence
-├── metrics/          # Discrimination, thresholds, DCA, bootstrap
-├── evaluation/       # Prediction, reports, holdout evaluation
-├── plotting/         # ROC/PR, calibration, risk distribution, DCA, learning curves
-└── utils/            # Logging, paths, random seeds, serialization
-```
-
-**Statistics:**
-- 15,109 lines of modular code
-- 753 passing tests (82% coverage)
-- Zero code duplication
-- 100% backward compatible with legacy outputs
-
-**Legacy scripts:** Archived in `Legacy/` folder for reference and emergency fallback.
+For detailed architecture with code pointers, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
@@ -336,64 +317,15 @@ pytest tests/ -v
 | Evaluation | `predict`, `reports`, `holdout` | Prediction and reporting |
 | Plotting | `roc_pr`, `calibration`, `risk_dist`, `dca`, `learning_curve` | Visualization |
 
-### Output Structure
-```
-results_production/
-├── IncidentPlusPrevalent__LR_EN__5x10__val0.25__test0.25__hybrid/
-│   ├── config/
-│   │   ├── resolved_config.yaml      # Full config used (provenance)
-│   │   └── cli_overrides.json        # CLI overrides applied
-│   ├── core/
-│   │   ├── val_metrics.csv           # Validation metrics
-│   │   ├── test_metrics.csv          # Primary results
-│   │   └── final_model.joblib        # Trained model artifact
-│   ├── preds/
-│   │   ├── val_preds/                # Validation predictions
-│   │   └── test_preds/               # Test predictions
-│   ├── reports/
-│   │   └── stable_panel/             # Feature stability reports
-│   └── diagnostics/
-│       ├── calibration/              # Calibration curves
-│       ├── dca/                      # Decision curve analysis
-│       └── learning_curve/           # Sample size analysis
-├── (3 more model directories)
-├── COMBINED/                         # Cross-model comparison
-│   ├── aggregated_metrics.csv
-│   └── dca_curves.csv
-└── HOLDOUT_FINAL/                    # External validation (if exists)
-```
+For output structure details, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#13-output-artifacts--reports).
 
 ---
 
 ## HPC Deployment
 
-### LSF Batch Script Template
-```bash
-#!/bin/bash
-#BSUB -J "CeD_train[1-4]"
-#BSUB -o logs/CeD_%I.out
-#BSUB -e logs/CeD_%I.err
-#BSUB -n 16
-#BSUB -W 12:00
-#BSUB -R "rusage[mem=8GB]"
-
-MODELS=(RF XGBoost LinSVM_cal LR_EN)
-MODEL=${MODELS[$LSB_JOBINDEX-1]}
-
-ced train \
-  --config configs/training_production.yaml \
-  --model $MODEL \
-  --infile ../data/Celiac_dataset_proteomics.csv \
-  --split-dir splits_production
-```
-
-**Submit:**
-```bash
-bsub < CeD_production.lsf
-bjobs  # Monitor
-```
-
-See [docs/MIGRATION_GUIDE.md](docs/MIGRATION_GUIDE.md) for detailed migration instructions from legacy scripts.
+See dedicated guides:
+- [HPC_README.md](HPC_README.md) - Quick reference
+- [WORKFLOW.md](WORKFLOW.md) - Visual step-by-step guide
 
 ---
 
@@ -474,10 +406,15 @@ For more troubleshooting, see [docs/MIGRATION_GUIDE.md](docs/MIGRATION_GUIDE.md)
 - [ ] Docker container for reproducibility
 - [ ] Publication artifacts (Zenodo/Figshare)
 
-See [/Users/andreschousal/.claude/plans/dazzling-herding-sun.md](/Users/andreschousal/.claude/plans/dazzling-herding-sun.md) for detailed implementation plan.
-
 ---
 
-**For detailed project documentation, see:**
-- [README.md](README.md) - Package quickstart
-- [docs/](docs/) - Technical documentation
+## More Documentation
+
+| Document | Purpose |
+|----------|---------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical architecture with code pointers |
+| [docs/adr/](docs/adr/) | Architecture Decision Records (15 decisions) |
+| [HPC_README.md](HPC_README.md) | HPC quick reference |
+| [WORKFLOW.md](WORKFLOW.md) | Visual HPC workflow guide |
+| [../README.md](../README.md) | Root project overview |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | Contribution guidelines |

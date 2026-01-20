@@ -16,8 +16,9 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from ced_ml.config.loader import load_training_config, save_config
 from ced_ml.config.validation import validate_training_config
+from ced_ml.data.columns import get_available_columns_from_file, resolve_columns
 from ced_ml.data.filters import apply_row_filters
-from ced_ml.data.io import read_proteomics_csv
+from ced_ml.data.io import read_proteomics_csv, usecols_for_proteomics
 from ced_ml.data.schema import (
     CAT_COLS,
     CONTROL_LABEL,
@@ -250,21 +251,38 @@ def run_train(
     logger.info(f"CV: {config.cv.folds} folds × {config.cv.repeats} repeats")
     logger.info(f"Scoring: {config.cv.scoring}")
 
-    # Step 1: Load data
+    # Step 1: Resolve columns (auto-detect or explicit)
+    log_section(logger, "Resolving Columns")
+    logger.info(f"Column mode: {config.columns.mode}")
+    available_columns = get_available_columns_from_file(str(config.infile))
+    resolved = resolve_columns(available_columns, config.columns)
+
+    logger.info(f"Resolved columns:")
+    logger.info(f"  Proteins: {len(resolved.protein_cols)}")
+    logger.info(f"  Numeric metadata: {resolved.numeric_metadata}")
+    logger.info(f"  Categorical metadata: {resolved.categorical_metadata}")
+
+    # Step 2: Load data with resolved columns
     log_section(logger, "Loading Data")
     logger.info(f"Reading: {config.infile}")
-    df_raw = read_proteomics_csv(config.infile)
+    usecols_fn = usecols_for_proteomics(
+        numeric_metadata=resolved.numeric_metadata,
+        categorical_metadata=resolved.categorical_metadata,
+    )
+    df_raw = read_proteomics_csv(config.infile, usecols=usecols_fn)
 
-    # Step 2: Apply row filters (defaults: drop_uncertain_controls=True, dropna_meta_num=True)
+    # Step 3: Apply row filters (defaults: drop_uncertain_controls=True, dropna_meta_num=True)
     logger.info("Applying row filters...")
-    df_filtered, filter_stats = apply_row_filters(df_raw)
+    df_filtered, filter_stats = apply_row_filters(
+        df_raw, meta_num_cols=resolved.numeric_metadata
+    )
     logger.info(f"Filtered: {filter_stats['n_in']:,} → {filter_stats['n_out']:,} rows")
     logger.info(f"  Removed {filter_stats['n_removed_uncertain_controls']} uncertain controls")
     logger.info(f"  Removed {filter_stats['n_removed_dropna_meta_num']} rows with missing metadata")
 
-    # Step 3: Identify protein columns
-    protein_cols = [c for c in df_filtered.columns if c.endswith(PROTEIN_SUFFIX)]
-    logger.info(f"Identified {len(protein_cols)} protein columns")
+    # Step 4: Use resolved columns
+    protein_cols = resolved.protein_cols
+    logger.info(f"Using {len(protein_cols)} protein columns")
 
     # Step 4: Create output directories
     log_section(logger, "Setting Up Output Structure")
@@ -295,7 +313,7 @@ def run_train(
     df_scenario = df_filtered[df_filtered[TARGET_COL].isin(target_labels)].copy()
     df_scenario["y"] = (df_scenario[TARGET_COL] != CONTROL_LABEL).astype(int)
 
-    feature_cols = protein_cols + META_NUM_COLS + CAT_COLS
+    feature_cols = resolved.all_feature_cols
 
     X_train = df_scenario.iloc[train_idx][feature_cols]
     y_train = df_scenario.iloc[train_idx]["y"].values
@@ -330,7 +348,13 @@ def run_train(
     classifier = classifiers[config.model]
 
     # Step 8: Build full pipeline
-    pipeline = build_training_pipeline(config, classifier, protein_cols, CAT_COLS, META_NUM_COLS)
+    pipeline = build_training_pipeline(
+        config,
+        classifier,
+        protein_cols,
+        resolved.categorical_metadata,
+        resolved.numeric_metadata,
+    )
     logger.info(f"Pipeline steps: {[name for name, _ in pipeline.steps]}")
 
     # Step 9: Run nested CV for OOF predictions
@@ -354,7 +378,11 @@ def run_train(
     logger.info("Fitting on full training set...")
 
     final_pipeline = build_training_pipeline(
-        config, classifier, protein_cols, CAT_COLS, META_NUM_COLS
+        config,
+        classifier,
+        protein_cols,
+        resolved.categorical_metadata,
+        resolved.numeric_metadata,
     )
     final_pipeline.fit(X_train, y_train)
     logger.info("Final model fitted")
@@ -433,6 +461,12 @@ def run_train(
         "n_val": len(val_idx),
         "n_test": len(test_idx),
         "cv_elapsed_sec": elapsed_sec,
+        "columns": {
+            "mode": config.columns.mode,
+            "n_proteins": len(resolved.protein_cols),
+            "numeric_metadata": resolved.numeric_metadata,
+            "categorical_metadata": resolved.categorical_metadata,
+        },
     }
     run_settings_path = Path(outdirs.core) / "run_settings.json"
     with open(run_settings_path, "w") as f:

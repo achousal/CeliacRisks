@@ -15,6 +15,15 @@ from pydantic import BaseModel, Field, model_validator
 # ============================================================================
 
 
+class ColumnsConfig(BaseModel):
+    """Configuration for metadata column selection."""
+
+    mode: Literal["auto", "explicit"] = "auto"
+    numeric_metadata: Optional[List[str]] = None
+    categorical_metadata: Optional[List[str]] = None
+    warn_missing_defaults: bool = True
+
+
 class SplitsConfig(BaseModel):
     """Configuration for data split generation."""
 
@@ -303,6 +312,7 @@ class TrainingConfig(BaseModel):
     model: str = "LR_EN"
 
     # Sub-configurations
+    columns: ColumnsConfig = Field(default_factory=ColumnsConfig)
     cv: CVConfig = Field(default_factory=CVConfig)
     features: FeatureConfig = Field(default_factory=FeatureConfig)
     panels: PanelConfig = Field(default_factory=PanelConfig)

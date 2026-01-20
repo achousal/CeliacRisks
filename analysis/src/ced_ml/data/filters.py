@@ -5,7 +5,7 @@ Provides consistent row filtering across split generation and training to ensure
 index alignment. Filters are applied before stratified splitting.
 """
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -16,6 +16,7 @@ def apply_row_filters(
     df: pd.DataFrame,
     drop_uncertain_controls: bool = True,
     dropna_meta_num: bool = True,
+    meta_num_cols: Optional[List[str]] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Apply row filters consistently across split generation and training.
@@ -31,9 +32,10 @@ def apply_row_filters(
        (required for modeling)
 
     Args:
-        df: DataFrame with CeD_comparison, CeD_date, age, BMI columns
+        df: DataFrame with CeD_comparison, CeD_date, and metadata columns
         drop_uncertain_controls: If True, drop Controls with CeD_date present
-        dropna_meta_num: If True, drop rows missing age or BMI
+        dropna_meta_num: If True, drop rows missing numeric metadata
+        meta_num_cols: Numeric metadata columns to check (defaults to schema META_NUM_COLS)
 
     Returns:
         (filtered_df, stats_dict) where stats_dict contains filtering statistics:
@@ -68,9 +70,10 @@ def apply_row_filters(
             df2 = df2.loc[~mask_uncertain].copy()
         stats["n_removed_uncertain_controls"] = n_uncertain
 
-    # Filter 2: Drop rows missing required numeric metadata (age, BMI)
+    # Filter 2: Drop rows missing required numeric metadata
     if dropna_meta_num:
-        meta_present = [c for c in META_NUM_COLS if c in df2.columns]
+        cols_to_check = meta_num_cols if meta_num_cols is not None else META_NUM_COLS
+        meta_present = [c for c in cols_to_check if c in df2.columns]
         if meta_present:
             n_before = len(df2)
             df2 = df2.dropna(subset=meta_present).copy()

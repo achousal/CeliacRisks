@@ -6,7 +6,7 @@ dtype coercion, and quality checks.
 """
 
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import pandas as pd
 
@@ -22,7 +22,10 @@ from ced_ml.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def usecols_for_proteomics() -> Callable[[str], bool]:
+def usecols_for_proteomics(
+    numeric_metadata: Optional[List[str]] = None,
+    categorical_metadata: Optional[List[str]] = None,
+) -> Callable[[str], bool]:
     """
     Create column filter function for pd.read_csv(usecols=...).
 
@@ -30,20 +33,26 @@ def usecols_for_proteomics() -> Callable[[str], bool]:
     - ID column (eid)
     - Target column (CeD_comparison)
     - Date column (CeD_date)
-    - Numeric metadata (age, BMI)
-    - Categorical metadata (sex, Genetic ethnic grouping)
+    - Numeric metadata (defaults to schema META_NUM_COLS if not specified)
+    - Categorical metadata (defaults to schema CAT_COLS if not specified)
     - Protein features (*_resid columns)
+
+    Args:
+        numeric_metadata: Numeric metadata columns to include (default: META_NUM_COLS)
+        categorical_metadata: Categorical metadata columns to include (default: CAT_COLS)
 
     Returns:
         Function that takes column name and returns True if column should be loaded
     """
+    num_cols = numeric_metadata if numeric_metadata is not None else META_NUM_COLS
+    cat_cols = categorical_metadata if categorical_metadata is not None else CAT_COLS
 
     def _filter(col: str) -> bool:
         if col in (ID_COL, TARGET_COL, CED_DATE_COL):
             return True
-        if col in META_NUM_COLS:
+        if col in num_cols:
             return True
-        if col in CAT_COLS:
+        if col in cat_cols:
             return True
         if isinstance(col, str) and col.endswith("_resid"):
             return True
