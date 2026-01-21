@@ -136,12 +136,12 @@ def resolve_columns(
 
 def get_available_columns_from_file(filepath: str, nrows: int = 1) -> List[str]:
     """
-    Read just the column names from a Parquet file without loading full data.
+    Read just the column names from a CSV or Parquet file without loading full data.
 
     Parameters
     ----------
     filepath : str
-        Path to Parquet file.
+        Path to CSV or Parquet file.
     nrows : int
         Number of rows to read (default: 1, minimal overhead).
 
@@ -155,7 +155,7 @@ def get_available_columns_from_file(filepath: str, nrows: int = 1) -> List[str]:
     FileNotFoundError
         If the file does not exist.
     ValueError
-        If the file is corrupted, incomplete, or not a valid Parquet file.
+        If the file is corrupted, incomplete, or not a valid CSV/Parquet file.
     """
     from pathlib import Path
 
@@ -176,37 +176,71 @@ def get_available_columns_from_file(filepath: str, nrows: int = 1) -> List[str]:
             f"The file may not have been created properly or transfer may have failed."
         )
 
-    # Parquet files have magic bytes 'PAR1' at start and end
-    # Minimum valid Parquet file is ~200 bytes
-    if file_size < 200:
+    # Detect file type based on extension
+    suffix = file_path.suffix.lower()
+
+    if suffix == ".csv":
+        # Handle CSV files
+        try:
+            import pandas as pd
+
+            # Read just the header to get column names
+            df = pd.read_csv(filepath, nrows=0)
+            return df.columns.tolist()
+
+        except Exception as e:
+            error_msg = (
+                f"Failed to read CSV file: {filepath}\n"
+                f"File size: {file_size:,} bytes\n"
+                f"Error: {str(e)}\n\n"
+                f"Common causes:\n"
+                f"  1. File transfer incomplete - verify full copy with: ls -lh {filepath}\n"
+                f"  2. Invalid CSV format - check delimiter and encoding\n"
+                f"  3. File corruption during write - regenerate the file\n\n"
+                f"Diagnostic steps:\n"
+                f"  1. Check file format: file {filepath}\n"
+                f"  2. Inspect first few lines: head -20 {filepath}\n"
+                f"  3. Check for encoding issues: file -i {filepath}\n"
+            )
+            raise ValueError(error_msg) from e
+
+    elif suffix == ".parquet":
+        # Handle Parquet files
+        # Minimum valid Parquet file is ~200 bytes
+        if file_size < 200:
+            raise ValueError(
+                f"Input file is suspiciously small ({file_size} bytes): {filepath}\n"
+                f"Parquet files are typically at least 200 bytes. The file may be corrupted or incomplete."
+            )
+
+        try:
+            import pyarrow.parquet as pq
+
+            # This will validate the file structure
+            parquet_file = pq.ParquetFile(filepath)
+            schema = parquet_file.schema_arrow
+            return schema.names
+
+        except Exception as e:
+            error_msg = (
+                f"Failed to read Parquet file: {filepath}\n"
+                f"File size: {file_size:,} bytes\n"
+                f"Error: {str(e)}\n\n"
+                f"Common causes on HPC:\n"
+                f"  1. File transfer incomplete - verify full copy with: ls -lh {filepath}\n"
+                f"  2. Network filesystem caching - try: cat {filepath} > /dev/null\n"
+                f"  3. File corruption during write - regenerate the file\n"
+                f"  4. Not a Parquet file - verify format with: file {filepath}\n\n"
+                f"Diagnostic steps:\n"
+                f"  1. Check file integrity: python -c \"import pyarrow.parquet as pq; pq.read_metadata('{filepath}')\"\n"
+                f"  2. Check file size on source vs destination\n"
+                f"  3. Try reading with: parquet-tools inspect {filepath}\n"
+            )
+            raise ValueError(error_msg) from e
+
+    else:
         raise ValueError(
-            f"Input file is suspiciously small ({file_size} bytes): {filepath}\n"
-            f"Parquet files are typically at least 200 bytes. The file may be corrupted or incomplete."
+            f"Unsupported file format: {suffix}\n"
+            f"File: {filepath}\n"
+            f"Supported formats: .csv, .parquet"
         )
-
-    try:
-        # Try using PyArrow's lower-level API for better error messages
-        import pyarrow.parquet as pq
-
-        # This will validate the file structure
-        parquet_file = pq.ParquetFile(filepath)
-        schema = parquet_file.schema_arrow
-        return schema.names
-
-    except Exception as e:
-        # Provide actionable diagnostics
-        error_msg = (
-            f"Failed to read Parquet file: {filepath}\n"
-            f"File size: {file_size:,} bytes\n"
-            f"Error: {str(e)}\n\n"
-            f"Common causes on HPC:\n"
-            f"  1. File transfer incomplete - verify full copy with: ls -lh {filepath}\n"
-            f"  2. Network filesystem caching - try: cat {filepath} > /dev/null\n"
-            f"  3. File corruption during write - regenerate the file\n"
-            f"  4. Not a Parquet file - verify format with: file {filepath}\n\n"
-            f"Diagnostic steps:\n"
-            f"  1. Check file integrity: python -c \"import pyarrow.parquet as pq; pq.read_metadata('{filepath}')\"\n"
-            f"  2. Check file size on source vs destination\n"
-            f"  3. Try reading with: parquet-tools inspect {filepath}\n"
-        )
-        raise ValueError(error_msg) from e

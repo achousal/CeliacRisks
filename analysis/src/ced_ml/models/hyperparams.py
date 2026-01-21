@@ -37,17 +37,14 @@ def get_param_distributions(
     randomize = grid_rng is not None
 
     # Feature selection parameters (if applicable)
-    feature_select = config.features.selection.method
+    feature_select = config.features.feature_select
     if feature_select in ("kbest", "hybrid"):
-        k_grid = config.features.selection.k_grid
+        k_grid = config.features.k_grid
         if not k_grid:
-            raise ValueError(f"feature_select={feature_select} requires features.selection.k_grid")
+            raise ValueError(f"feature_select={feature_select} requires features.k_grid")
 
-        kbest_scope = config.features.selection.kbest_scope
-        if kbest_scope == "protein":
-            param_dists["prot_sel__k"] = k_grid
-        else:
-            param_dists["sel__k"] = k_grid
+        # Always use 'sel' step name regardless of kbest_scope
+        param_dists["sel__k"] = k_grid
 
     # Model-specific parameters
     if model_name in ("LR_EN", "LR_L1"):
@@ -71,14 +68,14 @@ def _get_lr_params(
     """Logistic Regression hyperparameters."""
     # C values (inverse regularization strength)
     C_grid = _make_logspace(
-        config.models.lr.C_min,
-        config.models.lr.C_max,
-        config.models.lr.C_points,
+        config.lr.C_min,
+        config.lr.C_max,
+        config.lr.C_points,
         rng=rng if randomize else None,
     )
 
     # Class weights
-    class_weight_options = _parse_class_weight_options(config.models.lr.class_weight_options)
+    class_weight_options = _parse_class_weight_options(config.lr.class_weight_options)
 
     params = {"clf__C": C_grid}
     if class_weight_options:
@@ -93,14 +90,14 @@ def _get_svm_params(
     """Linear SVM hyperparameters (wrapped in CalibratedClassifierCV)."""
     # C values
     C_grid = _make_logspace(
-        config.models.svm.C_min,
-        config.models.svm.C_max,
-        config.models.svm.C_points,
+        config.svm.C_min,
+        config.svm.C_max,
+        config.svm.C_points,
         rng=rng if randomize else None,
     )
 
     # Class weights
-    class_weight_options = _parse_class_weight_options(config.models.svm.class_weight_options)
+    class_weight_options = _parse_class_weight_options(config.svm.class_weight_options)
 
     # Parameter prefix depends on sklearn version
     # Newer: estimator__C, older: base_estimator__C
@@ -116,11 +113,11 @@ def _get_rf_params(
     config: TrainingConfig, randomize: bool, rng: Optional[np.random.RandomState]
 ) -> Dict[str, List]:
     """Random Forest hyperparameters."""
-    n_estimators_grid = config.models.rf.n_estimators_grid.copy()
-    max_depth_grid = config.models.rf.max_depth_grid.copy()
-    min_samples_split_grid = config.models.rf.min_samples_split_grid.copy()
-    min_samples_leaf_grid = config.models.rf.min_samples_leaf_grid.copy()
-    max_features_grid = config.models.rf.max_features_grid.copy()
+    n_estimators_grid = config.rf.n_estimators_grid.copy()
+    max_depth_grid = config.rf.max_depth_grid.copy()
+    min_samples_split_grid = config.rf.min_samples_split_grid.copy()
+    min_samples_leaf_grid = config.rf.min_samples_leaf_grid.copy()
+    max_features_grid = config.rf.max_features_grid.copy()
 
     if randomize and rng:
         n_estimators_grid = _randomize_int_list(n_estimators_grid, rng, min_val=10)
@@ -138,7 +135,7 @@ def _get_rf_params(
     }
 
     # Class weights
-    class_weight_options = _parse_class_weight_options(config.models.rf.class_weight_options)
+    class_weight_options = _parse_class_weight_options(config.rf.class_weight_options)
     if class_weight_options:
         params["clf__class_weight"] = class_weight_options
 
@@ -152,18 +149,18 @@ def _get_xgb_params(
     rng: Optional[np.random.RandomState],
 ) -> Dict[str, List]:
     """XGBoost hyperparameters."""
-    n_estimators_grid = config.models.xgboost.n_estimators_grid.copy()
-    max_depth_grid = config.models.xgboost.max_depth_grid.copy()
-    learning_rate_grid = config.models.xgboost.learning_rate_grid.copy()
-    subsample_grid = config.models.xgboost.subsample_grid.copy()
-    colsample_grid = config.models.xgboost.colsample_bytree_grid.copy()
+    n_estimators_grid = config.xgboost.n_estimators_grid.copy()
+    max_depth_grid = config.xgboost.max_depth_grid.copy()
+    learning_rate_grid = config.xgboost.learning_rate_grid.copy()
+    subsample_grid = config.xgboost.subsample_grid.copy()
+    colsample_grid = config.xgboost.colsample_bytree_grid.copy()
 
     # Scale pos weight grid
     if xgb_spw is not None:
         # Use fold-specific value +/- 20%
         spw_grid = [xgb_spw * 0.8, xgb_spw, xgb_spw * 1.2]
     else:
-        spw_grid = config.models.xgboost.scale_pos_weight_grid.copy()
+        spw_grid = config.xgboost.scale_pos_weight_grid.copy()
 
     if randomize and rng:
         n_estimators_grid = _randomize_int_list(n_estimators_grid, rng, min_val=1)

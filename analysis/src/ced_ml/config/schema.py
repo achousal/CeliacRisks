@@ -5,6 +5,7 @@ Defines Pydantic models for all pipeline configuration parameters (~200 total).
 All defaults match the current implementation exactly for behavioral equivalence.
 """
 
+import os
 from pathlib import Path
 from typing import List, Literal, Optional, Union
 
@@ -114,6 +115,15 @@ class FeatureConfig(BaseModel):
     hybrid_kbest_first: bool = True
     hybrid_k_for_stability: int = 200
 
+    # RF permutation importance (for hybrid mode)
+    rf_use_permutation: bool = False
+    rf_perm_repeats: int = Field(default=5, ge=1)
+    rf_perm_min_importance: float = Field(default=0.0, ge=0.0)
+    rf_perm_top_n: int = Field(default=100, ge=1)
+
+    # Coefficient threshold (for L1 selection)
+    coef_threshold: float = Field(default=0.01, ge=0.0)
+
 
 # ============================================================================
 # Panel Building Configuration
@@ -141,21 +151,25 @@ class LRConfig(BaseModel):
     """Logistic Regression hyperparameters."""
 
     penalty: List[str] = Field(default_factory=lambda: ["l1", "l2", "elasticnet"])
-    C: List[float] = Field(default_factory=lambda: [0.001, 0.01, 0.1, 1.0, 10.0])
+    C_min: float = 0.001
+    C_max: float = 10.0
+    C_points: int = 5
     l1_ratio: List[float] = Field(default_factory=lambda: [0.1, 0.5, 0.9])
     solver: str = "saga"
     max_iter: int = 1000
-    class_weight: Optional[str] = "balanced"
+    class_weight_options: str = "balanced"
     random_state: int = 0
 
 
 class SVMConfig(BaseModel):
     """Support Vector Machine hyperparameters."""
 
-    C: List[float] = Field(default_factory=lambda: [0.01, 0.1, 1.0, 10.0])
+    C_min: float = 0.01
+    C_max: float = 10.0
+    C_points: int = 4
     kernel: List[str] = Field(default_factory=lambda: ["linear", "rbf"])
     gamma: List[Union[str, float]] = Field(default_factory=lambda: ["scale", "auto", 0.001, 0.01])
-    class_weight: Optional[str] = "balanced"
+    class_weight_options: str = "balanced"
     max_iter: int = 5000
     probability: bool = True
     random_state: int = 0
@@ -164,12 +178,14 @@ class SVMConfig(BaseModel):
 class RFConfig(BaseModel):
     """Random Forest hyperparameters."""
 
-    n_estimators: List[int] = Field(default_factory=lambda: [100, 300, 500])
-    max_depth: List[Optional[int]] = Field(default_factory=lambda: [None, 10, 20, 30])
-    min_samples_split: List[int] = Field(default_factory=lambda: [2, 5, 10])
-    min_samples_leaf: List[int] = Field(default_factory=lambda: [1, 2, 4])
-    max_features: List[Union[str, float]] = Field(default_factory=lambda: ["sqrt", "log2", 0.5])
-    class_weight: Optional[str] = "balanced"
+    n_estimators_grid: List[int] = Field(default_factory=lambda: [100, 300, 500])
+    max_depth_grid: List[Optional[int]] = Field(default_factory=lambda: [None, 10, 20, 30])
+    min_samples_split_grid: List[int] = Field(default_factory=lambda: [2, 5, 10])
+    min_samples_leaf_grid: List[int] = Field(default_factory=lambda: [1, 2, 4])
+    max_features_grid: List[Union[str, float]] = Field(
+        default_factory=lambda: ["sqrt", "log2", 0.5]
+    )
+    class_weight_options: str = "balanced"
     n_jobs: int = -1
     random_state: int = 0
 
@@ -177,16 +193,16 @@ class RFConfig(BaseModel):
 class XGBoostConfig(BaseModel):
     """XGBoost hyperparameters."""
 
-    n_estimators: List[int] = Field(default_factory=lambda: [100, 300, 500])
-    max_depth: List[int] = Field(default_factory=lambda: [3, 5, 7, 10])
-    learning_rate: List[float] = Field(default_factory=lambda: [0.01, 0.05, 0.1, 0.3])
-    min_child_weight: List[int] = Field(default_factory=lambda: [1, 3, 5])
-    gamma: List[float] = Field(default_factory=lambda: [0.0, 0.1, 0.2])
-    subsample: List[float] = Field(default_factory=lambda: [0.7, 0.8, 1.0])
-    colsample_bytree: List[float] = Field(default_factory=lambda: [0.7, 0.8, 1.0])
-    reg_alpha: List[float] = Field(default_factory=lambda: [0.0, 0.1, 1.0])
-    reg_lambda: List[float] = Field(default_factory=lambda: [1.0, 5.0, 10.0])
-    scale_pos_weight: str = "auto"
+    n_estimators_grid: List[int] = Field(default_factory=lambda: [100, 300, 500])
+    max_depth_grid: List[int] = Field(default_factory=lambda: [3, 5, 7, 10])
+    learning_rate_grid: List[float] = Field(default_factory=lambda: [0.01, 0.05, 0.1, 0.3])
+    min_child_weight_grid: List[int] = Field(default_factory=lambda: [1, 3, 5])
+    gamma_grid: List[float] = Field(default_factory=lambda: [0.0, 0.1, 0.2])
+    subsample_grid: List[float] = Field(default_factory=lambda: [0.7, 0.8, 1.0])
+    colsample_bytree_grid: List[float] = Field(default_factory=lambda: [0.7, 0.8, 1.0])
+    reg_alpha_grid: List[float] = Field(default_factory=lambda: [0.0, 0.1, 1.0])
+    reg_lambda_grid: List[float] = Field(default_factory=lambda: [1.0, 5.0, 10.0])
+    scale_pos_weight_grid: List[float] = Field(default_factory=lambda: [1.0, 2.0, 5.0])
     tree_method: str = "hist"
     n_jobs: int = -1
     random_state: int = 0
@@ -195,6 +211,7 @@ class XGBoostConfig(BaseModel):
 class CalibrationConfig(BaseModel):
     """Calibration wrapper configuration."""
 
+    enabled: bool = False
     method: Literal["sigmoid", "isotonic"] = "sigmoid"
     cv: int = 5
     ensemble: bool = False
@@ -230,6 +247,11 @@ class EvaluationConfig(BaseModel):
     test_ci_bootstrap: bool = True
     n_boot: int = Field(default=500, ge=100)
     boot_random_state: int = 0
+    bootstrap_min_samples: int = Field(
+        default=100,
+        ge=10,
+        description="Compute bootstrap CI only when test set has fewer than this many samples",
+    )
 
     # Learning curves
     learning_curve: bool = False
@@ -294,6 +316,13 @@ class StrictnessConfig(BaseModel):
     check_feature_leakage: bool = True
 
 
+class ComputeConfig(BaseModel):
+    """Configuration for compute resources."""
+
+    cpus: int = Field(default_factory=lambda: os.cpu_count() or 1)
+    tune_n_jobs: Optional[int] = None
+
+
 # ============================================================================
 # Master Training Configuration
 # ============================================================================
@@ -321,6 +350,7 @@ class TrainingConfig(BaseModel):
     dca: DCAConfig = Field(default_factory=DCAConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
     strictness: StrictnessConfig = Field(default_factory=StrictnessConfig)
+    compute: ComputeConfig = Field(default_factory=ComputeConfig)
 
     # Model-specific hyperparameters
     lr: LRConfig = Field(default_factory=LRConfig)

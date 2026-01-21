@@ -36,7 +36,7 @@ QUEUE="${QUEUE:-normal}"
 
 # Paths
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INFILE="${INFILE:-${BASE_DIR}/../data/Celiac_dataset_proteomics.csv}"
+INFILE="${INFILE:-${BASE_DIR}/../data/Celiac_dataset_proteomics.parquet}"
 SPLITS_DIR="${SPLITS_DIR:-${BASE_DIR}/splits_hpc}"
 RESULTS_DIR="${RESULTS_DIR:-${BASE_DIR}/results_hpc}"
 LOGS_DIR="${LOGS_DIR:-${BASE_DIR}/logs}"

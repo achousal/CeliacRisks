@@ -431,10 +431,10 @@ def _extract_selected_proteins_from_fold(
             selected_proteins.update(screen_selected)
 
     # Strategy 2: Extract from K-best selection (if present)
-    feature_select = config.features.selection.method
+    feature_select = config.features.feature_select
 
     if feature_select in ("kbest", "hybrid"):
-        kbest_scope = config.features.selection.kbest_scope
+        kbest_scope = config.features.kbest_scope
 
         if kbest_scope == "protein" and "prot_sel" in pipeline.named_steps:
             # Protein-level K-best
@@ -460,7 +460,7 @@ def _extract_selected_proteins_from_fold(
     if (
         feature_select == "hybrid"
         and model_name == "RF"
-        and config.features.selection.rf_use_permutation
+        and config.features.rf_use_permutation
     ):
         perm_proteins = _extract_from_rf_permutation(
             pipeline, X_train, y_train, protein_cols, config, random_state
@@ -500,7 +500,7 @@ def _extract_from_model_coefficients(
     pipeline: Pipeline, model_name: str, protein_cols: List[str], config: TrainingConfig
 ) -> set:
     """Extract protein names from linear model coefficients."""
-    coef_thresh = config.features.selection.coef_threshold
+    coef_thresh = config.features.coef_threshold
 
     # Get feature names
     pre = pipeline.named_steps["pre"]
@@ -587,7 +587,7 @@ def _extract_from_rf_permutation(
             X_train,
             y_train,
             scoring=config.cv.scoring,
-            n_repeats=config.features.selection.rf_perm_repeats,
+            n_repeats=config.features.rf_perm_repeats,
             random_state=random_state,
             n_jobs=1,  # Already inside parallel context
         )
@@ -614,7 +614,7 @@ def _extract_from_rf_permutation(
         return set()
 
     # Filter by minimum importance
-    min_imp = config.features.selection.rf_perm_min_importance
+    min_imp = config.features.rf_perm_min_importance
     filtered = [(p, v) for p, v in protein_importance.items() if v >= min_imp]
 
     if not filtered:
@@ -623,7 +623,7 @@ def _extract_from_rf_permutation(
 
     # Sort by importance and take top N
     filtered.sort(key=lambda x: x[1], reverse=True)
-    top_n = config.features.selection.rf_perm_top_n
+    top_n = config.features.rf_perm_top_n
     top_proteins = [p for p, _ in filtered[:top_n]]
 
     return set(top_proteins)

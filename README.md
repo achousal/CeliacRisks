@@ -3,7 +3,7 @@
 **A production-ready machine learning pipeline for disease risk prediction from high-dimensional biomarker data**
 
 ![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)
-![Tests](https://img.shields.io/badge/tests-753%20passing-success)
+![Tests](https://img.shields.io/badge/tests-768%20passing-success)
 ![Coverage](https://img.shields.io/badge/coverage-82%25-brightgreen)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
@@ -26,6 +26,8 @@ CeliacRiskML is a modular, extensible machine learning framework for **disease r
 ## Features
 
 ### Flexible Data Processing
+- Support for CSV and Parquet file formats (auto-detected)
+- Configurable metadata columns (auto-detect or explicit specification)
 - Stratified train/validation/test splits with customizable ratios
 - Support for incident/prevalent case scenarios
 - Handling of class imbalance via downsampling and class weighting
@@ -48,6 +50,7 @@ CeliacRiskML is a modular, extensible machine learning framework for **disease r
 - Calibration plots (reliability diagrams)
 - Risk distribution histograms
 - Decision curve analysis plots
+- Out-of-fold (OOF) prediction plots with confidence bands
 - Feature importance summaries
 
 ---
@@ -120,10 +123,10 @@ For detailed CLI usage, see [analysis/CLAUDE.md](analysis/CLAUDE.md).
 ### 1. Configure Data Schema
 ```yaml
 # configs/training_config.yaml
-data:
-  outcome_col: "your_outcome_column"
-  feature_prefix: "your_biomarker_prefix"
-  demographics: ["age", "sex", "ethnicity"]
+columns:
+  mode: auto  # or "explicit" for custom metadata columns
+  # numeric_metadata: [age, bmi]  # if mode=explicit
+  # categorical_metadata: [sex, ethnicity]  # if mode=explicit
 ```
 
 ### 2. Adjust Split Strategy

@@ -247,7 +247,7 @@ def binary_metrics_at_threshold(y_true: np.ndarray, p: np.ndarray, thr: float) -
         Dictionary containing:
         - threshold: Applied threshold
         - precision: TP / (TP + FP)
-        - recall: TP / (TP + FN) = sensitivity
+        - sensitivity: TP / (TP + FN) = recall = TPR
         - f1: F1-score
         - specificity: TN / (TN + FP)
         - tp, fp, tn, fn: Confusion matrix counts
@@ -267,7 +267,7 @@ def binary_metrics_at_threshold(y_true: np.ndarray, p: np.ndarray, thr: float) -
     return {
         "threshold": float(thr),
         "precision": float(prec),
-        "recall": float(rec),
+        "sensitivity": float(rec),
         "f1": float(f1),
         "specificity": float(spec),
         "tp": int(tp),

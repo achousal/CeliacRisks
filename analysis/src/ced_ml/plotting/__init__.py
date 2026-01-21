@@ -20,6 +20,7 @@ from ced_ml.plotting.risk_dist import (
     compute_distribution_stats,
     plot_risk_distribution,
 )
+from ced_ml.plotting.oof import plot_oof_combined
 from ced_ml.plotting.roc_pr import plot_pr_curve, plot_roc_curve
 
 __all__ = [
@@ -41,4 +42,6 @@ __all__ = [
     "plot_learning_curve",
     "plot_learning_curve_summary",
     "save_learning_curve_csv",
+    # OOF combined plots
+    "plot_oof_combined",
 ]

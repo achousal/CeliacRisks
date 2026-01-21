@@ -16,6 +16,8 @@ import numpy as np
 from matplotlib.lines import Line2D
 from scipy.stats import gaussian_kde
 
+from .dca import apply_plot_metadata
+
 
 def compute_distribution_stats(scores: np.ndarray) -> Dict[str, float]:
     """Compute summary statistics for a distribution of scores.
@@ -41,31 +43,6 @@ def compute_distribution_stats(scores: np.ndarray) -> Dict[str, float]:
         "iqr": float(q3 - q1),
         "sd": float(np.std(scores)),
     }
-
-
-def _apply_plot_metadata(
-    fig: matplotlib.figure.Figure, meta_lines: Optional[Sequence[str]] = None
-) -> float:
-    """Apply metadata text to bottom of figure, return required bottom margin.
-
-    Args:
-        fig: matplotlib figure object
-        meta_lines: sequence of metadata strings to display
-
-    Returns:
-        Required bottom margin as fraction of figure height (0.0 to 1.0)
-    """
-    lines = [str(line) for line in (meta_lines or []) if line]
-    if not lines:
-        return 0.10  # Default minimum bottom margin
-
-    # Position metadata at very bottom with fixed offset from edge
-    fig.text(0.5, 0.005, "\n".join(lines), ha="center", va="bottom", fontsize=8, wrap=True)
-
-    # Calculate required bottom margin: base + space per line
-    # Each line ~0.015 height + small padding
-    required_bottom = 0.10 + (0.018 * len(lines))
-    return min(required_bottom, 0.30)  # Cap at 30% to avoid excessive margin
 
 
 def plot_risk_distribution(
@@ -152,19 +129,19 @@ def plot_risk_distribution(
         # Single plot: use different aspect ratios for KDE vs histogram
         height_ratios = [1]
         if category_col is not None:
-            # KDE plot with categories: 16:9 aspect ratio
-            figsize = (12, 6.75)
+            # KDE plot with categories: 4:1 aspect ratio
+            figsize = (12, 3)
         else:
             # Histogram or controls distribution: 3:2 aspect ratio
             figsize = (9, 6)
     elif n_subplots == 2:
-        # Main + 1 strip plot: maintain 3:2 overall aspect
-        height_ratios = [9, 1]
-        figsize = (9, 10)
+        # Main + 1 KDE subplot: each KDE subplot is 3:2
+        height_ratios = [3, 2]
+        figsize = (9, 15)
     else:
-        # Main + 2 strip plots: maintain 3:2 overall aspect
-        height_ratios = [9, 1, 1]
-        figsize = (9, 11)
+        # Main + 2 KDE subplots: each KDE subplot is 3:2
+        height_ratios = [3, 2, 2]
+        figsize = (9, 21)
 
     fig, axes = plt.subplots(n_subplots, 1, figsize=figsize, height_ratios=height_ratios)
     if n_subplots == 1:
@@ -250,16 +227,14 @@ def plot_risk_distribution(
         if ax_main.get_legend_handles_labels()[0]:
             ax_main.legend(loc="upper right", fontsize=10)
 
-    # Add threshold lines and annotations
+    # Add threshold lines (without labels - will be added to legend separately)
     if spec95_threshold is not None and 0 <= spec95_threshold <= 1:
-        spec_label = f"{target_spec*100:.0f}% Spec"
         ax_main.axvline(
             spec95_threshold,
             color="red",
             linestyle="--",
             linewidth=2,
             alpha=0.7,
-            label=spec_label,
         )
 
     if youden_threshold is not None and 0 <= youden_threshold <= 1:
@@ -269,7 +244,6 @@ def plot_risk_distribution(
             linestyle="--",
             linewidth=2,
             alpha=0.7,
-            label="Youden",
         )
 
     if dca_threshold is not None and 0 <= dca_threshold <= 1:
@@ -279,7 +253,6 @@ def plot_risk_distribution(
             linestyle="--",
             linewidth=2,
             alpha=0.7,
-            label="DCA Threshold",
         )
 
     # Create comprehensive legend with threshold metrics
@@ -296,10 +269,10 @@ def plot_risk_distribution(
         line_handle = Line2D([0], [0], color="red", linestyle="--", linewidth=2, alpha=0.7)
         threshold_handles.append(line_handle)
 
-        # Multi-line label format
-        label_text = f"{target_spec*100:.0f}% Spec\n"
+        # Multi-line label format with each metric on separate line
+        label_text = f"{target_spec*100:.0f}% Spec"
         if not np.isnan(sens) and not np.isnan(ppv) and not np.isnan(fp):
-            label_text += f"Sens {sens*100:.1f}%, PPV {ppv*100:.1f}%, FP: {int(fp)}"
+            label_text += f"\nSens: {sens*100:.1f}%\nPPV: {ppv*100:.1f}%\nFP: {int(fp)}"
         threshold_labels.append(label_text)
 
     if youden_threshold is not None and metrics_at_thresholds and "youden" in metrics_at_thresholds:
@@ -311,10 +284,10 @@ def plot_risk_distribution(
         line_handle = Line2D([0], [0], color="green", linestyle="--", linewidth=2, alpha=0.7)
         threshold_handles.append(line_handle)
 
-        # Multi-line label format
-        label_text = "Youden\n"
+        # Multi-line label format with each metric on separate line
+        label_text = "Youden"
         if not np.isnan(sens) and not np.isnan(ppv) and not np.isnan(fp):
-            label_text += f"Sens {sens*100:.1f}%, PPV {ppv*100:.1f}%, FP: {int(fp)}"
+            label_text += f"\nSens: {sens*100:.1f}%\nPPV: {ppv*100:.1f}%\nFP: {int(fp)}"
         threshold_labels.append(label_text)
 
     if dca_threshold is not None and metrics_at_thresholds and "dca" in metrics_at_thresholds:
@@ -326,10 +299,10 @@ def plot_risk_distribution(
         line_handle = Line2D([0], [0], color="purple", linestyle="--", linewidth=2, alpha=0.7)
         threshold_handles.append(line_handle)
 
-        # Multi-line label format
-        label_text = "DCA\n"
+        # Multi-line label format with each metric on separate line
+        label_text = "DCA"
         if not np.isnan(sens) and not np.isnan(ppv) and not np.isnan(fp):
-            label_text += f"Sens {sens*100:.1f}%, PPV {ppv*100:.1f}%, FP: {int(fp)}"
+            label_text += f"\nSens: {sens*100:.1f}%\nPPV: {ppv*100:.1f}%\nFP: {int(fp)}"
         threshold_labels.append(label_text)
 
     # Combine all handles and labels
@@ -506,7 +479,7 @@ def plot_risk_distribution(
             ax_main.set_xlabel(xlabel)
 
     # Apply metadata and adjust layout
-    bottom_margin = _apply_plot_metadata(fig, meta_lines) if meta_lines else 0.1
+    bottom_margin = apply_plot_metadata(fig, meta_lines) if meta_lines else 0.1
     plt.subplots_adjust(left=0.12, right=0.70, top=0.92, bottom=bottom_margin, hspace=0.3)
-    plt.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.1)
+    plt.savefig(out_path, dpi=150)
     plt.close()

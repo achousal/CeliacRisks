@@ -11,6 +11,8 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from .dca import apply_plot_metadata
+
 try:
     import matplotlib
 
@@ -26,26 +28,6 @@ try:
     _HAS_PLOTTING = True
 except ImportError:
     _HAS_PLOTTING = False
-
-
-def _apply_plot_metadata(fig, meta_lines: Optional[Sequence[str]] = None) -> float:
-    """
-    Apply metadata text to bottom of figure, return required bottom margin.
-
-    Args:
-        fig: matplotlib figure object
-        meta_lines: sequence of metadata strings to display
-
-    Returns:
-        Required bottom margin as fraction of figure height (0.0 to 1.0)
-    """
-    lines = [str(line) for line in (meta_lines or []) if line]
-    if not lines:
-        return 0.10
-
-    fig.text(0.5, 0.005, "\n".join(lines), ha="center", va="bottom", fontsize=8, wrap=True)
-    required_bottom = 0.10 + (0.018 * len(lines))
-    return min(required_bottom, 0.30)
 
 
 def plot_roc_curve(
@@ -206,7 +188,7 @@ def plot_roc_curve(
     ax.legend(loc="lower right", fontsize=9)
     ax.grid(True, alpha=0.2)
 
-    bottom_margin = _apply_plot_metadata(fig, meta_lines)
+    bottom_margin = apply_plot_metadata(fig, meta_lines)
     plt.subplots_adjust(left=0.15, right=0.9, top=0.8, bottom=bottom_margin)
     plt.savefig(out_path, dpi=150, pad_inches=0.1)
     plt.close()
@@ -338,7 +320,7 @@ def plot_pr_curve(
     ax.legend(loc="upper right", fontsize=9)
     ax.grid(True, alpha=0.2)
 
-    bottom_margin = _apply_plot_metadata(fig, meta_lines)
+    bottom_margin = apply_plot_metadata(fig, meta_lines)
     plt.subplots_adjust(left=0.15, right=0.9, top=0.8, bottom=bottom_margin)
     plt.savefig(out_path, dpi=150, pad_inches=0.1)
     plt.close()

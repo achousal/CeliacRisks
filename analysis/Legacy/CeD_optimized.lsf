@@ -1,0 +1,847 @@
+#!/bin/bash
+#==============================================================
+# CeD_optimized.lsf
+#
+# CONFIGURATION (Full Robust Implementation)
+#
+# Pipeline outline:
+#   1. Runs IncidentPlusPrevalent with Prevalent included in TRAIN only (VAL/TEST are Incident-only).
+#   2. Trains four production models: RF, XGBoost, LinSVM_cal, and LR_EN.
+#   3. Uses neg_brier_score with 5-fold inner CV for stable tuning.
+#   4. Uses 25% VAL and 25% TEST splits (INCIDENT-only in VAL/TEST).
+#   5. Assumes clean proteomic features (no extra missing-data juggling).
+#   6. Supports repeated split sweeps (10 seeds) plus holdout validation gating.
+#   7. Emits Decision Curve Analysis artifacts for deployment review.
+#   8. Provides a sensitivity mode for screen_top_n diagnostics.
+#
+# NORMAL MODE (SENSITIVITY_MODE=0, default):
+#   Array mapping (LSB_JOBINDEX 1..4):
+#   1 scenario × 4 models = 4 jobs
+#   Models: RF, XGBoost, LinSVM_cal, LR_EN
+#
+# SENSITIVITY MODE (SENSITIVITY_MODE=1):
+#   Array mapping (LSB_JOBINDEX 1..20):
+#   4 models × 5 screen_top_n values = 20 jobs
+#   screen_top_n: 500, 1000, 2000, 3000, 0 (ALL)
+#   Results in: results/ML/.../sensitivity/screen{N}/...
+#
+# Usage:
+#   # Normal production run (4 jobs)
+#   bsub < CeD_optimized.lsf
+#
+#   # Sensitivity analysis (20 jobs)
+#   SENSITIVITY_MODE=1 bsub -J "CeD_sens[1-20]" < CeD_optimized.lsf
+#
+#   # Then aggregate results:
+#   python postprocess_compare.py --mode sensitivity --results_dir results/ML/.../sensitivity
+#==============================================================
+
+# NOTE: Scheduler resources are now controlled by run.sh (per-model submissions).
+#       This script no longer embeds #BSUB directives to avoid conflicting settings.
+
+set -euo pipefail
+IFS=$'\n\t'
+
+#==============================================================
+# PATH RESOLUTION
+#==============================================================
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" 2>/dev/null)" && pwd 2>/dev/null || echo "${PWD}")"
+ROOT="${ROOT:-${BASE_DIR:-${LS_SUBCWD:-${LSB_SUBCWD:-${SCRIPT_DIR}}}}}"
+
+if command -v realpath >/dev/null 2>&1; then
+  ROOT="$(realpath "$ROOT")"
+else
+  ROOT="$(cd "$ROOT" && pwd)"
+fi
+BASE_DIR="$ROOT"
+
+LOGS_DIR="${LOGS_DIR:-${BASE_DIR}/logs}"
+SPLITS_DIR="${SPLITS_DIR:-${BASE_DIR}/splits}"
+RESULTS_ROOT="${RESULTS_ROOT:-${RESULTS_DIR:-${BASE_DIR}/results}}"
+INFILE="${INFILE:-${BASE_DIR}/../Celiac_dataset_proteomics.csv}"
+PY_SCRIPT="${PY_SCRIPT:-${BASE_DIR}/celiacML_faith.py}"
+
+if [[ "${RESULTS_ROOT}" != /* ]]; then RESULTS_ROOT="${BASE_DIR}/${RESULTS_ROOT}"; fi
+if [[ "${SPLITS_DIR}" != /* ]]; then SPLITS_DIR="${BASE_DIR}/${SPLITS_DIR}"; fi
+if [[ "${LOGS_DIR}" != /* ]]; then LOGS_DIR="${BASE_DIR}/${LOGS_DIR}"; fi
+
+cd "$BASE_DIR"
+mkdir -p "$LOGS_DIR" "$SPLITS_DIR" "$RESULTS_ROOT"
+
+#==============================================================
+# PATH VALIDATION
+#==============================================================
+validate_paths() {
+  local errors=0
+  [[ -f "$INFILE"    ]] || { echo "ERROR: missing INFILE: $INFILE" >&2; errors=$((errors+1)); }
+  [[ -f "$PY_SCRIPT" ]] || { echo "ERROR: missing PY_SCRIPT: $PY_SCRIPT" >&2; errors=$((errors+1)); }
+  [[ -d "$SPLITS_DIR" ]] || { echo "ERROR: missing SPLITS_DIR: $SPLITS_DIR" >&2; errors=$((errors+1)); }
+
+  if ! ls "$SPLITS_DIR"/*_train_idx.csv >/dev/null 2>&1 && \
+     ! ls "$SPLITS_DIR"/*_train_idx_seed*.csv >/dev/null 2>&1; then
+    echo "WARNING: no *_train_idx.csv or *_train_idx_seed*.csv files found in $SPLITS_DIR" >&2
+  fi
+
+  [[ $errors -eq 0 ]] || { echo "FATAL: $errors path validation error(s)." >&2; exit 1; }
+}
+validate_paths
+
+echo "[LSF] ============================================"
+echo "[LSF] RUN - Full Robust Implementation"
+echo "[LSF] ============================================"
+echo "[LSF]   ROOT=${ROOT}"
+echo "[LSF]   INFILE=${INFILE}"
+echo "[LSF]   SPLITS_DIR=${SPLITS_DIR}"
+echo "[LSF]   RESULTS_ROOT=${RESULTS_ROOT}"
+echo "[LSF] ============================================"
+
+#==============================================================
+# HPC RESOURCE MANAGEMENT
+#==============================================================
+CPUS="${LSB_DJOB_NUMPROC:-16}"
+
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export BLIS_NUM_THREADS=1
+export VECLIB_MAXIMUM_THREADS=1
+export OMP_DYNAMIC=FALSE
+export MKL_DYNAMIC=FALSE
+export LOKY_MAX_CPU_COUNT="${CPUS}"
+
+export JOBLIB_TEMP_FOLDER="/tmp/${USER}/joblib_${LSB_JOBID}_${LSB_JOBINDEX}"
+export TMPDIR="${JOBLIB_TEMP_FOLDER}"
+mkdir -p "${JOBLIB_TEMP_FOLDER}"
+cleanup(){ rm -rf "${JOBLIB_TEMP_FOLDER}" >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+
+#==============================================================
+# ENVIRONMENT ACTIVATION
+#==============================================================
+if command -v module >/dev/null 2>&1; then
+  module load anaconda3 >/dev/null 2>&1 || module load anaconda >/dev/null 2>&1 || true
+fi
+if command -v conda >/dev/null 2>&1; then
+  source "$(conda info --base)/etc/profile.d/conda.sh"
+  conda activate csb || conda activate base
+else
+  source activate csb 2>/dev/null || source activate base 2>/dev/null || true
+fi
+echo "[LSF] Python: $(which python)"
+echo "[LSF] Conda env: ${CONDA_DEFAULT_ENV:-none}"
+
+#==============================================================
+# JOB ARRAY MAPPING
+#==============================================================
+# Allow external submission scripts to override the LSB job index.
+MODEL_IDX_ENV="${LSB_JOBINDEX:-}"
+if [[ -z "${MODEL_IDX_ENV}" || "${MODEL_IDX_ENV}" == "0" ]]; then
+  MODEL_IDX_ENV="${MODEL_IDX_OVERRIDE:-}"
+fi
+if [[ -z "${MODEL_IDX_ENV}" ]]; then
+  echo "ERROR: Model index is undefined. Submit via bsub -J 'job[1-4]' or set MODEL_IDX_OVERRIDE."
+  exit 2
+fi
+# Use MODEL_IDX_ENV directly; only override LSB_JOBINDEX if it's not already set by LSF
+if [[ -z "${LSB_JOBINDEX}" ]]; then
+  export LSB_JOBINDEX="${MODEL_IDX_ENV}"
+fi
+
+#  IncidentPlusPrevalent scenario (prevalent used in TRAIN only via splits)
+#  4 models (RF XGBoost LinSVM_cal LR_EN)
+SCENARIOS=(IncidentPlusPrevalent)
+MODELS=(RF XGBoost LinSVM_cal LR_EN)
+
+# Sensitivity mode expands array: 4 models × 5 screen_top_n values = 20 jobs
+# Normal mode: 4 jobs (1 per model)
+SENSITIVITY_MODE="${SENSITIVITY_MODE:-0}"
+declare -a SENSITIVITY_SCREEN_VALUES=(500 1000 2000 3000 0)
+N_SENSITIVITY_VALUES=${#SENSITIVITY_SCREEN_VALUES[@]}
+
+if [[ "${SENSITIVITY_MODE}" -eq 1 ]]; then
+  # Sensitivity mode: index maps to (model, screen_top_n) pairs
+  # Jobs 1-20: model_idx = (idx-1) % 4, screen_idx = (idx-1) / 4
+  TASK_ID=$(( LSB_JOBINDEX - 1 ))
+  MODEL_IDX=$(( TASK_ID % ${#MODELS[@]} ))
+  SCREEN_IDX=$(( TASK_ID / ${#MODELS[@]} ))
+  SCEN_IDX=0  # Always IncidentOnly for sensitivity
+
+  if [[ "${SCREEN_IDX}" -ge "${N_SENSITIVITY_VALUES}" ]]; then
+    echo "ERROR: LSB_JOBINDEX=${LSB_JOBINDEX} out of range for sensitivity mode (max 20)"
+    exit 2
+  fi
+
+  # Override SCREEN_TOP_N for this job
+  SCREEN_TOP_N=${SENSITIVITY_SCREEN_VALUES[$SCREEN_IDX]}
+  SENSITIVITY_LABEL="screen${SCREEN_TOP_N}"
+  [[ "${SCREEN_TOP_N}" -eq 0 ]] && SENSITIVITY_LABEL="screenALL"
+
+  echo "[SENSITIVITY MODE] Testing screen_top_n=${SCREEN_TOP_N}"
+else
+  # Normal mode: 4 jobs for 4 models
+  TASK_ID=$(( LSB_JOBINDEX - 1 ))
+  SCEN_IDX=$(( TASK_ID / ${#MODELS[@]} ))
+  MODEL_IDX=$(( TASK_ID % ${#MODELS[@]} ))
+  SENSITIVITY_LABEL=""
+
+  if [[ "${SCEN_IDX}" -ge "${#SCENARIOS[@]}" ]]; then
+    echo "ERROR: LSB_JOBINDEX=${LSB_JOBINDEX} out of range (max 4 for optimized pipeline)"
+    exit 2
+  fi
+fi
+
+SCEN=${SCENARIOS[$SCEN_IDX]}
+MODEL=${MODELS[$MODEL_IDX]}
+
+#==============================================================#
+#
+#
+#==============================================================#
+#
+#
+#==============================================================#
+# CORE CROSS-VALIDATION PARAMETERS
+#==============================================================
+FOLDS=2
+REPEATS=2
+RANDOM_STATE=0                          # Base random state (overridden for repeated splits)
+
+# TEMPORAL VALIDATION (for cohort-based studies with follow-up)
+TEMPORAL_SPLIT=${TEMPORAL_SPLIT:-0}
+TEMPORAL_COL=${TEMPORAL_COL:-CeD_date}
+
+#==============================================================
+# HYPERPARAMETER TUNING (Inner CV)
+#==============================================================
+SCORING=roc_auc                         # Options: "roc_auc" (discrimination), "average_precision" (imbalanced), "neg_brier_score" (calibration)                                  
+INNER_FOLDS=2
+N_ITER=2
+TUNE_N_JOBS=$CPUS                       # Parallel jobs for inner CV tuning (CPUS available)
+ERROR_SCORE=nan
+GRID_RANDOMIZE=${GRID_RANDOMIZE:-1}
+GRID_RANDOMIZE_K=${GRID_RANDOMIZE_K:-1}
+
+# RF/XGBoost: avoid nested parallelism
+if [[ "$MODEL" == "RF" ]] || [[ "$MODEL" == "XGBoost" ]]; then
+  TUNE_N_JOBS=1
+fi
+
+#==============================================================
+# PREPROCESSING
+#==============================================================
+
+# Keep variance filter (low-variance proteins may still exist)
+VAR_PREFILTER=0
+MIN_VAR=0.001             # Only if VAR_PREFILTER=1
+VAR_STRICT=0
+
+#==============================================================
+# FEATURE SELECTION (Dimensionality Reduction)
+#==============================================================
+FEATURE_SELECT=hybrid                   # "none" (use all), "kbest" (univariate), "l1_stability" (L1 coef), "hybrid" (screen+kbest)
+KBEST_SCOPE=protein                    # "protein" = select from proteins, "transformed" = select from PCA/scaled features
+KBEST_MAX=800                           # Maximum K value to test in grid search
+K_GRID=25,50,100,200,300,400,600,800
+STABILITY_THRESH=0.75                   # Minimum frequency of feature selection across CV folds (0-1)
+                                        # Higher = more stable/conservative features
+
+# PRE-SCREENING (Univariate filter before K-best selection)
+SCREEN_METHOD=mannwhitney              # Statistical test for pre-screening: "mannwhitney" or "f_classif"
+SCREEN_TOP_N=1000                       # 0 = keep all
+SCREEN_MIN_N_PER_GROUP=20              # Minimum samples per class required to include feature in screen
+                                        # Filters out proteins with very imbalanced/sparse distribution
+
+# CORRELATION-BASED FILTERING
+STABLE_CORR_THRESH=0.85                # Pearson correlation threshold for removing redundant features
+
+#==============================================================
+# PANEL BUILDING (Practical biomarker panels for clinical deployment)
+#==============================================================
+BUILD_PANELS="${BUILD_PANELS:-1}"
+PANEL_SIZES="${PANEL_SIZES:-10,25,50,100,200,400,800}" 
+PANEL_CORR_THRESH="${PANEL_CORR_THRESH:-0.85}" 
+PANEL_CORR_METHOD="${PANEL_CORR_METHOD:-spearman}"  # Correlation metric: "pearson" or "spearman"
+PANEL_REP_TIEBREAK="${PANEL_REP_TIEBREAK:-freq_then_univariate}" 
+                                               # "freq" = by selection frequency across folds
+                                               # "freq_then_univariate" = frequency first, then univariate pvalue
+PANEL_REFIT="${PANEL_REFIT:-1}"
+PANEL_STABILITY_MODE="${PANEL_STABILITY_MODE:-rskf}"  # "rskf" (repeated stratified) or "audit" (random sample)
+PANEL_AUDIT_FRAC="${PANEL_AUDIT_FRAC:-0.20}" # Fraction of samples for audit assessment (if PANEL_STABILITY_MODE=audit)
+PANEL_AUDIT_SEED="${PANEL_AUDIT_SEED:-2026}" # Random seed for audit assessment
+
+#==============================================================
+# MODEL-SPECIFIC: LOGISTIC REGRESSION WITH ELASTICNET (LR_EN)
+#==============================================================
+LR_MAX_ITER=20000
+LR_TOL=1e-4                             # Tolerance for convergence criterion (smaller = stricter, slower)
+# Regularization strength C (1/lambda): inverse of regularization
+# Larger C = less regularization (allow more overfitting), smaller C = more regularization (simpler model)
+LR_C_MIN=1e-4                           # Minimum C (strong regularization)
+LR_C_MAX=1e1                            # Maximum C (weak regularization, range 1e-4 to 10)
+LR_C_POINTS=20                          # Number of C values to test in grid (log-spaced)
+
+# L1 Ratio: balance between L1 (feature selection) and L2 (ridge)
+# 0 = pure L2 (Ridge), 1 = pure L1 (Lasso), 0.5 = equal mix (ElasticNet)
+LR_L1_RATIO_GRID=0.01,0.05,0.10,0.20,0.25,0.40,0.50,0.60
+                                        # L1 ratios to test; range from 0.01 (mostly L2) to 0.60 (balanced)
+                                        # Higher L1 ratio = more aggressive feature selection
+
+LR_CLASS_WEIGHT_OPTIONS=balanced        # Class weight handling: "balanced" (adjust weights by class frequency) or "none"
+                                        # "balanced" helps with severe class imbalance (1:295 case:control ratio)
+
+#==============================================================
+# MODEL-SPECIFIC: LINEAR SVM WITH SIGMOID CALIBRATION (LinSVM_cal)
+#==============================================================
+# Linear Support Vector Machine: separates classes with maximum margin hyperplane
+# Applied with Sigmoid calibration to convert raw scores to probabilities
+# Particularly useful for high-dimensional data (2,920 proteins)
+
+SVM_MAX_ITER=15000                      # Maximum iterations for optimization (increase if model doesn't converge)
+
+# Regularization strength C (inverse of regularization)
+# Larger C = less regularization (fit training data closely), smaller C = more regularization (smoother decision boundary)
+SVM_C_MIN=1e-4                          # Minimum C (strong regularization, smoother boundary)
+SVM_C_MAX=1e4                           # Maximum C (weak regularization, range 1e-4 to 10,000)
+SVM_C_POINTS=10                         # Number of C values to test in grid (log-spaced)
+
+SVM_CLASS_WEIGHT_OPTIONS=balanced       # Class weight handling: "balanced" (weight by 1/class_freq) or "none"
+                                        # "balanced" critical for SVM with severe class imbalance
+
+# POST-TRAINING CALIBRATION (probability matching)
+CALIBRATION_METHOD=sigmoid              # "sigmoid" (Platt scaling, default) or "isotonic" (more flexible but needs more data)
+                                        # sigmoid: fits a sigmoid curve mapping raw SVM scores to probabilities
+                                        # isotonic: isotonic regression (more flexible, may overfit with small N)
+
+CALIBRATION_CV=5                        # CV folds for calibration curve fitting (higher = more robust but slower)
+
+#==============================================================
+# MODEL-SPECIFIC: RANDOM FOREST (RF)
+#==============================================================
+# Ensemble of decision trees with random feature subsets
+# Advantages: Non-linear, feature importance, robust to outliers
+# Challenges: Can overfit with many features, computationally expensive
+
+# PRIMARY HYPERPARAMETERS (tuned in inner CV)
+RF_MAX_DEPTH_GRID=8,10,12,14             # Tree depth limits: controls complexity
+                                        # Deeper trees = more expressiveness but higher overfitting risk
+                                        # Typical range 8-14 for proteomics data
+
+RF_MIN_SAMPLES_LEAF_GRID=2,4,6          # Minimum samples required in leaf node
+                                        # Higher = larger leaves, smoother splits (less overfitting)
+                                        # 2-6 typical for 500+ sample TRAIN sets
+
+RF_CLASS_WEIGHT_OPTIONS=balanced,balanced_subsample
+                                        # Class weight strategy for imbalance handling
+                                        # "balanced": weight by 1/class_freq globally
+                                        # "balanced_subsample": weight by class freq in each bootstrap sample (more adaptive)
+
+# SECONDARY HYPERPARAMETERS (fixed, less sensitive)
+RF_N_ESTIMATORS_GRID=100,200,400        # Number of trees in forest
+                                        # More trees = better averaging, diminishing returns after ~200
+
+RF_MAX_FEATURES_GRID=sqrt,0.2,0.3,0.4             # Fraction of features to consider for each split
+                                        # Lower = more diversity, higher = closer to full feature set
+                                        # 0.2-0.3 typical for 1000+ features
+
+RF_BOOTSTRAP=1                          # 1=use bootstrap samples, 0=use full dataset (bootstrap recommended)
+
+RF_MAX_SAMPLES=0.8                      # Fraction of samples per bootstrap (0.8 = subsample to 80%)
+
+#==============================================================
+# MODEL-SPECIFIC: XGBOOST (Gradient Boosting)
+#==============================================================
+# Sequential ensemble of decision trees with gradient optimization
+# Each tree corrects errors from previous trees
+# Advantages: Excellent predictive power, handles non-linearity, importance ranking
+# Challenges: Prone to overfitting, requires careful tuning
+
+# PRIMARY HYPERPARAMETERS (tuned in inner CV)
+XGB_N_ESTIMATORS_GRID=500,1000          # Number of boosting rounds (sequential trees)
+                                        # More = better fit but higher computational cost and overfitting risk
+
+XGB_MAX_DEPTH_GRID=3,7                  # Maximum tree depth (shallow = simpler, deeper = more expressive)
+                                        # 3-7 typical; deeper trees (>10) risk overfitting with high-dim data
+
+XGB_LEARNING_RATE_GRID=0.01,0.1         # Step size (shrinkage): how much each tree contributes
+                                        # Smaller = slower but potentially better (try 0.01-0.3)
+                                        # Lower learning rate often paired with more estimators
+
+# SECONDARY HYPERPARAMETERS (less sensitive, default values often good)
+XGB_SUBSAMPLE_GRID=0.7,1.0               # Fraction of samples per boosting round (sub-sampling for efficiency)
+                                        # 0.7-1.0: lower = faster training + regularization, 1.0 = use all
+
+XGB_COLSAMPLE_BYTREE_GRID=0.7,1.0       # Fraction of features per tree (feature sub-sampling)
+                                        # 0.7-1.0: lower = more diverse trees, reduces overfitting
+
+# CLASS IMBALANCE HANDLING
+XGB_SCALE_POS_WEIGHT=${XGB_SCALE_POS_WEIGHT:-auto}
+                                        # Weight for positive class relative to negative
+                                        # "auto": computed as n_negative / n_positive = ~295 for Celiac data
+                                        # Prevents model from favoring majority class
+
+XGB_SCALE_POS_WEIGHT_GRID=${XGB_SCALE_POS_WEIGHT_GRID:-}  # Grid to test scale_pos_weight (leave empty for default)
+
+# REGULARIZATION
+XGB_REG_ALPHA=0.0                       # L1 regularization (feature selection pressure)
+                                        # 0.0 = no L1 (can tune if needed: 0.1-1.0)
+
+XGB_REG_LAMBDA=1.0                      # L2 regularization (weight penalty)
+                                        # Higher = stronger regularization, smoother model (prevents overfitting)
+
+XGB_MIN_CHILD_WEIGHT=1                  # Minimum sum of instance weights in child node
+                                        # Higher = require more samples to split (less overfitting)
+
+XGB_GAMMA=0                             # Minimum loss reduction to split (pruning parameter)
+                                        # 0.0 = no pruning, higher = more aggressive pruning
+
+# TREE CONSTRUCTION ALGORITHM
+XGB_TREE_METHOD=${XGB_TREE_METHOD:-hist} # "hist" (histogram, CPU-optimized, default) or "exact" (slower but thorough)
+                                        # hist = recommended for large datasets
+
+#==============================================================
+# EVALUATION & ANALYSIS (TRAINING-TIME)
+#==============================================================
+# These parameters control detailed analysis done DURING model training.
+# For post-training cross-model analysis (DCA, calibration plots), see run.sh parameters
+
+# CONFIDENCE INTERVALS (Bootstrap)
+TEST_CI=1                               # 1=compute bootstrap confidence intervals on TEST set, 0=skip
+                                        # Estimates 95% CI around performance metrics
+
+WRITE_TEST_CI_FILES=1                   # 1=save individual bootstrap resamples, 0=save only CI summary
+                                        # Useful for detailed downstream analysis
+
+N_BOOT="${N_BOOT:-500}"                 # Bootstrap iterations for individual model CIs
+                                        # Higher = more robust but slower (500 typical)
+                                        # Post-processing uses split-to-split variation for cross-model comparison
+
+# LEARNING CURVES (Model capacity analysis)
+LEARNING_CURVE=1                        # 1=generate learning curves, 0=skip
+                                        # Shows test performance vs. training set size
+                                        # Diagnoses overfitting (large gap) vs. underfitting (flat curve)
+
+LC_CV=3                                 # CV folds for learning curve estimation
+LC_MIN_FRAC=0.30                        # Minimum fraction of training data to use (0.30 = 30% minimum)
+LC_POINTS=6                             # Number of points along training size axis to evaluate
+
+# FEATURE IMPORTANCE REPORTING
+FEATURE_REPORTS=all                     # "none" (skip), "best" (best model only), "all" (all folds)
+FEATURE_REPORT_MAX=200                  # Maximum number of features to report in importance tables
+
+#==============================================================
+# CLINICAL UTILITY METRICS (used for thresholding & plots)
+#==============================================================
+# OPERATING POINT DEFINITIONS
+CONTROL_SPEC_TARGETS=0.95,0.995,0.99   # Specificity targets for sensitivity reporting
+                                        # Report sensitivity at 95%, 99.5%, 99% specificity
+                                        # High specificity = few false positives (critical for screening)
+
+TOPRISK_FRACS=0.01,0.05                # Top risk fraction cutoffs
+                                        # Report performance for top 1% and 5% highest-risk individuals
+
+RISK_PLOT_SPEC=0.95                    # Target specificity for risk distribution plots
+                                        # Threshold optimized to achieve 95% specificity
+
+ALPHA_SPECIFICITY=0.90                 # Target specificity for alpha threshold
+                                        # Alternative threshold optimized for 90% specificity
+
+# Decision Curve Analysis (DCA) - Legacy training-time computation
+COMPUTE_DCA=1                           # 1=compute DCA during training, 0=skip (use post-processing DCA)
+                                        # Default: 1 (enabled); set to 0 if using post-processing only
+                                        # Training-time DCA: saves artifacts for individual model diagnostics
+                                        # Post-processing DCA (via run.sh): more efficient for cross-model comparison
+
+DCA_THRESHOLD_MIN=0.0005                # Minimum threshold for DCA curve (0.05%)
+                                        # Usually 0.0005 to find zero-crossing
+
+DCA_THRESHOLD_MAX=1.0                   # Maximum threshold for DCA curve (100%)
+                                        # Usually 1.0 (full range)
+
+DCA_THRESHOLD_STEP=0.001                # Step size for DCA thresholds (0.1%)
+DCA_REPORT_POINTS=0.005,0.01,0.02,0.05 # Key thresholds for DCA summary reports
+
+#==============================================================
+# RISK SCORE CALIBRATION & THRESHOLDING
+#==============================================================
+# Calibration: Match predicted probabilities to true incidence rates
+# Thresholding: Select decision cutoff for clinical action (e.g., order confirmatory test)
+
+# CALIBRATION
+CALIBRATE_FINAL_MODELS=1                # 1=fit calibration curve on VAL, apply to TEST, 0=skip
+                                        # Ensures predicted risk = true observed incidence
+                                        # Critical for clinical decision-making
+
+SAVE_CALIBRATION=1                      # 1=save calibration artifacts (curves, coefficients)
+                                        # Enables post-hoc calibration analysis and visualization
+
+CALIB_BINS=6                            # Number of bins for calibration histogram
+                                        # Divides prediction range into equal-width bins for plotting
+
+# THRESHOLD SELECTION (Clinical decision cutoff)
+# Threshold selected on VAL set, applied to TEST for final evaluation
+# Prevents test leakage: VAL → find threshold, TEST → evaluate threshold
+
+THRESHOLD_OBJECTIVE=fixed_spec          # Threshold selection objective
+                                        # "max_f1": maximize F1 score (balance precision-recall)
+                                        # "max_fbeta": maximize F-beta (weighted precision/recall, beta=FBETA)
+                                        # "youden": maximize sensitivity + specificity - 1
+                                        # "fixed_spec": target fixed specificity (e.g., 95%)
+                                        # "fixed_ppv": target fixed positive predictive value
+
+FBETA=1.0                               # Beta for F-beta metric (if THRESHOLD_OBJECTIVE=max_fbeta)
+                                        # Beta > 1: prioritize recall, Beta < 1: prioritize precision
+
+FIXED_SPEC=0.95                         # Target specificity (if THRESHOLD_OBJECTIVE=fixed_spec)
+                                        # 0.95 = optimize threshold to achieve 95% specificity
+                                        # Can be adjusted based on clinical workflow and cost of false positives
+
+FIXED_PPV=0.10                          # Target positive predictive value (if THRESHOLD_OBJECTIVE=fixed_ppv)
+                                        # 0.10 = optimize threshold to achieve 10% precision
+
+# CALIBRATION & PREVALENCE ADJUSTMENT
+THRESHOLD_SOURCE=${THRESHOLD_SOURCE:-val}
+                                        # "val": select threshold on VAL set (default, avoids test leakage)
+                                        # "test": select threshold on TEST set (not recommended)
+
+TARGET_PREVALENCE_SOURCE=${TARGET_PREVALENCE_SOURCE:-test}
+                                        # "test": apply TEST set prevalence for probability calibration
+                                        # "val": apply VAL set prevalence
+                                        # TEST prevalence recommended: reflects deployment scenario
+
+RISK_PROB_SOURCE=${RISK_PROB_SOURCE:-raw}
+                                        # "raw": use raw model predictions
+                                        # "adjusted": apply prevalence adjustment (Bayes scaling)
+
+#==============================================================
+# OUTPUT SETUP
+#==============================================================
+# If using repeated splits, append seed to output directory
+if [[ "${SPLIT_SEED_START}" -eq "${SPLIT_SEED_END}" ]]; then
+  # Single split mode
+  SEED_SUFFIX=""
+else
+  # Repeated splits mode: use current seed from environment
+  CURRENT_SEED="${CURRENT_SPLIT_SEED:-${RANDOM_STATE}}"
+  SEED_SUFFIX="__seed${CURRENT_SEED}"
+fi
+
+# Add sensitivity label to output dir when in sensitivity mode
+if [[ "${SENSITIVITY_MODE}" -eq 1 ]]; then
+  OUTDIR="${RESULTS_ROOT}/sensitivity/${SENSITIVITY_LABEL}/${SCEN}__${MODEL}__${FOLDS}x${REPEATS}__val${VAL_SIZE}__test${TEST_SIZE}__${FEATURE_SELECT}${SEED_SUFFIX}"
+else
+  OUTDIR="${RESULTS_ROOT}/${SCEN}__${MODEL}__${FOLDS}x${REPEATS}__val${VAL_SIZE}__test${TEST_SIZE}__${FEATURE_SELECT}${SEED_SUFFIX}"
+fi
+mkdir -p "$OUTDIR"
+export PYTHONUNBUFFERED=1
+
+LIVELOG="${LOGS_DIR}/${LSB_JOBID}_${LSB_JOBINDEX}.live.log"
+RUNLOG="${OUTDIR}/run.log"
+exec > >(stdbuf -oL -eL tee -a "$LIVELOG") 2>&1
+
+echo "[LSF] ============================================"
+echo "[LSF] Job Configuration:"
+echo "[LSF]   jobid=${LSB_JOBID} index=${LSB_JOBINDEX}"
+echo "[LSF]   scenario=${SCEN} model=${MODEL}"
+if [[ "${SENSITIVITY_MODE}" -eq 1 ]]; then
+  echo "[LSF]   *** SENSITIVITY MODE: screen_top_n=${SCREEN_TOP_N} ***"
+fi
+echo "[LSF]   outdir=${OUTDIR}"
+echo "[LSF]   cpus=${CPUS} tune_n_jobs=${TUNE_N_JOBS}"
+echo "[LSF]   FOLDS=${FOLDS} REPEATS=${REPEATS} N_ITER=${N_ITER}"
+echo "[LSF]   VAL_SIZE=${VAL_SIZE} TEST_SIZE=${TEST_SIZE}"
+echo "[LSF]   SCORING=${SCORING}"
+echo "[LSF]   TEMPORAL_SPLIT=${TEMPORAL_SPLIT} (col=${TEMPORAL_COL})"
+echo "[LSF]   INNER_FOLDS=${INNER_FOLDS}"
+echo "[LSF]   GRID_RANDOMIZE=${GRID_RANDOMIZE}"
+echo "[LSF]   GRID_RANDOMIZE_K=${GRID_RANDOMIZE_K}"
+echo "[LSF]   CALIBRATE_FINAL_MODELS=${CALIBRATE_FINAL_MODELS}"
+echo "[LSF]   THRESHOLD_SOURCE=${THRESHOLD_SOURCE}"
+echo "[LSF]   TARGET_PREVALENCE_SOURCE=${TARGET_PREVALENCE_SOURCE}"
+echo "[LSF]   RISK_PROB_SOURCE=${RISK_PROB_SOURCE}"
+echo "[LSF]   BUILD_PANELS=${BUILD_PANELS} PANEL_SIZES=${PANEL_SIZES} PANEL_STABILITY_MODE=${PANEL_STABILITY_MODE} PANEL_AUDIT_FRAC=${PANEL_AUDIT_FRAC}"
+echo "[LSF]   N_BOOT=${N_BOOT} KBEST_MAX=${KBEST_MAX}"
+echo "[LSF] ============================================"
+
+#==============================================================
+# WRITE CONFIG METADATA (for aggregation/reproducibility)
+#==============================================================
+CONFIG_JSON="${OUTDIR}/config_metadata.json"
+cat > "${CONFIG_JSON}" << EOF
+{
+  "pipeline_version": "optimized_v1",
+  "scenario": "${SCEN}",
+  "model": "${MODEL}",
+  "folds": ${FOLDS},
+  "repeats": ${REPEATS},
+  "val_size": ${VAL_SIZE},
+  "test_size": ${TEST_SIZE},
+  "random_state": ${RANDOM_STATE},
+  "split_seed": "${CURRENT_SEED:-0}",
+  "scoring": "${SCORING}",
+  "inner_folds": ${INNER_FOLDS},
+  "n_iter": ${N_ITER},
+  "grid_randomize": ${GRID_RANDOMIZE},
+  "grid_randomize_k": ${GRID_RANDOMIZE_K},
+  "feature_select": "${FEATURE_SELECT}",
+  "kbest_scope": "${KBEST_SCOPE}",
+  "kbest_max": ${KBEST_MAX},
+  "k_grid": "${K_GRID}",
+  "screen_method": "${SCREEN_METHOD}",
+  "screen_top_n": ${SCREEN_TOP_N},
+  "stability_thresh": ${STABILITY_THRESH},
+  "calibrate_final_models": ${CALIBRATE_FINAL_MODELS},
+  "threshold_source": "${THRESHOLD_SOURCE}",
+  "target_prevalence_source": "${TARGET_PREVALENCE_SOURCE}",
+  "risk_prob_source": "${RISK_PROB_SOURCE}",
+  "calibration_method": "${CALIBRATION_METHOD}",
+  "calibration_cv": ${CALIBRATION_CV},
+  "n_boot": ${N_BOOT},
+  "build_panels": ${BUILD_PANELS},
+  "panel_sizes": "${PANEL_SIZES}",
+  "panel_corr_thresh": ${PANEL_CORR_THRESH},
+  "panel_stability_mode": "${PANEL_STABILITY_MODE}",
+  "panel_audit_frac": ${PANEL_AUDIT_FRAC},
+  "panel_audit_seed": ${PANEL_AUDIT_SEED},
+  "control_spec_targets": "${CONTROL_SPEC_TARGETS}",
+  "toprisk_fracs": "${TOPRISK_FRACS}",
+  "temporal_split": ${TEMPORAL_SPLIT},
+  "temporal_col": "${TEMPORAL_COL}",
+  "xgb_scale_pos_weight": "${XGB_SCALE_POS_WEIGHT}",
+  "xgb_scale_pos_weight_grid": "${XGB_SCALE_POS_WEIGHT_GRID}",
+  "xgb_tree_method": "${XGB_TREE_METHOD}",
+  "lsf_jobid": "${LSB_JOBID}",
+  "lsf_jobindex": "${LSB_JOBINDEX}",
+  "cpus": ${CPUS},
+  "timestamp": "$(date -Iseconds)",
+  "optimizations": [
+    "removed_LR_L1_model",
+    "added_XGBoost_model",
+    "changed_scoring_to_brier",
+    "increased_inner_folds_to_5",
+    "removed_missingness_handling",
+    "increased_repeats_to_10",
+    "train_includes_prevalent_frac0.5",
+    "val_test_incident_only",
+    "added_val_split_25pct",
+    "test_split_25pct",
+    "threshold_source_val",
+    "target_prevalence_source_test"
+  ]
+}
+EOF
+echo "[LSF] Wrote config metadata to ${CONFIG_JSON}"
+
+#==============================================================
+# BUILD ARGUMENTS
+#==============================================================
+FS_ARGS=(
+  --feature_select "${FEATURE_SELECT}"
+  --kbest_scope "${KBEST_SCOPE}"
+  --kbest_max "${KBEST_MAX}"
+  --k_grid "${K_GRID}"
+  --stability_thresh "${STABILITY_THRESH}"
+)
+
+if [[ "${FEATURE_SELECT}" == "hybrid" ]]; then
+  FS_ARGS+=(
+    --screen_method "${SCREEN_METHOD}"
+    --screen_top_n "${SCREEN_TOP_N}"
+    --screen_min_n_per_group "${SCREEN_MIN_N_PER_GROUP}"
+  )
+fi
+
+# LR_EN: use stable panel from kbest
+if [[ "${MODEL}" == "LR_EN" ]]; then
+  FS_ARGS+=(--stable_panel_from_kbest)
+fi
+
+if [[ "${BUILD_PANELS}" -eq 1 ]]; then
+  FS_ARGS+=(
+    --build_panels
+    --panel_sizes "${PANEL_SIZES}"
+    --panel_corr_thresh "${PANEL_CORR_THRESH}"
+    --panel_corr_method "${PANEL_CORR_METHOD}"
+    --panel_rep_tiebreak "${PANEL_REP_TIEBREAK}"
+    --panel_stability_mode "${PANEL_STABILITY_MODE}"
+    --panel_audit_frac "${PANEL_AUDIT_FRAC}"
+    --panel_audit_seed "${PANEL_AUDIT_SEED}"
+  )
+  [[ "${PANEL_REFIT}" -eq 1 ]] && FS_ARGS+=(--panel_refit)
+fi
+
+# Removed prefilter args (no missingness handling)
+PF_ARGS=()
+if [[ "${VAR_PREFILTER}" -eq 1 ]]; then
+  PF_ARGS+=( --var_prefilter --min_var "${MIN_VAR}" )
+  [[ "${VAR_STRICT}" -eq 1 ]] && PF_ARGS+=(--var_strict)
+fi
+
+CI_ARGS=()
+if [[ "${TEST_CI}" -eq 1 ]]; then
+  CI_ARGS+=(--test_ci_bootstrap --n_boot "${N_BOOT}")
+  [[ "${WRITE_TEST_CI_FILES}" -eq 1 ]] && CI_ARGS+=(--write_test_ci_files)
+fi
+
+FR_ARGS=( --feature_reports "${FEATURE_REPORTS}" --feature_report_max "${FEATURE_REPORT_MAX}" )
+
+OPT_ARGS=(
+  --control_spec_targets "${CONTROL_SPEC_TARGETS}"
+  --risk_plot_spec "${RISK_PLOT_SPEC}"
+  --alpha_specificity "${ALPHA_SPECIFICITY}"
+  --toprisk_fracs "${TOPRISK_FRACS}"
+  --stable_corr_thresh "${STABLE_CORR_THRESH}"
+)
+[[ "${SAVE_CALIBRATION}" -eq 1 ]] && OPT_ARGS+=(--save_calibration --calib_bins "${CALIB_BINS}")
+
+# Add DCA arguments
+if [[ "${COMPUTE_DCA}" -eq 1 ]]; then
+  OPT_ARGS+=(
+    --compute_dca "${COMPUTE_DCA}"
+    --dca_threshold_min "${DCA_THRESHOLD_MIN}"
+    --dca_threshold_max "${DCA_THRESHOLD_MAX}"
+    --dca_threshold_step "${DCA_THRESHOLD_STEP}"
+    --dca_report_points "${DCA_REPORT_POINTS}"
+  )
+fi
+
+if [[ "${LEARNING_CURVE}" -eq 1 ]]; then
+  OPT_ARGS+=(
+    --learning_curve
+    --lc_cv "${LC_CV}"
+    --lc_min_frac "${LC_MIN_FRAC}"
+    --lc_points "${LC_POINTS}"
+  )
+fi
+
+TUNE_ARGS=(
+  --random_state "${CURRENT_SEED:-${RANDOM_STATE}}"
+  --tune_n_jobs "${TUNE_N_JOBS}"
+  --error_score "${ERROR_SCORE}"
+)
+if [[ "${GRID_RANDOMIZE}" =~ ^(1|true|TRUE|yes|YES)$ ]]; then
+  TUNE_ARGS+=(--grid_randomize)
+fi
+if [[ "${GRID_RANDOMIZE_K}" =~ ^(1|true|TRUE|yes|YES)$ ]]; then
+  TUNE_ARGS+=(--grid_randomize_k)
+fi
+
+LR_ARGS=(
+  --lr_max_iter "${LR_MAX_ITER}"
+  --lr_tol "${LR_TOL}"
+  --lr_C_min "${LR_C_MIN}"
+  --lr_C_max "${LR_C_MAX}"
+  --lr_C_points "${LR_C_POINTS}"
+  --lr_l1_ratio_grid "${LR_L1_RATIO_GRID}"
+  --lr_class_weight_options "${LR_CLASS_WEIGHT_OPTIONS}"
+)
+
+SVM_ARGS=(
+  --svm_max_iter "${SVM_MAX_ITER}"
+  --svm_C_min "${SVM_C_MIN}"
+  --svm_C_max "${SVM_C_MAX}"
+  --svm_C_points "${SVM_C_POINTS}"
+  --svm_class_weight_options "${SVM_CLASS_WEIGHT_OPTIONS}"
+  --calibration_method "${CALIBRATION_METHOD}"
+  --calibration_cv "${CALIBRATION_CV}"
+)
+
+RF_ARGS=(
+  --rf_n_estimators_grid "${RF_N_ESTIMATORS_GRID}"
+  --rf_max_depth_grid "${RF_MAX_DEPTH_GRID}"
+  --rf_min_samples_leaf_grid "${RF_MIN_SAMPLES_LEAF_GRID}"
+  --rf_max_features_grid "${RF_MAX_FEATURES_GRID}"
+  --rf_bootstrap "${RF_BOOTSTRAP}"
+  --rf_class_weight_options "${RF_CLASS_WEIGHT_OPTIONS}"
+)
+[[ -n "${RF_MAX_SAMPLES}" ]] && RF_ARGS+=(--rf_max_samples "${RF_MAX_SAMPLES}")
+
+# XGBoost arguments (NEW)
+XGB_ARGS=(
+  --xgb_n_estimators_grid "${XGB_N_ESTIMATORS_GRID}"
+  --xgb_max_depth_grid "${XGB_MAX_DEPTH_GRID}"
+  --xgb_learning_rate_grid "${XGB_LEARNING_RATE_GRID}"
+  --xgb_subsample_grid "${XGB_SUBSAMPLE_GRID}"
+  --xgb_colsample_bytree_grid "${XGB_COLSAMPLE_BYTREE_GRID}"
+  --xgb_scale_pos_weight "${XGB_SCALE_POS_WEIGHT}"
+  --xgb_scale_pos_weight_grid "${XGB_SCALE_POS_WEIGHT_GRID}"
+  --xgb_reg_alpha "${XGB_REG_ALPHA}"
+  --xgb_reg_lambda "${XGB_REG_LAMBDA}"
+  --xgb_min_child_weight "${XGB_MIN_CHILD_WEIGHT}"
+  --xgb_gamma "${XGB_GAMMA}"
+  --xgb_tree_method "${XGB_TREE_METHOD}"
+)
+
+RISK_ARGS=(
+  --calibrate_final_models "${CALIBRATE_FINAL_MODELS}"
+  --threshold_objective "${THRESHOLD_OBJECTIVE}"
+  --fbeta "${FBETA}"
+  --fixed_spec "${FIXED_SPEC}"
+  --fixed_ppv "${FIXED_PPV}"
+  --threshold_source "${THRESHOLD_SOURCE}"
+  --target_prevalence_source "${TARGET_PREVALENCE_SOURCE}"
+  --risk_prob_source "${RISK_PROB_SOURCE}"
+)
+
+#==============================================================
+# RUN
+#==============================================================
+CMD=(
+  python -u "$PY_SCRIPT"
+  --infile "$INFILE"
+  --outdir "$OUTDIR"
+  --scenario "$SCEN"
+  --models "$MODEL"
+  --splits_dir "$SPLITS_DIR"
+  --tune
+  --resume
+  --scoring "$SCORING"
+  --inner_folds "$INNER_FOLDS"
+  --n_iter "$N_ITER"
+  --folds "$FOLDS"
+  --repeats "$REPEATS"
+  --test_size "$TEST_SIZE"
+  --cpus "$CPUS"
+  --save_controls_oof
+  --save_train_oof
+  --save_test_preds
+  --save_val_preds
+  "${FR_ARGS[@]}"
+  "${FS_ARGS[@]}"
+  "${PF_ARGS[@]}"
+  "${CI_ARGS[@]}"
+  "${OPT_ARGS[@]}"
+  "${TUNE_ARGS[@]}"
+  "${LR_ARGS[@]}"
+  "${SVM_ARGS[@]}"
+  "${RF_ARGS[@]}"
+  "${XGB_ARGS[@]}"
+  "${RISK_ARGS[@]}"
+)
+
+if [[ "${TEMPORAL_SPLIT}" -eq 1 ]]; then
+  CMD+=(--temporal_split --temporal_col "${TEMPORAL_COL}")
+fi
+
+echo "[LSF] Command:"
+printf '  %q' "${CMD[@]}"; echo
+
+stdbuf -oL -eL "${CMD[@]}"
+
+#==============================================================
+# VALIDATION
+#==============================================================
+if [[ -f "$OUTDIR/core/test_metrics.csv" ]]; then
+  echo "✓ Completed ${SCEN}/${MODEL}"
+
+  if [[ -f "$OUTDIR/diagnostics/calibration/${SCEN}__calibration__${MODEL}.csv" ]]; then
+    echo "[LSF] Calibration file saved."
+  fi
+
+  if [[ "${LEARNING_CURVE}" -eq 1 ]] && [[ -f "$OUTDIR/diagnostics/learning_curve/${SCEN}__learning_curve__${MODEL}.csv" ]]; then
+    echo "[LSF] Learning curve file saved."
+  fi
+else
+  echo "✗ Failed ${SCEN}/${MODEL} (check ${RUNLOG})"
+  exit 1
+fi

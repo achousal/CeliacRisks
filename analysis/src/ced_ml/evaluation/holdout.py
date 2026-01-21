@@ -177,14 +177,14 @@ def compute_holdout_metrics(
         "thr_objective_name": objective_name,
         "thr_objective": float(thr_objective),
         "precision_holdout_at_thr_objective": float(m_obj["precision"]),
-        "recall_holdout_at_thr_objective": float(m_obj["recall"]),
+        "recall_holdout_at_thr_objective": float(m_obj["sensitivity"]),
         "specificity_holdout_at_thr_objective": float(m_obj["specificity"]),
         "thr_maxF1": float(thr_f1),
         "f1_holdout_at_thr_maxF1": float(m_f1["f1"]),
         "precision_holdout_at_thr_maxF1": float(m_f1["precision"]),
-        "recall_holdout_at_thr_maxF1": float(m_f1["recall"]),
+        "recall_holdout_at_thr_maxF1": float(m_f1["sensitivity"]),
         "thr_spec90": float(thr_spec90),
-        "sensitivity_holdout_at_spec90": float(m_spec90["recall"]),
+        "sensitivity_holdout_at_spec90": float(m_spec90["sensitivity"]),
         "specificity_holdout_at_spec90": float(m_spec90["specificity"]),
     }
 
@@ -198,7 +198,7 @@ def compute_holdout_metrics(
         tag = str(key).replace("0.", "")
         metrics[f"thr_ctrl_{tag}"] = float(thr_val)
         metrics[f"precision_holdout_ctrl_{tag}"] = float(m_ctrl["precision"])
-        metrics[f"recall_holdout_ctrl_{tag}"] = float(m_ctrl["recall"])
+        metrics[f"recall_holdout_ctrl_{tag}"] = float(m_ctrl["sensitivity"])
         metrics[f"specificity_holdout_ctrl_{tag}"] = float(m_ctrl["specificity"])
 
     # Clinical thresholds
@@ -209,7 +209,7 @@ def compute_holdout_metrics(
         tag = f"clin_{str(thr).replace('.', 'p')}"
         metrics[f"{tag}_threshold"] = float(thr)
         metrics[f"{tag}_precision"] = float(m_thr["precision"])
-        metrics[f"{tag}_recall"] = float(m_thr["recall"])
+        metrics[f"{tag}_recall"] = float(m_thr["sensitivity"])
         metrics[f"{tag}_specificity"] = float(m_thr["specificity"])
         metrics[f"{tag}_f1"] = float(m_thr["f1"])
 

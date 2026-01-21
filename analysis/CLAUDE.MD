@@ -2,7 +2,7 @@
 
 **Project Owner:** Andres Chousal
 **Lab:** Elahi Lab
-**Last Updated:** 2026-01-19
+**Last Updated:** 2026-01-20
 **Status:** Production-ready (refactored package)
 
 ---
@@ -27,14 +27,17 @@ Blood proteomics panel → ML risk score → [High risk?] → Anti-tTG antibody 
 | **Incident CeD** | 148 (0.34%) - biomarkers BEFORE diagnosis |
 | **Prevalent CeD** | 150 - used in TRAIN only (50% sampling) |
 | **Proteins** | 2,920 (`*_resid` columns) |
-| **Demographics** | age, BMI, sex, Genetic ethnic grouping |
+| **Demographics** | age, BMI, sex, Genetic ethnic grouping (configurable via `ColumnsConfig`) |
 | **Missing proteins** | Zero |
 | **Missing ethnicity** | 17% (handled as "Missing" category) |
 
-### Data File
+### Data Files
 ```
 ../data/Celiac_dataset_proteomics.csv (~2.5 GB)
+../data/Celiac_dataset_proteomics.parquet (also supported)
 ```
+
+**Supported formats:** CSV and Parquet (auto-detected from file extension)
 
 ---
 
@@ -75,11 +78,18 @@ TRAIN controls are downsampled to 5 controls per case (incident + prevalent)
 
 **Rationale:** Preserves 7,674 subjects and allows model to learn if missingness is informative without introducing imputation bias.
 
+### 6. Flexible Metadata Columns
+Metadata columns are configurable via `ColumnsConfig` with two modes:
+- **Auto mode** (default): Auto-detect standard columns (age, BMI, sex, ethnicity) from data
+- **Explicit mode**: Specify exact metadata columns to use
+
+**Rationale:** Enables pipeline to work with different datasets or metadata schemas without code changes. See [ADR-015](docs/adr/ADR-015-flexible-metadata-columns.md) for details.
+
 ---
 
 ## Package Architecture
 
-**Stats:** 15,109 lines, 753 tests (82% coverage), zero duplication.
+**Stats:** 16,749 lines, 768 tests (82% coverage), zero duplication.
 
 For detailed architecture with code pointers, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -92,7 +102,7 @@ The `ced` command provides 4 core subcommands:
 ### 1. Split Generation
 ```bash
 ced save-splits --config configs/splits_config.yaml \
-    --infile ../data/Celiac_dataset_proteomics.csv
+    --infile ../data/Celiac_dataset_proteomics.csv  # or .parquet
 ```
 
 **What it does:** Creates stratified TRAIN/VAL/TEST splits with prevalent enrichment and control downsampling.
@@ -103,7 +113,7 @@ ced save-splits --config configs/splits_config.yaml \
 ```bash
 ced train --config configs/training_config.yaml \
     --model LR_EN \
-    --infile ../data/Celiac_dataset_proteomics.csv \
+    --infile ../data/Celiac_dataset_proteomics.csv \  # or .parquet
     --split-dir splits_hpc
 ```
 
@@ -145,6 +155,13 @@ All pipeline parameters are managed via YAML configuration files:
 model: LR_EN
 scenario: IncidentPlusPrevalent
 
+# Column configuration (NEW in v1.1)
+columns:
+  mode: auto  # or "explicit" for custom metadata
+  # numeric_metadata: [age, bmi]  # only if mode=explicit
+  # categorical_metadata: [sex, ethnicity]  # only if mode=explicit
+  warn_missing_defaults: true
+
 cv:
   folds: 5
   repeats: 10
@@ -167,6 +184,15 @@ thresholds:
 evaluation:
   test_ci_bootstrap: true
   n_boot: 500
+```
+
+### Example: Custom Metadata Columns
+```yaml
+# For datasets with different metadata schemas
+columns:
+  mode: explicit
+  numeric_metadata: [age_at_sample, body_mass_index, creatinine]
+  categorical_metadata: [gender, ancestry, study_site]
 ```
 
 **Config tools:**
@@ -194,7 +220,7 @@ ced --help
 #### Option A: Orchestrated (Recommended for HPC)
 ```bash
 # Handles all steps: generate splits, submit jobs, postprocess
-./run_hpc.sh
+./run_hpc.sh  # (formerly run_production.sh)
 ```
 
 #### Option B: Manual (Step-by-step)
@@ -219,12 +245,12 @@ ced save-splits \
 # Local (single model)
 ced train --config configs/training_config.yaml \
     --model LR_EN \
-    --infile ../data/Celiac_dataset_proteomics.csv \
+    --infile ../data/Celiac_dataset_proteomics.csv \  # or .parquet
     --split-dir splits_hpc
 
 # HPC (4 models in parallel via LSF)
 # IMPORTANT: Requires Step 1 to be completed first
-bsub < CeD_hpc.lsf
+bsub < CeD_hpc.lsf  # (formerly CeD_production.lsf)
 ```
 
 **Step 3: Post-process**
@@ -291,12 +317,12 @@ pytest tests/ --cov=ced_ml --cov-report=term-missing
 ```
 
 **Test suite:** 768 tests covering:
-- Data I/O and split generation
+- Data I/O (CSV/Parquet), column resolution, and split generation
 - Feature screening, k-best, stability, correlation pruning, panels
 - Model registry, hyperparameters, training, calibration, prevalence
 - Discrimination, thresholds, DCA, bootstrap
 - Prediction, reports, holdout evaluation
-- ROC/PR, calibration, risk distribution, DCA, learning curve plots
+- ROC/PR, calibration, risk distribution, DCA, learning curve, OOF plots
 - CLI integration (zero duplication verified)
 - Config validation and comparison
 
@@ -321,12 +347,12 @@ pytest tests/ --cov=ced_ml --cov-report=term-missing
 ### Library Modules
 | Layer | Modules | Purpose |
 |-------|---------|---------|
-| Data | `io`, `splits`, `persistence`, `filters`, `schema` | Data loading, split generation |
+| Data | `io`, `splits`, `persistence`, `filters`, `schema`, `columns` | Data loading, split generation, column resolution |
 | Features | `screening`, `kbest`, `stability`, `corr_prune`, `panels` | Feature selection |
 | Models | `registry`, `hyperparams`, `training`, `calibration`, `prevalence` | Model training |
 | Metrics | `discrimination`, `thresholds`, `dca`, `bootstrap` | Performance metrics |
 | Evaluation | `predict`, `reports`, `holdout` | Prediction and reporting |
-| Plotting | `roc_pr`, `calibration`, `risk_dist`, `dca`, `learning_curve` | Visualization |
+| Plotting | `roc_pr`, `calibration`, `risk_dist`, `dca`, `learning_curve`, `oof` | Visualization |
 
 For output structure details, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#13-output-artifacts--reports).
 
@@ -384,6 +410,29 @@ ced config validate config.yaml --strict
 - Matplotlib backend: Set `MPLBACKEND=Agg` for headless rendering
 - XGBoost: `pip install xgboost` (optional dependency)
 
+### Issue: Parquet file read errors on HPC
+**Symptom:** `Failed to read Parquet file` or `ArrowInvalid` errors on HPC
+
+**Solutions:**
+1. Verify complete file transfer: `ls -lh path/to/file.parquet`
+2. Clear filesystem cache: `cat path/to/file.parquet > /dev/null`
+3. Check file integrity: `python -c "import pyarrow.parquet as pq; pq.read_metadata('file.parquet')"`
+4. If corrupted, regenerate or use CSV format instead
+
+### Issue: Column not found errors
+**Symptom:** `ValueError: Specified metadata columns not found in data`
+
+**Solutions:**
+1. Check your data's column names: `ced save-splits --infile data.csv --config config.yaml` will auto-detect
+2. Use auto mode (default) to auto-detect standard columns
+3. For custom columns, use explicit mode in config:
+   ```yaml
+   columns:
+     mode: explicit
+     numeric_metadata: [age, bmi]
+     categorical_metadata: [sex]
+   ```
+
 For more troubleshooting, see [HPC_README.md](HPC_README.md) or [WORKFLOW.md](WORKFLOW.md).
 
 ---
@@ -397,11 +446,15 @@ For more troubleshooting, see [HPC_README.md](HPC_README.md) or [WORKFLOW.md](WO
 
 ## Next Steps
 
-**Current Status:** Production-ready ✅ (updated 2026-01-19)
+**Current Status:** Production-ready ✅ (updated 2026-01-20)
 
-### Completed Today
-  - Test suite: **768 tests**
-  - Coverage: **82%**
+### Recent Improvements (Jan 20, 2026)
+- ✅ Parquet file format support (CSV and Parquet)
+- ✅ Flexible metadata column configuration (`ColumnsConfig`)
+- ✅ Out-of-fold (OOF) prediction plotting module
+- ✅ Improved error messages for file I/O and column resolution
+- ✅ Bug fixes for HPC compatibility and usability
+- ✅ Test suite: **768 tests**, Coverage: **82%**, Lines: **16,749**
 
 ### Remaining Tasks
 - [ ] Run validation study on HPC

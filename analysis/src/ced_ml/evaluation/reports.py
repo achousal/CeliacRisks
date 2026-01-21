@@ -37,9 +37,9 @@ class OutputDirectories:
         cv: Cross-validation artifacts (best_params_per_split.csv, cv_repeat_metrics.csv)
         preds_test: Test set predictions
         preds_val: Validation set predictions
-        preds_controls: Control subjects predictions
+        preds_controls: Control subjects OOF predictions
         preds_train_oof: Out-of-fold train predictions
-        preds_plots: Prediction-related plots
+        preds_plots: Prediction-related plots (risk distributions)
         reports_features: Feature importance reports
         reports_stable: Stable panel reports
         reports_panels: Panel building reports (N=10, 25, 50, etc.)
@@ -50,6 +50,9 @@ class OutputDirectories:
         diag_learning: Learning curves
         diag_dca: Decision curve analysis
         diag_tuning: Hyperparameter tuning diagnostics
+        diag_plots: Diagnostic plots (ROC, PR, calibration, DCA)
+        diag_screening: Feature screening results
+        diag_test_ci: Bootstrap CI files for test metrics
     """
 
     root: str
@@ -70,6 +73,9 @@ class OutputDirectories:
     diag_learning: str
     diag_dca: str
     diag_tuning: str
+    diag_plots: str
+    diag_screening: str
+    diag_test_ci: str
 
     @classmethod
     def create(cls, root: str, exist_ok: bool = True) -> "OutputDirectories":
@@ -94,7 +100,7 @@ class OutputDirectories:
             "cv": "cv",
             "preds_test": "preds/test_preds",
             "preds_val": "preds/val_preds",
-            "preds_controls": "preds/controls",
+            "preds_controls": "preds/controls_oof",
             "preds_train_oof": "preds/train_oof",
             "preds_plots": "preds/plots",
             "reports_features": "reports/feature_reports",
@@ -104,9 +110,12 @@ class OutputDirectories:
             "diag": "diagnostics",
             "diag_splits": "diagnostics/splits",
             "diag_calibration": "diagnostics/calibration",
-            "diag_learning": "diagnostics/learning",
+            "diag_learning": "diagnostics/learning_curve",
             "diag_dca": "diagnostics/dca",
             "diag_tuning": "diagnostics/tuning",
+            "diag_plots": "diagnostics/plots",
+            "diag_screening": "diagnostics/screening",
+            "diag_test_ci": "diagnostics/test_ci_files",
         }
 
         # Create all directories

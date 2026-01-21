@@ -12,20 +12,21 @@ Functions:
 """
 
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold, learning_curve
 
 from ..utils.logging import get_logger
+from .dca import apply_plot_metadata
 
 logger = get_logger(__name__)
 
 
 def compute_learning_curve(
     estimator,
-    X: np.ndarray,
+    X: Union[pd.DataFrame, np.ndarray],
     y: np.ndarray,
     scoring: str,
     cv: int = 5,
@@ -102,7 +103,7 @@ def _normalize_metric_scores(
 
 def save_learning_curve_csv(
     estimator,
-    X: np.ndarray,
+    X: Union[pd.DataFrame, np.ndarray],
     y: np.ndarray,
     out_csv: Path,
     scoring: str,
@@ -219,6 +220,18 @@ def plot_learning_curve(
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
+    # Scatter training scores across splits
+    for split_idx in range(n_splits):
+        label = "Train split" if split_idx == 0 else None
+        ax.scatter(
+            train_sizes,
+            train_scores[:, split_idx],
+            color="darkgreen",
+            alpha=0.35,
+            s=25,
+            label=label,
+        )
+
     # Scatter validation scores across splits
     for split_idx in range(n_splits):
         label = "Validation split" if split_idx == 0 else None
@@ -242,7 +255,7 @@ def plot_learning_curve(
         train_sizes,
         train_mean - train_sd,
         train_mean + train_sd,
-        color="gray",
+        color="darkgreen",
         alpha=0.15,
         label="Train ±1 SD",
     )
@@ -259,9 +272,9 @@ def plot_learning_curve(
     ax.plot(
         train_sizes,
         train_mean,
-        color="gray",
+        color="darkgreen",
         linestyle="--",
-        linewidth=1.5,
+        linewidth=2,
         label="Train mean",
     )
     ax.plot(train_sizes, val_mean, "b-", linewidth=2, label="Validation mean")
@@ -284,24 +297,7 @@ def plot_learning_curve(
     ax.legend(loc="best", fontsize=10)
 
     # Apply metadata annotation to bottom of figure
-    if meta_lines:
-        lines = [str(line) for line in meta_lines if line]
-        if lines:
-            fig.text(
-                0.5,
-                0.005,
-                "\n".join(lines),
-                ha="center",
-                va="bottom",
-                fontsize=8,
-                wrap=True,
-            )
-            bottom_margin = 0.10 + (0.018 * len(lines))
-        else:
-            bottom_margin = 0.10
-    else:
-        bottom_margin = 0.10
-
+    bottom_margin = apply_plot_metadata(fig, meta_lines)
     plt.subplots_adjust(left=0.15, right=0.9, top=0.8, bottom=bottom_margin)
     plt.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.8)
     plt.close()
@@ -452,8 +448,22 @@ def plot_learning_curve_summary(
                 )
 
     # Plot bands (train first, then val to layer properly)
-    _plot_band("train_mean", "train_sd", "train_ci_lo", "train_ci_hi", "steelblue", "Train")
+    _plot_band("train_mean", "train_sd", "train_ci_lo", "train_ci_hi", "darkgreen", "Train")
     _plot_band("val_mean", "val_sd", "val_ci_lo", "val_ci_hi", "darkorange", "Val")
+
+    # Plot individual training data points if available
+    if "train_score" in df.columns:
+        train_scores = np.asarray(df["train_score"], dtype=float)
+        valid_train = np.isfinite(train_scores)
+        if valid_train.any():
+            ax.scatter(
+                x[valid_train],
+                train_scores[valid_train],
+                color="darkgreen",
+                alpha=0.35,
+                s=20,
+                label="Train points",
+            )
 
     # Plot individual validation data points if available
     if "val_score" in df.columns:
@@ -473,14 +483,14 @@ def plot_learning_curve_summary(
     ax.plot(
         x,
         df["train_mean"],
-        color="steelblue",
+        color="darkgreen",
         linewidth=2.5,
         linestyle="--",
         label="Train mean",
         marker="o",
         markersize=6,
-        markerfacecolor="steelblue",
-        markeredgecolor="steelblue",
+        markerfacecolor="darkgreen",
+        markeredgecolor="darkgreen",
     )
     ax.plot(
         x,
@@ -515,24 +525,7 @@ def plot_learning_curve_summary(
     ax.legend(fontsize=8, loc="best")
 
     # Apply metadata annotation to bottom of figure
-    if meta_lines:
-        lines = [str(line) for line in meta_lines if line]
-        if lines:
-            fig.text(
-                0.5,
-                0.005,
-                "\n".join(lines),
-                ha="center",
-                va="bottom",
-                fontsize=8,
-                wrap=True,
-            )
-            bottom_margin = 0.10 + (0.018 * len(lines))
-        else:
-            bottom_margin = 0.10
-    else:
-        bottom_margin = 0.10
-
+    bottom_margin = apply_plot_metadata(fig, meta_lines)
     plt.subplots_adjust(left=0.15, right=0.9, top=0.8, bottom=bottom_margin)
     plt.savefig(out_path, dpi=150, pad_inches=0.1)
     plt.close()
