@@ -2,8 +2,8 @@
 
 **Project Owner:** Andres Chousal
 **Lab:** Elahi Lab
-**Last Updated:** 2026-01-20
-**Status:** Production-ready (refactored package)
+**Last Updated:** 2026-01-21
+**Status:** Production-ready with Optuna hyperparameter optimization
 
 ---
 
@@ -33,11 +33,11 @@ Blood proteomics panel → ML risk score → [High risk?] → Anti-tTG antibody 
 
 ### Data Files
 ```
-../data/Celiac_dataset_proteomics.csv (~2.5 GB)
-../data/Celiac_dataset_proteomics.parquet (also supported)
+../data/Celiac_dataset_proteomics_w_demo.parquet (recommended)
+../data/Celiac_dataset_proteomics.csv (~2.5 GB, also supported)
 ```
 
-**Supported formats:** CSV and Parquet (auto-detected from file extension)
+**Supported formats:** Parquet (recommended for speed) and CSV (auto-detected from file extension)
 
 ---
 
@@ -89,7 +89,7 @@ Metadata columns are configurable via `ColumnsConfig` with two modes:
 
 ## Package Architecture
 
-**Stats:** 16,749 lines, 768 tests (82% coverage), zero duplication.
+**Stats:** ~19,657 lines of code, 762 tests (82% coverage), zero duplication.
 
 For detailed architecture with code pointers, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -97,51 +97,52 @@ For detailed architecture with code pointers, see [docs/ARCHITECTURE.md](docs/AR
 
 ## CLI Reference
 
-The `ced` command provides 4 core subcommands:
+The `ced` command provides 5 core subcommands:
 
 ### 1. Split Generation
 ```bash
 ced save-splits --config configs/splits_config.yaml \
-    --infile ../data/Celiac_dataset_proteomics.csv  # or .parquet
+    --infile ../data/Celiac_dataset_proteomics_w_demo.parquet
 ```
 
 **What it does:** Creates stratified TRAIN/VAL/TEST splits with prevalent enrichment and control downsampling.
 
-**Output:** `splits_hpc/IncidentPlusPrevalent_train_idx_seed0.csv`, etc.
+**Output:** `../splits/train_idx_seed0.csv`, etc.
 
 ### 2. Model Training
 ```bash
 ced train --config configs/training_config.yaml \
     --model LR_EN \
-    --infile ../data/Celiac_dataset_proteomics.csv \  # or .parquet
-    --split-dir splits_hpc
+    --infile ../data/Celiac_dataset_proteomics_w_demo.parquet \
+    --split-dir ../splits \
+    --outdir ../results
 ```
 
 **What it does:** Trains models with nested CV, hyperparameter tuning, feature selection, calibration, and evaluation.
 
-**Output:** `results/IncidentPlusPrevalent__LR_EN__5x10__val0.25__test0.25__hybrid/`
+**Output:** `../results/LR_EN__5x10__val0.25__test0.25__hybrid/`
 
-### 3. Post-Processing
+### 3. Aggregate Results
 ```bash
-ced postprocess --results-dir results/ --n-boot 500
+ced aggregate-splits --results-dir results/ --n-boot 500
 ```
 
-**What it does:** Aggregates metrics across splits, computes DCA curves, ranks models.
+**What it does:** Aggregates metrics across splits, computes bootstrap CIs, creates combined plots.
 
-**Output:** `results/COMBINED/aggregated_metrics.csv`, DCA curves
+**Output:** `results/aggregated/aggregated_metrics.csv`, combined plots
 
 ### 4. Holdout Evaluation
 ```bash
 ced eval-holdout --config configs/holdout_config.yaml \
-    --infile ../data/Celiac_dataset_proteomics.csv \
-    --holdout-idx splits/IncidentPlusPrevalent_HOLDOUT_idx.csv \
-    --model-artifact results/.../core/final_model.joblib \
-    --outdir results/HOLDOUT_FINAL
+    --infile ../data/Celiac_dataset_proteomics_w_demo.parquet \
+    --holdout-idx ../splits/HOLDOUT_idx.csv \
+    --model-artifact ../results/.../core/final_model.joblib \
+    --outdir ../results/HOLDOUT_FINAL
 ```
 
 **What it does:** Applies trained model to held-out data (run ONCE for final validation).
 
-**Output:** `results/HOLDOUT_FINAL/holdout_metrics.csv`, predictions
+**Output:** `../results/HOLDOUT_FINAL/holdout_metrics.csv`, predictions
 
 ---
 
@@ -165,25 +166,67 @@ columns:
 cv:
   folds: 5
   repeats: 10
-  scoring: neg_brier_score
-  n_iter: 200
-  inner_folds: 5
+  scoring: roc_auc  # Options: roc_auc, average_precision, neg_brier_score
+  n_iter: 5  # RandomizedSearchCV iterations
+  inner_folds: 200
+  grid_randomize: true  # Randomize numeric grid values
+
+# Optuna hyperparameter optimization (optional)
+optuna:
+  enabled: false  # Set to true to use Optuna instead of RandomizedSearchCV
+  n_trials: 100
+  sampler: tpe  # Options: tpe, random, cmaes, grid
+  pruner: median  # Options: median, percentile, hyperband, none
+  save_study: true
+  save_trials_csv: true
 
 features:
-  feature_select: hybrid
-  screen_method: mannwhitney
-  screen_top_n: 1000
-  stability_thresh: 0.75
+  feature_select: hybrid  # Options: none, kbest, l1_stability, hybrid
+  kbest_scope: protein
+  kbest_max: 800
+  k_grid: [25, 50, 100, 200, 300, 400, 600, 800]
+  screen_method: mannwhitney  # Options: mannwhitney, f_classif
+  screen_top_n: 1000  # Pre-filter before k-best (0 = no screening)
+  stability_thresh: 0.75  # Minimum frequency across folds
+  stable_corr_thresh: 0.85  # Remove correlated features (r > 0.85)
 
 thresholds:
-  objective: fixed_spec
-  fixed_spec: 0.95
-  threshold_source: val
-  target_prevalence_source: test
+  objective: fixed_spec  # Options: max_f1, max_fbeta, youden, fixed_spec, fixed_ppv
+  fixed_spec: 0.95  # Target 95% specificity
+  fbeta: 1.0  # Beta parameter for max_fbeta
+  threshold_source: val  # Select threshold on VAL set
+  target_prevalence_source: test  # Use TEST prevalence for calibration
+  risk_prob_source: test  # Options: test, val
 
 evaluation:
   test_ci_bootstrap: true
   n_boot: 500
+  boot_random_state: 0
+  learning_curve: true
+  lc_train_sizes: [0.1, 0.25, 0.5, 0.75, 1.0]
+  feature_reports: true
+  feature_report_max: 200
+  control_spec_targets: [0.90, 0.95, 0.99]
+  toprisk_fracs: [0.01, 0.05, 0.10]
+
+# Decision curve analysis
+dca:
+  compute_dca: true
+  dca_threshold_min: 0.0005
+  dca_threshold_max: 1.0
+  dca_threshold_step: 0.001
+  dca_report_points: [0.01, 0.05, 0.10, 0.20]
+
+# Outputs
+output:
+  save_train_oof: true
+  save_val_preds: true
+  save_test_preds: true
+  save_calibration: true
+  calib_bins: 6
+  save_feature_importance: true
+  plot_format: png  # Options: png, pdf, svg
+  plot_dpi: 300
 ```
 
 ### Example: Custom Metadata Columns
@@ -217,50 +260,48 @@ ced --help
 
 ### Basic Workflow
 
-#### Option A: Orchestrated (Recommended for HPC)
+#### Option A: Orchestrated (Recommended)
+
+**Local:**
 ```bash
-# Handles all steps: generate splits, submit jobs, postprocess
-./run_hpc.sh  # (formerly run_production.sh)
+# Config-driven pipeline: edit configs/pipeline_local.yaml first
+./run_local.sh
+```
+
+**HPC:**
+```bash
+# Config-driven pipeline: edit configs/pipeline_hpc.yaml first
+./run_hpc.sh
 ```
 
 #### Option B: Manual (Step-by-step)
 
 **Step 1: Generate splits**
 ```bash
+# Edit configs/splits_config.yaml to configure split parameters
 ced save-splits \
-    --infile ../data/Celiac_dataset_proteomics.csv \
-    --outdir splits_hpc \
-    --mode development \
-    --scenarios IncidentPlusPrevalent \
-    --n-splits 10 \
-    --val-size 0.25 \
-    --test-size 0.25 \
-    --prevalent-train-only \
-    --prevalent-train-frac 0.5 \
-    --train-control-per-case 5
+    --config configs/splits_config.yaml \
+    --infile ../data/Celiac_dataset_proteomics_w_demo.parquet
 ```
 
 **Step 2: Train models**
 ```bash
-# Local (single model)
+# Local (sequential)
 ced train --config configs/training_config.yaml \
     --model LR_EN \
-    --infile ../data/Celiac_dataset_proteomics.csv \  # or .parquet
-    --split-dir splits_hpc
+    --infile ../data/Celiac_dataset_proteomics_w_demo.parquet \
+    --split-dir ../splits \
+    --outdir ../results \
+    --split-seed 0
 
-# HPC (4 models in parallel via LSF)
-# IMPORTANT: Requires Step 1 to be completed first
-bsub < CeD_hpc.lsf  # (formerly CeD_production.lsf)
+# HPC (parallel via pipeline)
+# Edit configs/pipeline_hpc.yaml, then:
+./run_hpc.sh
 ```
 
-**Step 3: Post-process**
+**Step 3: Aggregate results**
 ```bash
-ced postprocess --results-dir results_hpc --n-boot 500
-```
-
-**Step 4: Visualize (R)**
-```bash
-Rscript compare_models_faith.R --results_root results_hpc
+ced aggregate-splits --results-dir ../results --n-boot 500
 ```
 
 ---
@@ -275,9 +316,9 @@ Rscript compare_models_faith.R --results_root results_hpc
 | **LR_EN** | Logistic Regression | ElasticNet penalty |
 
 All models use:
-- Nested CV: 5 outer folds × 10 repeats × 5 inner folds
-- RandomizedSearchCV: 200 iterations
-- Brier score optimization
+- Nested CV: 5 outer folds × 10 repeats × 200 inner folds
+- Hyperparameter optimization: RandomizedSearchCV (default) or Optuna (optional)
+- Scoring: ROC-AUC, PR-AUC, or Brier score (configurable)
 - Prevalence adjustment (train 16.7% → deployment 0.34%)
 
 ---
@@ -316,7 +357,7 @@ pytest tests/ -m slow
 pytest tests/ --cov=ced_ml --cov-report=term-missing
 ```
 
-**Test suite:** 768 tests covering:
+**Test suite:** 762 tests covering:
 - Data I/O (CSV/Parquet), column resolution, and split generation
 - Feature screening, k-best, stability, correlation pruning, panels
 - Model registry, hyperparameters, training, calibration, prevalence
@@ -340,7 +381,7 @@ pytest tests/ --cov=ced_ml --cov-report=term-missing
 |---------|--------|---------|
 | `ced save-splits` | `cli/save_splits.py` | Split generation |
 | `ced train` | `cli/train.py` | Model training |
-| `ced postprocess` | `cli/postprocess.py` | Results aggregation |
+| `ced aggregate-splits` | `cli/aggregate_splits.py` | Results aggregation |
 | `ced eval-holdout` | `cli/eval_holdout.py` | Holdout evaluation |
 | `ced config` | `cli/config_tools.py` | Config validation and diff |
 
@@ -349,20 +390,59 @@ pytest tests/ --cov=ced_ml --cov-report=term-missing
 |-------|---------|---------|
 | Data | `io`, `splits`, `persistence`, `filters`, `schema`, `columns` | Data loading, split generation, column resolution |
 | Features | `screening`, `kbest`, `stability`, `corr_prune`, `panels` | Feature selection |
-| Models | `registry`, `hyperparams`, `training`, `calibration`, `prevalence` | Model training |
+| Models | `registry`, `hyperparams`, `optuna_search`, `training`, `calibration`, `prevalence` | Model training and hyperparameter optimization |
 | Metrics | `discrimination`, `thresholds`, `dca`, `bootstrap` | Performance metrics |
 | Evaluation | `predict`, `reports`, `holdout` | Prediction and reporting |
-| Plotting | `roc_pr`, `calibration`, `risk_dist`, `dca`, `learning_curve`, `oof` | Visualization |
+| Plotting | `roc_pr`, `calibration`, `risk_dist`, `dca`, `learning_curve`, `oof`, `optuna_plots` | Visualization |
 
 For output structure details, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#13-output-artifacts--reports).
 
 ---
 
-## HPC Deployment
+## Pipeline Configuration
 
-See dedicated guides:
-- [HPC_README.md](HPC_README.md) - Quick reference
-- [WORKFLOW.md](WORKFLOW.md) - Visual step-by-step guide
+All pipeline orchestration is managed via YAML configuration files:
+
+### Pipeline Configs
+- **`configs/pipeline_local.yaml`**: Local development pipeline settings
+- **`configs/pipeline_hpc.yaml`**: HPC production pipeline settings
+
+These files control:
+- Input/output paths
+- Models to run
+- Number of bootstrap iterations
+- Execution flags (dry_run, overwrite_splits, postprocess_only)
+- HPC resources (cores, memory, walltime, queue, project allocation)
+
+### Core Configs
+- **`configs/splits_config.yaml`**: CV split generation settings
+- **`configs/training_config.yaml`**: Model training and evaluation settings
+
+### Running Pipelines
+
+**Local:**
+```bash
+# Edit configs/pipeline_local.yaml, then:
+./run_local.sh
+
+# Override settings:
+RUN_MODELS="LR_EN,RF" ./run_local.sh
+DRY_RUN=1 ./run_local.sh
+```
+
+**HPC:**
+```bash
+# Edit configs/pipeline_hpc.yaml (especially hpc.project), then:
+./run_hpc.sh
+
+# Monitor jobs:
+bjobs -w | grep CeD_
+```
+
+For detailed setup instructions, see:
+- [SETUP_README.md](SETUP_README.md) - Environment setup and getting started
+- [HPC_README.md](HPC_README.md) - HPC quick reference
+- [WORKFLOW.md](WORKFLOW.md) - Visual workflow guide
 
 ---
 
@@ -446,15 +526,20 @@ For more troubleshooting, see [HPC_README.md](HPC_README.md) or [WORKFLOW.md](WO
 
 ## Next Steps
 
-**Current Status:** Production-ready ✅ (updated 2026-01-20)
+**Current Status:** Production-ready ✅ (updated 2026-01-21)
 
-### Recent Improvements (Jan 20, 2026)
-- ✅ Parquet file format support (CSV and Parquet)
+### Recent Improvements (Jan 21, 2026)
+- ✅ Optuna hyperparameter optimization with trial visualization ([ADR-018](docs/adr/ADR-018-optuna-hyperparameter-optimization.md))
+- ✅ Split-specific output directories ([ADR-019](docs/adr/ADR-019-split-specific-output-directories.md))
+- ✅ Combined OOF plotting across splits ([ADR-016](docs/adr/ADR-016-oof-combined-plotting.md))
+- ✅ Config-driven pipeline orchestration (`pipeline_local.yaml`, `pipeline_hpc.yaml`)
+- ✅ Unified CLI with `aggregate-splits` command
+- ✅ Parquet file format support ([ADR-017](docs/adr/ADR-017-parquet-format-support.md))
 - ✅ Flexible metadata column configuration (`ColumnsConfig`)
 - ✅ Out-of-fold (OOF) prediction plotting module
 - ✅ Improved error messages for file I/O and column resolution
-- ✅ Bug fixes for HPC compatibility and usability
-- ✅ Test suite: **768 tests**, Coverage: **82%**, Lines: **16,749**
+- ✅ Standardized path structure (`../splits`, `../results`, `../logs`)
+- ✅ Test suite: **762 tests**, Coverage: **82%**, Lines: **~19,657**
 
 ### Remaining Tasks
 - [ ] Run validation study on HPC
@@ -469,8 +554,8 @@ For more troubleshooting, see [HPC_README.md](HPC_README.md) or [WORKFLOW.md](WO
 | Document | Purpose |
 |----------|---------|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical architecture with code pointers |
-| [docs/adr/](docs/adr/) | Architecture Decision Records (15 decisions) |
-| [HPC_README.md](HPC_README.md) | HPC quick reference |
-| [WORKFLOW.md](WORKFLOW.md) | Visual HPC workflow guide |
+| [docs/adr/](docs/adr/) | Architecture Decision Records (20 decisions) |
+| [docs/reference/CLI_REFERENCE.md](docs/reference/CLI_REFERENCE.md) | Complete CLI command reference |
+| [SETUP_README.md](SETUP_README.md) | Environment setup and getting started |
 | [../README.md](../README.md) | Root project overview |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | Contribution guidelines |

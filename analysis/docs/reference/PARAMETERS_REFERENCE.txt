@@ -244,6 +244,75 @@ see KNOBS_CHEATSHEET.txt.
 
 
 +------------------------------------------------------------------------------+
+| OPTUNA HYPERPARAMETER OPTIMIZATION (Alternative to RandomizedSearchCV)       |
++------------------------------------------------------------------------------+
+|                                                                              |
+| OPTUNA_ENABLED      Enable Optuna optimization          Default: false      |
+|                     Set to true to use Optuna instead of RandomizedSearchCV  |
+|                                                                              |
+| OPTUNA_N_TRIALS     Number of hyperparameter trials     Default: 100        |
+|                     Replaces RandomizedSearchCV's n_iter                     |
+|                                                                              |
+| OPTUNA_TIMEOUT      Max time in seconds (optional)      Default: null       |
+|                     Stop study after timeout (null = unlimited)              |
+|                                                                              |
+| OPTUNA_SAMPLER      Sampling algorithm                  Default: "tpe"      |
+|                     Options:                                                 |
+|                       tpe     - Tree-structured Parzen Estimator (Bayesian)  |
+|                       random  - Random search (baseline)                     |
+|                       cmaes   - CMA-ES (continuous params only)              |
+|                       grid    - Grid search (small spaces)                   |
+|                                                                              |
+| OPTUNA_SAMPLER_SEED Random seed for sampler             Default: null       |
+|                     Use for exact reproducibility (independent of CV seed)   |
+|                                                                              |
+| OPTUNA_PRUNER       Early stopping strategy             Default: "median"   |
+|                     Options:                                                 |
+|                       median     - Stop if below median (2-3x speedup)       |
+|                       percentile - Stop if below 25th percentile (aggressive)|
+|                       hyperband  - Successive halving (max efficiency)       |
+|                       none       - No pruning (like RandomizedSearchCV)      |
+|                                                                              |
+| OPTUNA_PRUNER_N_STARTUP_TRIALS  Trials before pruning   Default: 5          |
+|                                 Warmup period for pruner                     |
+|                                                                              |
+| OPTUNA_PRUNER_PERCENTILE  Percentile threshold          Default: 25.0       |
+|                           For percentile pruner (0-100)                      |
+|                                                                              |
+| OPTUNA_N_JOBS       Parallel CV jobs within trials      Default: 1          |
+|                     Parallelizes CV folds, not trials                        |
+|                                                                              |
+| OPTUNA_STORAGE      Database URL for persistence        Default: null       |
+|                     Example: "sqlite:///cv/study.db"                         |
+|                     Enables study resume/sharing across runs                 |
+|                                                                              |
+| OPTUNA_STUDY_NAME   Study identifier                    Default: null       |
+|                     Required when using storage                              |
+|                                                                              |
+| OPTUNA_LOAD_IF_EXISTS  Resume existing study?           Default: false      |
+|                        Set true to continue interrupted optimization         |
+|                                                                              |
+| OPTUNA_SAVE_STUDY      Save study object?               Default: true       |
+|                        Saves to cv/optuna/<name>.pkl                         |
+|                                                                              |
+| OPTUNA_SAVE_TRIALS_CSV Export trials to CSV?            Default: true       |
+|                        Saves trial history for analysis                      |
+|                                                                              |
+| OPTUNA_DIRECTION       Optimization direction           Default: null       |
+|                        "maximize" or "minimize" (auto-detected from scoring) |
+|                                                                              |
+| ---------------------------------------------------------------------------- |
+| Performance Notes:                                                           |
+|   - Optuna (TPE + median pruner): 2-5x faster than RandomizedSearchCV       |
+|   - Best for expensive models (XGBoost, RF) with high-dim search spaces     |
+|   - Use sampler_seed for reproducibility across runs                        |
+|   - Hyperband pruner requires n_trials >= 40 for effective TPE warmup       |
+|                                                                              |
+| See: docs/adr/ADR-018-optuna-hyperparameter-optimization.md                 |
+|                                                                              |
++------------------------------------------------------------------------------+
+
++------------------------------------------------------------------------------+
 | MODEL-SPECIFIC HYPERPARAMETER GRIDS                                          |
 +------------------------------------------------------------------------------+
 
@@ -450,6 +519,11 @@ see KNOBS_CHEATSHEET.txt.
 | Cross-validation:                                                            |
 |   FOLDS=5  REPEATS=10  INNER_FOLDS=5  N_ITER=200                             |
 |                                                                              |
+| Optuna (recommended for faster optimization):                                |
+|   OPTUNA_ENABLED=true  OPTUNA_N_TRIALS=200  OPTUNA_SAMPLER="tpe"             |
+|   OPTUNA_PRUNER="median"  OPTUNA_SAMPLER_SEED=42                             |
+|   Performance: 2-5x faster than RandomizedSearchCV for XGBoost/RF           |
+|                                                                              |
 | Feature selection:                                                           |
 |   FEATURE_SELECT="hybrid"  SCREEN_TOP_N=1000  STABILITY_THRESH=0.75          |
 |                                                                              |
@@ -465,9 +539,12 @@ see KNOBS_CHEATSHEET.txt.
 +------------------------------------------------------------------------------+
 
 Related files:
-  run.sh                  Pipeline orchestration (LSF job submission)
-  CeD_optimized.lsf       Model training configuration
+  run_local.sh            Local pipeline execution
+  run_hpc.sh              HPC job array submission
+  configs/training_config.yaml     Main training configuration (YAML)
+  configs/pipeline_hpc.yaml        HPC-specific overrides
   KNOBS_CHEATSHEET.txt    Quick reference with workflow examples
-  training_config.yaml    YAML config for common settings
+  CLI_REFERENCE.md        Complete CLI usage guide with examples
+  docs/adr/               Architecture decision records
 
 +==============================================================================+

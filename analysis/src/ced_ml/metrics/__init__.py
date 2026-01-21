@@ -14,6 +14,7 @@ from ced_ml.metrics.dca import (
     net_benefit_treat_all,
     parse_dca_report_points,
     save_dca_results,
+    threshold_dca_zero_crossing,
 )
 from ced_ml.metrics.discrimination import (
     alpha_sensitivity_at_specificity,
@@ -25,8 +26,11 @@ from ced_ml.metrics.discrimination import (
     youden_j,
 )
 from ced_ml.metrics.thresholds import (
+    ThresholdBundle,
+    ThresholdMetrics,
     binary_metrics_at_threshold,
     choose_threshold_objective,
+    compute_threshold_bundle,
     threshold_for_precision,
     threshold_for_specificity,
     threshold_from_controls,
@@ -55,6 +59,10 @@ __all__ = [
     "binary_metrics_at_threshold",
     "top_risk_capture",
     "choose_threshold_objective",
+    # Threshold bundle (standardized interface for plotting)
+    "ThresholdBundle",
+    "ThresholdMetrics",
+    "compute_threshold_bundle",
     # Decision Curve Analysis
     "decision_curve_analysis",
     "decision_curve_table",
@@ -65,6 +73,7 @@ __all__ = [
     "find_dca_zero_crossing",
     "generate_dca_thresholds",
     "parse_dca_report_points",
+    "threshold_dca_zero_crossing",
     # Bootstrap confidence intervals
     "stratified_bootstrap_ci",
     "stratified_bootstrap_diff_ci",

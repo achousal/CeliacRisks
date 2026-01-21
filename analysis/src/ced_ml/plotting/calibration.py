@@ -26,6 +26,52 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+def _get_legend_reference_sizes(actual_sizes: np.ndarray) -> list:
+    """
+    Compute appropriate legend reference sizes based on actual bin sizes.
+
+    Args:
+        actual_sizes: Array of actual bin sizes from the data
+
+    Returns:
+        List of 3-4 representative sample counts for legend
+    """
+    if len(actual_sizes) == 0 or actual_sizes.max() == 0:
+        return [10, 50, 100, 200]
+
+    min_size = int(actual_sizes.min())
+    max_size = int(actual_sizes.max())
+
+    # If range is small, use actual min/max and interpolate
+    if max_size - min_size < 50:
+        return [min_size, max_size]
+
+    # Generate 3-4 evenly spaced reference points
+    # Round to nice numbers (multiples of 10, 50, or 100)
+    def round_to_nice(x):
+        if x < 50:
+            return int(np.round(x / 10) * 10)
+        elif x < 200:
+            return int(np.round(x / 25) * 25)
+        else:
+            return int(np.round(x / 50) * 50)
+
+    # Create quartile-based reference points
+    q25 = round_to_nice(np.percentile(actual_sizes, 25))
+    q50 = round_to_nice(np.percentile(actual_sizes, 50))
+    q75 = round_to_nice(np.percentile(actual_sizes, 75))
+    q_max = round_to_nice(max_size)
+
+    # Filter duplicates and sort
+    sizes = sorted({q25, q50, q75, q_max})
+
+    # Ensure we have at least 2 reference points
+    if len(sizes) < 2:
+        sizes = [min_size, max_size]
+
+    return sizes
+
+
 def _plot_prob_calibration_panel(
     ax,
     y: np.ndarray,
@@ -115,7 +161,7 @@ def _plot_prob_calibration_panel(
             obs_mean[valid],
             s=scatter_sizes,
             color="steelblue",
-            alpha=0.6,
+            alpha=0.7,
             edgecolors="darkblue",
             linewidths=0.5,
         )
@@ -124,7 +170,7 @@ def _plot_prob_calibration_panel(
             obs_mean,
             color="steelblue",
             linewidth=2,
-            alpha=0.5,
+            alpha=0.6,
             label=f"Mean (n={len(curves)} splits)",
         )
     else:
@@ -160,11 +206,11 @@ def _plot_prob_calibration_panel(
             obs[valid],
             s=scatter_sizes,
             color="steelblue",
-            alpha=0.6,
+            alpha=0.7,
             edgecolors="darkblue",
             linewidths=0.5,
         )
-        ax.plot(pred_means[valid], obs[valid], color="steelblue", linewidth=1.5, alpha=0.5)
+        ax.plot(pred_means[valid], obs[valid], color="steelblue", linewidth=1.5, alpha=0.6)
 
     bin_label = "quantile" if bin_strategy == "quantile" else "uniform"
     if panel_title:
@@ -179,15 +225,33 @@ def _plot_prob_calibration_panel(
     ax.set_ylim([-0.02, 1.02])
     ax.set_aspect("equal")
 
-    # Add size legend for uniform binning with multiple splits
-    if bin_strategy == "uniform" and unique_splits is not None and len(unique_splits) > 1:
+    # Add size legend for uniform binning
+    if bin_strategy == "uniform":
         from matplotlib.lines import Line2D
+
+        # Determine the actual sizing formula used in the scatter plot
+        if unique_splits is not None and len(unique_splits) > 1:
+            # Multi-split case: uses sum_counts * 1
+            size_multiplier = 1
+            actual_bin_sizes = sum_counts[sum_counts > 0]
+        else:
+            # Single-split case: uses sizes * 3
+            size_multiplier = 3
+            actual_bin_sizes = sizes[sizes > 0]
+
+        # Get legend reference sizes based on actual data
+        reference_sizes = _get_legend_reference_sizes(actual_bin_sizes)
 
         size_handles = []
         size_labels = []
-        for sample_count in [10, 50, 100, 200]:
-            size = np.clip(sample_count * 1, 5, 300)
-            markersize = np.sqrt(size) / 2  # Convert area to radius
+        for sample_count in reference_sizes:
+            # Match the actual scatter plot sizing formula
+            # scatter() 's' parameter is area in points^2
+            scatter_area = np.clip(sample_count * size_multiplier, 5, 300)
+            # Line2D markersize is the marker width/diameter in points
+            # Convert: diameter = sqrt(area) because area = pi*r^2 and diameter ≈ 2*r
+            # But matplotlib scatter uses a simpler area calculation, so: diameter = sqrt(area)
+            markersize = np.sqrt(scatter_area)
             handle = Line2D(
                 [0],
                 [0],
@@ -196,25 +260,31 @@ def _plot_prob_calibration_panel(
                 markerfacecolor="steelblue",
                 markersize=markersize,
                 markeredgecolor="darkblue",
-                linewidth=0.5,
+                markeredgewidth=0.5,
+                linestyle="None",
+                alpha=0.6,
             )
             size_handles.append(handle)
             size_labels.append(f"{sample_count}")
 
+        # Position legend to the right with adequate spacing
         size_legend = ax.legend(
             size_handles,
             size_labels,
             title="Bin size (n)",
             loc="center left",
-            bbox_to_anchor=(1.05, 0.5),
+            bbox_to_anchor=(1.02, 0.5),
             frameon=True,
             fontsize=8,
+            title_fontsize=9,
+            framealpha=0.9,
+            labelspacing=1.2,  # Increase vertical spacing between legend entries
         )
         ax.add_artist(size_legend)
         # Re-add main legend (was overwritten by size legend)
-        ax.legend(loc="upper left", fontsize=9)
+        ax.legend(loc="upper left", fontsize=9, framealpha=0.9, labelspacing=1.0)
     else:
-        ax.legend(loc="upper left", fontsize=9)
+        ax.legend(loc="upper left", fontsize=9, framealpha=0.9, labelspacing=1.0)
 
 
 def _binned_logits(
@@ -492,7 +562,7 @@ def _plot_logit_calibration_panel(
                 "-",
                 color="steelblue",
                 linewidth=2,
-                alpha=0.5,
+                alpha=0.6,
                 zorder=4,
             )
 
@@ -517,29 +587,12 @@ def _plot_logit_calibration_panel(
                 s=marker_sizes**2,
                 marker="o",
                 color="steelblue",
-                alpha=0.8,
+                alpha=0.7,
                 edgecolors="darkblue",
                 linewidth=0.5,
                 label=f"Mean logit calib (n={len(unique_splits)} splits)",
                 zorder=5,
             )
-
-            # Add legend for dot sizes (only for uniform binning)
-            if bin_strategy != "quantile":
-                valid_sizes = bin_sizes_mean[valid_logit]
-                if len(valid_sizes) > 0 and valid_sizes.max() > 0:
-                    size_range = [int(valid_sizes.min()), int(valid_sizes.max())]
-                    size_legend_text = f"Dot size ∝ sample n: {size_range[0]}–{size_range[1]}"
-                    ax.text(
-                        0.98,
-                        0.02,
-                        size_legend_text,
-                        transform=ax.transAxes,
-                        fontsize=8,
-                        ha="right",
-                        va="bottom",
-                        bbox={"boxstyle": "round", "facecolor": "wheat", "alpha": 0.5},
-                    )
 
             loess_ok = True  # Skip LOESS when multi-split aggregation is used
 
@@ -683,7 +736,7 @@ def _plot_logit_calibration_panel(
                 loess_logit_y,
                 "steelblue",
                 linewidth=2.5,
-                alpha=0.9,
+                alpha=0.6,
                 label=label,
                 zorder=5,
             )
@@ -726,27 +779,12 @@ def _plot_logit_calibration_panel(
                     s=marker_sizes**2,
                     marker="o",
                     color="darkorange",
-                    alpha=0.8,
+                    alpha=0.7,
                     edgecolors="darkred",
                     linewidth=0.5,
                     label=f"Binned observations (n={len(bx)} bins, Wilson CI)",
                     zorder=10,
                 )
-
-                # Add legend for dot sizes
-                if bin_sizes is not None and len(bin_sizes) > 0:
-                    size_range = [int(bin_sizes.min()), int(bin_sizes.max())]
-                    size_legend_text = f"Dot size ∝ sample n: {size_range[0]}–{size_range[1]}"
-                    ax.text(
-                        0.98,
-                        0.02,
-                        size_legend_text,
-                        transform=ax.transAxes,
-                        fontsize=8,
-                        ha="right",
-                        va="bottom",
-                        bbox={"boxstyle": "round", "facecolor": "wheat", "alpha": 0.5},
-                    )
 
                 # Extend y-range for binned CIs
                 logit_range_y = [
@@ -795,27 +833,12 @@ def _plot_logit_calibration_panel(
                     s=marker_sizes**2,
                     marker="o",
                     color="steelblue",
-                    alpha=0.8,
+                    alpha=0.7,
                     edgecolors="darkblue",
                     linewidth=0.5,
                     label=f"Binned logits (n={len(bx)} bins, Wilson CI)",
                     zorder=5,
                 )
-
-                # Add legend for dot sizes
-                if bin_sizes is not None and len(bin_sizes) > 0:
-                    size_range = [int(bin_sizes.min()), int(bin_sizes.max())]
-                    size_legend_text = f"Dot size ∝ sample n: {size_range[0]}–{size_range[1]}"
-                    ax.text(
-                        0.98,
-                        0.02,
-                        size_legend_text,
-                        transform=ax.transAxes,
-                        fontsize=8,
-                        ha="right",
-                        va="bottom",
-                        bbox={"boxstyle": "round", "facecolor": "wheat", "alpha": 0.5},
-                    )
 
                 method_label = "Binned"
                 # Extend y-range for binned data
@@ -832,42 +855,81 @@ def _plot_logit_calibration_panel(
     ylabel = f"Empirical logit ({method_label})" if method_label else "Empirical logit"
     ax.set_ylabel(ylabel, fontsize=11)
 
-    # Add size legend for uniform binning with multiple splits
-    if bin_strategy == "uniform" and unique_splits is not None and len(unique_splits) > 1:
+    # Add size legend for uniform binning (match probability-space legend style)
+    if bin_strategy == "uniform":
         from matplotlib.lines import Line2D
+
+        # Determine actual bin sizes from the data
+        # Multi-split case: bin_sizes_mean already computed
+        # Single-split case: bin_sizes from _binned_logits
+        if unique_splits is not None and len(unique_splits) > 1:
+            # Multi-split: use bin_sizes_mean from earlier computation
+            actual_bin_sizes = bin_sizes_mean[bin_sizes_mean > 0]
+        else:
+            # Single-split: use bin_sizes from binned_result
+            if bin_sizes is not None and len(bin_sizes) > 0:
+                actual_bin_sizes = bin_sizes[bin_sizes > 0]
+            else:
+                actual_bin_sizes = np.array([])
+
+        # Get legend reference sizes based on actual data
+        reference_sizes = _get_legend_reference_sizes(actual_bin_sizes)
 
         size_handles = []
         size_labels = []
-        for sample_count in [10, 50, 100, 200]:
-            size = np.clip(sample_count * 1, 5, 300)
-            markersize = np.sqrt(size) / 2
+
+        # Determine min/max for normalization (matching actual plot logic)
+        if len(actual_bin_sizes) > 0:
+            data_min = actual_bin_sizes.min()
+            data_max = actual_bin_sizes.max()
+        else:
+            data_min = reference_sizes[0] if reference_sizes else 10
+            data_max = reference_sizes[-1] if reference_sizes else 200
+
+        for sample_count in reference_sizes:
+            # Compute normalized marker size matching actual plot logic
+            # Logit uses: norm_sizes = (bin_sizes - min) / (max - min + eps)
+            # marker_sizes = min_size + norm_sizes * (max_size - min_size)
+            if data_max > data_min:
+                norm_size = (sample_count - data_min) / (data_max - data_min + 1e-7)
+            else:
+                norm_size = 0.5
+            min_marker, max_marker = 4, 16
+            marker_size = min_marker + norm_size * (max_marker - min_marker)
+
             handle = Line2D(
                 [0],
                 [0],
                 marker="o",
                 color="w",
                 markerfacecolor="steelblue",
-                markersize=markersize,
+                markersize=marker_size,
                 markeredgecolor="darkblue",
-                linewidth=0.5,
+                markeredgewidth=0.5,
+                linestyle="None",
+                alpha=0.8,
             )
             size_handles.append(handle)
             size_labels.append(f"{sample_count}")
 
+        # Position legend to the right with adequate spacing
         size_legend = ax.legend(
             size_handles,
             size_labels,
             title="Bin size (n)",
             loc="center left",
-            bbox_to_anchor=(1.05, 0.5),
+            bbox_to_anchor=(1.02, 0.5),
             frameon=True,
             fontsize=8,
+            title_fontsize=9,
+            framealpha=0.9,
+            labelspacing=1.2,  # Increase vertical spacing between legend entries
         )
         ax.add_artist(size_legend)
         # Re-add main legend
-        ax.legend(loc="upper left", fontsize=9)
+        ax.legend(loc="upper left", fontsize=9, framealpha=0.9, labelspacing=1.0)
     else:
-        ax.legend(loc="upper left", fontsize=9)
+        ax.legend(loc="upper left", fontsize=9, framealpha=0.9, labelspacing=1.0)
 
     ax.grid(True, alpha=0.3)
     ax.set_xlim(logit_range_x)
@@ -887,13 +949,14 @@ def _apply_plot_metadata(fig, meta_lines: Optional[Sequence[str]] = None) -> flo
     """
     lines = [str(line) for line in (meta_lines or []) if line]
     if not lines:
-        return 0.10  # Default minimum bottom margin
+        return 0.12  # Default minimum bottom margin
 
     # Position metadata at very bottom with fixed offset from edge
     fig.text(0.5, 0.005, "\n".join(lines), ha="center", va="bottom", fontsize=8, wrap=True)
 
     # Calculate required bottom margin: base + space per line
-    required_bottom = 0.10 + (0.018 * len(lines))
+    # Increased spacing for better separation between metadata and figures
+    required_bottom = 0.12 + (0.022 * len(lines))
     return min(required_bottom, 0.30)  # Cap at 30%
 
 
@@ -1086,7 +1149,8 @@ def plot_calibration_curve(
 
     # Apply metadata and adjust layout
     bottom_margin = _apply_plot_metadata(fig, meta_lines)
-    plt.subplots_adjust(left=0.10, right=0.95, top=0.92, bottom=bottom_margin)
+    # Increase right margin to accommodate size legend in uniform binning panels
+    plt.subplots_adjust(left=0.10, right=0.88, top=0.92, bottom=bottom_margin)
 
     # Save figure
     out_path = Path(out_path)

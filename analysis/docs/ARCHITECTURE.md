@@ -1,8 +1,8 @@
 # CeliacRisks Architecture
 
-**Version:** 1.0
+**Version:** 1.1
 **Date:** 2026-01-20
-**Status:** Current-state documentation
+**Status:** Current-state documentation (updated with Optuna integration and split-specific outputs)
 
 ---
 
@@ -48,6 +48,7 @@ CeliacRisks is a modular ML pipeline for predicting **incident Celiac Disease (C
 - **Metadata:** age, BMI, sex, ethnicity (flexible via `ColumnsConfig`)
 - **Target:** Binary incident CeD diagnosis
 - **Prevalence:** ~1:300 (0.33% incident cases)
+- **Formats:** CSV and Parquet (auto-detected by file extension)
 
 **Where in code:**
 - [data/schema.py:1-50](../src/ced_ml/data/schema.py#L1-L50) - Column definitions
@@ -98,7 +99,7 @@ analysis/
   docs/                 # Documentation
     ARCHITECTURE.md     # This file
     adr/                # Architecture Decision Records
-  Legacy/               # Archived monolithic scripts
+    reference/          # Reference documentation (parameters, knobs)
 splits_hpc/      # Persisted split indices
 results_hpc/     # Training outputs
 ```
@@ -113,13 +114,22 @@ results_hpc/     # Training outputs
 - `main.py` - Entry point (`ced` command via Click)
 - `save_splits.py` - Split generation CLI
 - `train.py` - Model training CLI
-- `postprocess.py` - Multi-model aggregation CLI
+- `aggregate_splits.py` - Cross-split aggregation CLI (metrics, predictions, panels)
 - `eval_holdout.py` - Holdout evaluation CLI (run ONCE)
-- `config_tools.py` - Config migration/validation utilities
+- `config_tools.py` - Config migration/validation utilities (validate, diff)
+
+**CLI Commands:**
+- `ced save-splits` - Generate train/val/test splits
+- `ced train` - Train ML models with nested CV
+- `ced aggregate-splits` - Aggregate results across split seeds
+- `ced eval-holdout` - Evaluate on holdout set (run ONCE)
+- `ced config validate` - Validate configuration file
+- `ced config diff` - Compare two configuration files
+- `ced convert-to-parquet` - Convert CSV to Parquet format
 
 **Where in code:**
 - [cli/main.py](../src/ced_ml/cli/main.py) - CLI entry point
-- [cli/train.py:204-474](../src/ced_ml/cli/train.py#L204-L474) - Main training orchestration
+- [cli/train.py:224-1153](../src/ced_ml/cli/train.py#L224-L1153) - Main training orchestration
 
 #### `config/` - Configuration System
 - `schema.py` - Pydantic models (~200 parameters)
@@ -133,11 +143,13 @@ results_hpc/     # Training outputs
 - `FeatureConfig` - Feature selection methods
 - `ThresholdConfig` - Threshold selection objectives
 - `CalibrationConfig` - Calibration settings
+- `OptunaConfig` - Optuna hyperparameter optimization settings
 - `ColumnsConfig` - Flexible metadata column configuration
 - Model-specific configs: `LRConfig`, `SVMConfig`, `RFConfig`, `XGBoostConfig`
 
 **Where in code:**
-- [config/schema.py:292-343](../src/ced_ml/config/schema.py#L292-L343) - `TrainingConfig`
+- [config/schema.py:351-400](../src/ced_ml/config/schema.py#L351-L400) - `TrainingConfig`
+- [config/schema.py:220-237](../src/ced_ml/config/schema.py#L220-L237) - `OptunaConfig`
 - [config/loader.py](../src/ced_ml/config/loader.py) - YAML loader
 - [config/validation.py](../src/ced_ml/config/validation.py) - Validators
 
@@ -171,17 +183,19 @@ See [ADR-015: Flexible Metadata Columns](adr/ADR-015-flexible-metadata-columns.m
 
 See [ADR-006: Hybrid Feature Selection](adr/ADR-006-hybrid-feature-selection.md).
 
-#### `models/` - Model Training (549 lines, 103 tests)
+#### `models/` - Model Training (718+ lines, 103 tests)
 - `registry.py` - Model factory (RF, XGBoost, LinSVM, LR)
-- `hyperparams.py` - Hyperparameter grids for RandomizedSearchCV
+- `hyperparams.py` - Hyperparameter grids for RandomizedSearchCV and Optuna
 - `training.py` - Nested CV orchestration, OOF predictions
 - `calibration.py` - Calibration wrappers, prevalence adjustment
 - `prevalence.py` - Prevalence adjustment utilities
+- `optuna_search.py` - Optuna-based hyperparameter optimization (OptunaSearchCV)
 
 **Where in code:**
 - [models/registry.py](../src/ced_ml/models/registry.py) - `build_<model_name>` functions
-- [models/training.py:29-192](../src/ced_ml/models/training.py#L29-L192) - `oof_predictions_with_nested_cv`
+- [models/training.py:30-200](../src/ced_ml/models/training.py#L30-L200) - `oof_predictions_with_nested_cv`
 - [models/calibration.py:152-188](../src/ced_ml/models/calibration.py#L152-L188) - `PrevalenceAdjustedModel`
+- [models/optuna_search.py](../src/ced_ml/models/optuna_search.py) - `OptunaSearchCV`
 
 See [ADR-008: Nested CV Structure](adr/ADR-008-nested-cv.md), [ADR-011: PrevalenceAdjustedModel](adr/ADR-011-prevalence-wrapper.md).
 
@@ -212,9 +226,12 @@ See [ADR-009: Threshold on VAL](adr/ADR-009-threshold-on-val.md), [ADR-010: Fixe
 - `risk_dist.py` - Risk distribution histograms
 - `dca.py` - Decision curve analysis plots
 - `learning_curve.py` - Learning curve analysis
+- `oof.py` - Out-of-fold prediction plots with confidence bands across CV repeats
+- `optuna_plots.py` - Optuna hyperparameter optimization visualization (optimization history, parameter importances, parallel coordinates)
 
 **Where in code:**
 - [plotting/](../src/ced_ml/plotting/) - All plotting modules
+- [plotting/oof.py](../src/ced_ml/plotting/oof.py) - `plot_oof_combined`
 
 #### `utils/` - Shared Utilities
 - `logging.py` - Logging configuration
@@ -275,8 +292,10 @@ See [ADR-009: Threshold on VAL](adr/ADR-009-threshold-on-val.md), [ADR-010: Fixe
 - Final trained model: `final_model.pkl` (wrapped in `PrevalenceAdjustedModel`)
 - OOF predictions: `oof_predictions.csv`, `val_predictions.csv`, `test_predictions.csv`
 - Metrics: `*_metrics.json`
-- Plots: ROC, PR, calibration, risk distribution, DCA
+- Plots: ROC, PR, calibration, risk distribution, DCA, OOF combined plots
 - Metadata: `run_settings.json`
+- Logs: `run.log` (detailed execution log)
+- Split trace: `train_test_split_trace.csv` (WIP)
 
 **Flow:**
 1. Load training configuration
@@ -304,8 +323,8 @@ See [ADR-009: Threshold on VAL](adr/ADR-009-threshold-on-val.md), [ADR-010: Fixe
 16. Save model, predictions, metrics, plots, run_settings
 
 **Where in code:**
-- [cli/train.py:204-474](../src/ced_ml/cli/train.py#L204-L474) - Main training orchestration
-- [models/training.py:29-192](../src/ced_ml/models/training.py#L29-L192) - `oof_predictions_with_nested_cv`
+- [cli/train.py:224-1153](../src/ced_ml/cli/train.py#L224-L1153) - Main training orchestration
+- [models/training.py:30-200](../src/ced_ml/models/training.py#L30-L200) - `oof_predictions_with_nested_cv`
 - [features/stability.py:124-216](../src/ced_ml/features/stability.py#L124-L216) - `extract_stable_panel`
 - [models/calibration.py:152-188](../src/ced_ml/models/calibration.py#L152-L188) - `PrevalenceAdjustedModel`
 - [metrics/thresholds.py:326-377](../src/ced_ml/metrics/thresholds.py#L326-L377) - `choose_threshold_objective`
@@ -321,27 +340,103 @@ See [ADR-009: Threshold on VAL](adr/ADR-009-threshold-on-val.md), [ADR-010: Fixe
 - [ADR-011: PrevalenceAdjustedModel](adr/ADR-011-prevalence-wrapper.md)
 - [ADR-015: Flexible Metadata Columns](adr/ADR-015-flexible-metadata-columns.md)
 
-### 3.3 `postprocess` - Multi-Model Aggregation
+### 3.3 `convert-to-parquet` - Data Format Conversion
 
-**Purpose:** Aggregate results across multiple trained models, generate comparison plots.
+**Purpose:** Convert proteomics CSV files to Parquet format for faster I/O and reduced storage.
 
 **Inputs:**
-- Multiple model result directories (e.g., `results_RF/`, `results_XGBoost/`)
+- Raw data CSV file
 
 **Outputs:**
-- Comparison tables: `model_comparison.csv`
-- Comparison plots: Multi-model ROC/PR curves
+- Parquet file with same data, optimized compression
 
 **Flow:**
-1. Load predictions and metrics from each model directory
-2. Aggregate metrics into comparison table
-3. Generate multi-model comparison plots
-4. Save aggregated results
+1. Load CSV with same column selection as training pipeline
+2. Write to Parquet with specified compression (default: snappy)
+3. Typical 5-10x file size reduction and 3-10x faster reads
 
 **Where in code:**
-- [cli/postprocess.py](../src/ced_ml/cli/postprocess.py) - Postprocessing CLI
+- [data/io.py](../src/ced_ml/data/io.py) - `convert_csv_to_parquet`
+- [cli/main.py:371-416](../src/ced_ml/cli/main.py#L371-L416) - CLI command
 
-### 3.4 `eval-holdout` - Holdout Evaluation
+**See ADR:**
+- [ADR-017: Parquet Format Support](adr/ADR-017-parquet-format-support.md)
+
+### 3.4 `config validate` / `config diff` - Configuration Management
+
+**Purpose:** Validate configuration files and compare configurations across experiments.
+
+**Commands:**
+1. **`ced config validate`** - Validate configuration file for errors
+2. **`ced config diff`** - Compare two configuration files
+
+**Inputs:**
+- Configuration YAML file(s)
+
+**Outputs:**
+- Validation report (errors, warnings)
+- Configuration diff report
+
+**Where in code:**
+- [cli/config_tools.py](../src/ced_ml/cli/config_tools.py) - Config validation and diff utilities
+- [cli/main.py:312-368](../src/ced_ml/cli/main.py#L312-L368) - CLI commands
+
+### 3.5 `aggregate-splits` - Cross-Split Aggregation
+
+**Purpose:** Aggregate metrics, predictions, and stability panels across multiple split seeds for robust statistical inference.
+
+**Inputs:**
+- Root output directory containing split-specific subdirectories (`split_seed{N}/`)
+- Split seed range (e.g., `--seed-start 42 --seed-end 51` for 10 splits)
+
+**Outputs:**
+- Aggregated metrics: `aggregate_metrics.json` (mean ± SE across splits)
+- Pooled predictions: `pooled_predictions.csv` (predictions from all splits)
+- Pooled metrics: `pooled_metrics.json` (metrics computed on pooled predictions)
+- Consensus stability panels: `consensus_panel_*.txt` (proteins selected across splits)
+- Summary statistics: per-split and cross-split performance distributions
+
+**Flow:**
+1. Discover split-specific output directories (`split_seed42/`, `split_seed43/`, ...)
+2. Collect metrics from each split (`*_metrics.json`)
+3. Compute summary statistics: mean, SE, min, max, median, Q1, Q3
+4. Collect predictions from each split (`val_predictions.csv`, `test_predictions.csv`)
+5. Concatenate predictions across splits (pooled predictions)
+6. Compute pooled metrics on concatenated predictions
+7. Build consensus stability panels:
+   - Extract stability panels from each split
+   - Identify proteins selected in ≥K% of splits (default: 75%)
+8. Save aggregated results
+
+**Key Metrics:**
+- Cross-split mean ± SE for AUROC, PR-AUC, Brier, sensitivity, specificity
+- Pooled AUROC/PR-AUC (all predictions concatenated)
+- Per-split distributions for stability analysis
+
+**Where in code:**
+- [cli/aggregate_splits.py](../src/ced_ml/cli/aggregate_splits.py) - Aggregation CLI (946 lines)
+  - `discover_split_dirs()` - Find split-specific directories
+  - `collect_metrics()` - Load metrics from all splits
+  - `compute_summary_stats()` - Mean, SE, quantiles
+  - `collect_predictions()` - Load and concatenate predictions
+  - `compute_pooled_metrics()` - Metrics on pooled data
+  - `build_consensus_panels()` - Cross-split feature consensus
+
+**Use Case:**
+Run after training on multiple split seeds to obtain robust performance estimates and identify features consistently selected across different data partitions.
+
+**Example:**
+```bash
+ced aggregate-splits \
+  --root results/my_model/ \
+  --seed-start 42 \
+  --seed-end 51 \
+  --panel-threshold 0.75
+```
+
+This aggregates 10 splits (seeds 42-51) and builds consensus panels requiring ≥75% selection frequency.
+
+### 3.6 `eval-holdout` - Holdout Evaluation
 
 **Purpose:** Evaluate trained model on a completely held-out dataset (run ONCE).
 
@@ -485,9 +580,9 @@ Raw Data CSV (43,960 samples, 2,920 proteins)
 
 **Example:**
 ```
-IncidentPlusPrevalent_train_idx_seed42.csv
-IncidentPlusPrevalent_val_idx_seed42.csv
-IncidentPlusPrevalent_test_idx_seed42.csv
+train_idx_seed42.csv
+val_idx_seed42.csv
+test_idx_seed42.csv
 ```
 
 **Contents:**
@@ -510,21 +605,33 @@ row_idx
 **Directory Structure:**
 ```
 results_hpc/
-  {model}_{scenario}_seed{N}/
-    final_model.pkl            # PrevalenceAdjustedModel wrapper
-    oof_predictions.csv        # OOF predictions (TRAIN set)
-    val_predictions.csv        # VAL predictions
-    test_predictions.csv       # TEST predictions
-    train_metrics.json         # TRAIN metrics
-    val_metrics.json           # VAL metrics
-    test_metrics.json          # TEST metrics
-    run_settings.json          # Full config + metadata
+  {outdir}/split_seed{N}/      # Split-specific subdirectory
+    core/
+      final_model.pkl          # PrevalenceAdjustedModel wrapper
+      oof_predictions.csv      # OOF predictions (TRAIN set)
+      val_predictions.csv      # VAL predictions
+      test_predictions.csv     # TEST predictions
+      train_metrics.json       # TRAIN metrics
+      val_metrics.json         # VAL metrics
+      test_metrics.json        # TEST metrics
+      run_settings.json        # Full config + metadata
+    cv/
+      cv_repeat_metrics.csv    # Per-repeat OOF metrics
+      best_params.csv          # Best hyperparameters per fold
+      optuna/                  # (if Optuna enabled)
+        optuna_config.json     # Optuna settings
+        best_params_optuna.csv # Best params with trial metadata
     plots/
       roc_pr.png               # ROC + PR curves
       calibration.png          # Calibration plot
       risk_dist.png            # Risk distribution histogram
       dca.png                  # Decision curve analysis
+      oof_roc.png              # OOF ROC with confidence bands
+      oof_pr.png               # OOF PR with confidence bands
+      oof_calibration.png      # OOF calibration plot
 ```
+
+**Note:** Output directories now use split-specific subdirectories (`split_seed{N}/`) for multi-split runs, enabling parallel training with different split seeds.
 
 **Prediction CSV Format:**
 ```csv
@@ -564,6 +671,7 @@ eid,y_true,y_pred_proba,y_pred,fold,repeat
 - `FeatureConfig` - Feature selection methods
 - `ThresholdConfig` - Threshold selection objectives
 - `CalibrationConfig` - Calibration settings
+- `OptunaConfig` - Optuna hyperparameter optimization
 - `EvaluationConfig` - Metrics and reporting
 - `DCAConfig` - Decision curve analysis
 - `OutputConfig` - File generation control
@@ -571,7 +679,7 @@ eid,y_true,y_pred_proba,y_pred,fold,repeat
 - Model-specific: `LRConfig`, `SVMConfig`, `RFConfig`, `XGBoostConfig`
 
 **Where in code:**
-- [config/schema.py:292-343](../src/ced_ml/config/schema.py#L292-L343) - `TrainingConfig`
+- [config/schema.py:351-424](../src/ced_ml/config/schema.py#L351-L424) - `TrainingConfig`
 - [config/schema.py](../src/ced_ml/config/schema.py) - All config classes
 
 **See ADR:**
@@ -607,11 +715,16 @@ kbest_k: int | None = None           # KBest k (tuned if None)
 stability_thresh: float = 0.75       # Stability selection threshold
 corr_thresh: float = 0.9             # Correlation pruning threshold
 hybrid_kbest_first: bool = True      # Hybrid mode: KBest before stability
+
+# WIP: Experimental features (unstaged changes)
+rf_use_permutation: bool = False     # Enable RF permutation importance
+rf_perm_repeats: int = 5             # Permutation repeats
+coef_threshold: float = 0.01         # Coefficient threshold for L1 selection
 ...
 ```
 
 **Where in code:**
-- [config/schema.py:83-105](../src/ced_ml/config/schema.py#L83-L105) - `FeatureConfig`
+- [config/schema.py:94-126](../src/ced_ml/config/schema.py#L94-L126) - `FeatureConfig`
 
 **See ADRs:**
 - [ADR-006: Hybrid Feature Selection](adr/ADR-006-hybrid-feature-selection.md)
@@ -629,7 +742,7 @@ target_prevalence_fixed: float | None = None  # For fixed source
 ```
 
 **Where in code:**
-- [config/schema.py:198-208](../src/ced_ml/config/schema.py#L198-L208) - `ThresholdConfig`
+- [config/schema.py:245-290](../src/ced_ml/config/schema.py#L245-L290) - `ThresholdConfig`
 
 **See ADRs:**
 - [ADR-009: Threshold on VAL](adr/ADR-009-threshold-on-val.md)
@@ -645,6 +758,30 @@ ensemble: bool = True           # Ensemble calibration
 
 **Where in code:**
 - [config/schema.py](../src/ced_ml/config/schema.py) - `CalibrationConfig`
+
+#### OptunaConfig (Hyperparameter Optimization)
+```python
+enabled: bool = False                        # Enable Optuna (vs RandomizedSearchCV)
+n_trials: int = 100                          # Number of optimization trials
+timeout: float | None = None                 # Max seconds per study (None = unlimited)
+sampler: str = "tpe"                         # tpe | random | cmaes | grid
+sampler_seed: int | None = None              # Sampler RNG seed
+pruner: str = "median"                       # median | percentile | hyperband | none
+pruner_n_startup_trials: int = 5             # Trials before pruning starts
+pruner_percentile: float = 25.0              # Percentile for PercentilePruner
+n_jobs: int = 1                              # Parallel jobs for CV
+storage: str | None = None                   # Optuna storage URL (e.g., sqlite:///study.db)
+study_name: str | None = None                # Study name for persistence
+load_if_exists: bool = False                 # Resume existing study
+save_study: bool = True                      # Save study object
+save_trials_csv: bool = True                 # Export trials to CSV
+direction: str | None = None                 # minimize | maximize (auto-inferred from scoring)
+```
+
+**Where in code:**
+- [config/schema.py:220-237](../src/ced_ml/config/schema.py#L220-L237) - `OptunaConfig`
+- [models/optuna_search.py](../src/ced_ml/models/optuna_search.py) - `OptunaSearchCV`
+- [models/hyperparams.py](../src/ced_ml/models/hyperparams.py) - `get_param_distributions_optuna`
 
 #### ColumnsConfig (Metadata Columns)
 ```python
@@ -673,7 +810,7 @@ split_seed: 42
 cv:
   folds: 5
   repeats: 10
-  scoring: neg_brier_score
+  scoring: roc_auc
 
 features:
   feature_select: hybrid
@@ -686,6 +823,13 @@ thresholds:
 
 columns:
   mode: auto  # or explicit with custom lists
+
+# Optional: Optuna hyperparameter optimization (alternative to RandomizedSearchCV)
+optuna:
+  enabled: false      # Set to true to use Optuna
+  n_trials: 100       # Number of trials per inner CV fold
+  sampler: tpe        # tpe | random | cmaes | grid
+  pruner: median      # median | percentile | hyperband | none
 ```
 
 **CLI Overrides:**
@@ -872,7 +1016,7 @@ ced train --config config.yaml \
 3. KBest → refine stable panel
 
 **Where in code:**
-- [config/schema.py:83-105](../src/ced_ml/config/schema.py#L83-L105) - `FeatureConfig.hybrid_kbest_first`
+- [config/schema.py:94-126](../src/ced_ml/config/schema.py#L94-L126) - `FeatureConfig.hybrid_kbest_first`
 
 **See ADR:**
 - [ADR-006: Hybrid Feature Selection](adr/ADR-006-hybrid-feature-selection.md)
@@ -897,7 +1041,9 @@ ced train --config config.yaml \
 
 ### 9.2 Hyperparameters
 
-**RandomizedSearchCV:** 200 iterations per inner CV fold.
+**Search Methods:**
+- **RandomizedSearchCV** (default): 200 iterations per inner CV fold
+- **OptunaSearchCV** (optional): Bayesian optimization with TPE, pruning support
 
 **Hyperparameter Grids:**
 - **LR:** C (regularization strength), l1_ratio (ElasticNet mix)
@@ -907,26 +1053,37 @@ ced train --config config.yaml \
 
 **Where in code:**
 - [models/hyperparams.py](../src/ced_ml/models/hyperparams.py) - Hyperparameter distributions
+- [models/hyperparams.py](../src/ced_ml/models/hyperparams.py) - `get_param_distributions_optuna` for Optuna format
+- [models/optuna_search.py](../src/ced_ml/models/optuna_search.py) - `OptunaSearchCV` wrapper
 
 **Tests:**
 - `tests/test_models_hyperparams.py` - Validates hyperparameter grids
 
 ### 9.3 Nested CV
 
-**Structure:** 5 outer folds × 10 repeats × 5 inner folds = 50,000 model fits per model type.
+**Structure:** 5 outer folds × 10 repeats × 5 inner folds.
 
 **Outer CV (5 folds × 10 repeats):**
 - Generates out-of-fold (OOF) predictions for TRAIN set
 - Repeated 10 times for robust estimates
 
-**Inner CV (5 folds × 200 iterations):**
-- RandomizedSearchCV for hyperparameter tuning
+**Inner CV (5 folds):**
+- **RandomizedSearchCV** (default): 200 iterations per fold
+- **OptunaSearchCV** (optional): Configurable trials with TPE/CMA-ES sampling, pruning
 - Optimizes AUROC (discrimination-focused)
 - Selects best hyperparameters per outer fold
 
+**Optuna Integration:**
+When `optuna.enabled=True`, the inner CV uses Optuna instead of RandomizedSearchCV:
+- Supports TPE, Random, CMA-ES, and Grid samplers
+- Supports Median, Percentile, and Hyperband pruners
+- Graceful fallback to RandomizedSearchCV if optuna not installed
+
 **Where in code:**
-- [models/training.py:29-192](../src/ced_ml/models/training.py#L29-L192) - `oof_predictions_with_nested_cv`
-- [config/schema.py](../src/ced_ml/config/schema.py) - `CVConfig` (folds, repeats, inner_folds)
+- [models/training.py:30-200](../src/ced_ml/models/training.py#L30-L200) - `oof_predictions_with_nested_cv`
+- [models/training.py:281-380](../src/ced_ml/models/training.py#L281-L380) - `_build_hyperparameter_search`
+- [models/optuna_search.py](../src/ced_ml/models/optuna_search.py) - `OptunaSearchCV`
+- [config/schema.py](../src/ced_ml/config/schema.py) - `CVConfig`, `OptunaConfig`
 
 **Tests:**
 - `tests/test_training.py` - Validates nested CV logic
@@ -1034,7 +1191,7 @@ target_prevalence_source: str = "test"  # test | val | train | fixed
 ```
 
 **Where in code:**
-- [config/schema.py:198-208](../src/ced_ml/config/schema.py#L198-L208) - `ThresholdConfig`
+- [config/schema.py:245-290](../src/ced_ml/config/schema.py#L245-L290) - `ThresholdConfig`
 
 **See ADRs:**
 - [ADR-009: Threshold on VAL](adr/ADR-009-threshold-on-val.md)
@@ -1102,12 +1259,14 @@ target_prevalence_source: str = "test"  # test | val | train | fixed
 
 ### 13.1 Directory Structure
 
-**Output Directory Pattern:** `results_hpc/{model}_{scenario}_seed{N}/`
+**Output Directory Pattern:** `{outdir}/split_seed{N}/`
+
+The output directory structure uses split-specific subdirectories to support parallel training with different split seeds.
 
 **Contents:**
 ```
-results_hpc/
-  RF_IncidentPlusPrevalent_seed42/
+{outdir}/split_seed42/
+  core/
     final_model.pkl               # PrevalenceAdjustedModel wrapper
     oof_predictions.csv           # OOF predictions (TRAIN set)
     val_predictions.csv           # VAL predictions
@@ -1117,11 +1276,22 @@ results_hpc/
     test_metrics.json             # TEST metrics
     run_settings.json             # Full config + metadata
     stable_features.txt           # Stable panel proteins
-    plots/
-      roc_pr.png                  # ROC + PR curves
-      calibration.png             # Calibration plot
-      risk_dist.png               # Risk distribution
-      dca.png                     # Decision curve analysis
+  cv/
+    cv_repeat_metrics.csv         # Per-repeat OOF metrics
+    best_params.csv               # Best hyperparameters per fold
+    optuna/                       # (if Optuna enabled)
+      optuna_config.json          # Optuna configuration
+      best_params_optuna.csv      # Best params with trial metadata
+  plots/
+    roc_pr.png                    # ROC + PR curves
+    calibration.png               # Calibration plot
+    risk_dist.png                 # Risk distribution
+    dca.png                       # Decision curve analysis
+    oof_roc.png                   # OOF ROC with confidence bands
+    oof_pr.png                    # OOF PR with confidence bands
+    oof_calibration.png           # OOF calibration plot
+  diag_splits/
+    train_test_split_trace.csv    # Split assignment trace (WIP)
 ```
 
 **Where in code:**
@@ -1137,12 +1307,16 @@ results_hpc/
 2. **Calibration Plot** - Predicted vs. observed probabilities
 3. **Risk Distribution** - Histogram of predicted probabilities
 4. **Decision Curve Analysis** - Net benefit vs. threshold probability
+5. **OOF Combined Plots** - Out-of-fold predictions with confidence bands across CV repeats (ROC, PR, calibration)
+6. **Optuna Plots** (if enabled) - Optimization history, parameter importances, parallel coordinates, slice plots
 
 **Where in code:**
 - [plotting/roc_pr.py](../src/ced_ml/plotting/roc_pr.py) - ROC/PR plots
 - [plotting/calibration.py](../src/ced_ml/plotting/calibration.py) - Calibration plots
 - [plotting/risk_dist.py](../src/ced_ml/plotting/risk_dist.py) - Risk distribution plots
 - [plotting/dca.py](../src/ced_ml/plotting/dca.py) - DCA plots
+- [plotting/oof.py](../src/ced_ml/plotting/oof.py) - OOF combined plots
+- [plotting/optuna_plots.py](../src/ced_ml/plotting/optuna_plots.py) - Optuna visualization
 
 **Tests:**
 - `tests/test_plotting_*.py` - Validates plotting functions

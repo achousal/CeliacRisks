@@ -71,7 +71,9 @@ DEFAULT_FEATURE_CONFIG: Dict[str, Any] = {
     "k_grid": [50, 100, 200, 500],
     "stability_thresh": 0.70,
     "stable_corr_thresh": 0.80,
-    "l1_c_grid": [0.001, 0.01, 0.1, 1.0],
+    "l1_c_min": 0.001,
+    "l1_c_max": 1.0,
+    "l1_c_points": 4,
     "l1_stability_thresh": 0.70,
     "hybrid_kbest_first": True,
     "hybrid_k_for_stability": 200,
@@ -148,19 +150,23 @@ DEFAULT_STRICTNESS_CONFIG: Dict[str, Any] = {
 # Model-specific hyperparameter defaults (matching celiacML_faith.py get_param_distributions)
 DEFAULT_LR_CONFIG: Dict[str, Any] = {
     "penalty": ["l1", "l2", "elasticnet"],
-    "C": [0.001, 0.01, 0.1, 1.0, 10.0],
+    "C_min": 0.001,
+    "C_max": 10.0,
+    "C_points": 5,
     "l1_ratio": [0.1, 0.5, 0.9],
     "solver": "saga",
     "max_iter": 1000,
-    "class_weight": "balanced",
+    "class_weight_options": "balanced",
     "random_state": 0,
 }
 
 DEFAULT_SVM_CONFIG: Dict[str, Any] = {
-    "C": [0.01, 0.1, 1.0, 10.0],
+    "C_min": 0.01,
+    "C_max": 10.0,
+    "C_points": 4,
     "kernel": ["linear", "rbf"],
     "gamma": ["scale", "auto", 0.001, 0.01],
-    "class_weight": "balanced",
+    "class_weight_options": "balanced",
     "max_iter": 5000,
     "probability": True,
     "random_state": 0,
@@ -197,4 +203,55 @@ DEFAULT_CALIBRATION_CONFIG: Dict[str, Any] = {
     "method": "sigmoid",
     "cv": 5,
     "ensemble": False,
+}
+
+# Default Optuna configuration
+DEFAULT_OPTUNA_CONFIG: Dict[str, Any] = {
+    "enabled": False,
+    "n_trials": 100,
+    "timeout": None,
+    "sampler": "tpe",
+    "sampler_seed": None,
+    "pruner": "median",
+    "pruner_n_startup_trials": 5,
+    "pruner_percentile": 25.0,
+    "n_jobs": 1,
+    "storage": None,
+    "study_name": None,
+    "load_if_exists": False,
+    "save_study": True,
+    "save_trials_csv": True,
+    "direction": None,
+}
+
+# Default aggregate configuration
+DEFAULT_AGGREGATE_CONFIG: Dict[str, Any] = {
+    "results_dir": "results",
+    "outdir": "results_aggregated",
+    "split_pattern": "split_seed*",
+    "predictions_method": "median",
+    "save_individual": False,
+    "summary_stats": ["mean", "std", "median", "ci95"],
+    "group_by": ["scenario", "model"],
+    "min_stability": 0.7,
+    "corr_method": "pearson",
+    "corr_threshold": 0.80,
+    "save_pooled_preds": True,
+    "save_summary_csv": True,
+    "save_plots": True,
+}
+
+# Default holdout evaluation configuration
+DEFAULT_HOLDOUT_CONFIG: Dict[str, Any] = {
+    "compute_dca": True,
+    "save_preds": True,
+    "toprisk_fracs": [0.01, 0.05, 0.10],
+    "subgroup_min_n": 40,
+    "dca_threshold_min": 0.0005,
+    "dca_threshold_max": 1.0,
+    "dca_threshold_step": 0.001,
+    "dca_report_points": [0.01, 0.05, 0.10, 0.20],
+    "dca_use_target_prevalence": False,
+    "clinical_threshold_points": [],
+    "target_prevalence": None,
 }

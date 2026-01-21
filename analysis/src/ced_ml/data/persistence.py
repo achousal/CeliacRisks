@@ -130,14 +130,14 @@ def check_split_files_exist(
     suffix = f"_seed{seed if seed is not None else 0}"
 
     expected_files = [
-        os.path.join(outdir, f"{scenario}_train_idx{suffix}.csv"),
-        os.path.join(outdir, f"{scenario}_test_idx{suffix}.csv"),
+        os.path.join(outdir, f"train_idx{suffix}.csv"),
+        os.path.join(outdir, f"test_idx{suffix}.csv"),
     ]
     if has_val:
-        expected_files.append(os.path.join(outdir, f"{scenario}_val_idx{suffix}.csv"))
+        expected_files.append(os.path.join(outdir, f"val_idx{suffix}.csv"))
 
     # Also check metadata
-    expected_files.append(os.path.join(outdir, f"{scenario}_split_meta_seed{seed}.json"))
+    expected_files.append(os.path.join(outdir, f"split_meta_seed{seed}.json"))
 
     existing = [f for f in expected_files if os.path.exists(f)]
 
@@ -180,8 +180,8 @@ def save_split_indices(
 
     Output format:
         - CSV with single column "idx" containing indices
-        - Filenames: {scenario}_train_idx_seed{seed}.csv (if n_splits > 1)
-                     {scenario}_train_idx.csv (if n_splits == 1)
+        - Filenames: train_idx_seed{seed}.csv (if n_splits > 1)
+                     train_idx.csv (if n_splits == 1)
     """
     # Validate indices
     is_valid, error_msg = validate_split_indices(train_idx, test_idx, val_idx)
@@ -200,11 +200,11 @@ def save_split_indices(
     # Build file paths
     suffix = f"_seed{seed if seed is not None else 0}"
     paths = {
-        "train": os.path.join(outdir, f"{scenario}_train_idx{suffix}.csv"),
-        "test": os.path.join(outdir, f"{scenario}_test_idx{suffix}.csv"),
+        "train": os.path.join(outdir, f"train_idx{suffix}.csv"),
+        "test": os.path.join(outdir, f"test_idx{suffix}.csv"),
     }
     if has_val:
-        paths["val"] = os.path.join(outdir, f"{scenario}_val_idx{suffix}.csv")
+        paths["val"] = os.path.join(outdir, f"val_idx{suffix}.csv")
 
     # Sort indices (match legacy behavior)
     train_idx = np.sort(train_idx.astype(int))
@@ -243,7 +243,7 @@ def save_holdout_indices(
     Raises:
         FileExistsError: If file exists and overwrite=False
     """
-    holdout_path = os.path.join(outdir, f"{scenario}_HOLDOUT_idx.csv")
+    holdout_path = os.path.join(outdir, "HOLDOUT_idx.csv")
 
     if os.path.exists(holdout_path) and not overwrite:
         raise FileExistsError(
@@ -384,7 +384,7 @@ def save_split_metadata(
             meta["temporal_test_end_value"] = temporal_test_end
 
     # Save to file
-    meta_path = os.path.join(outdir, f"{scenario}_split_meta_seed{seed}.json")
+    meta_path = os.path.join(outdir, f"split_meta_seed{seed}.json")
     os.makedirs(outdir, exist_ok=True)
 
     with open(meta_path, "w") as f:
@@ -454,7 +454,7 @@ def save_holdout_metadata(
         if temporal_end is not None:
             meta["temporal_end_value"] = temporal_end
 
-    meta_path = os.path.join(outdir, f"{scenario}_HOLDOUT_meta.json")
+    meta_path = os.path.join(outdir, "HOLDOUT_meta.json")
     os.makedirs(outdir, exist_ok=True)
 
     with open(meta_path, "w") as f:

@@ -108,7 +108,9 @@ class FeatureConfig(BaseModel):
     stable_corr_thresh: float = Field(default=0.80, ge=0.0, le=1.0)
 
     # L1 stability
-    l1_c_grid: List[float] = Field(default_factory=lambda: [0.001, 0.01, 0.1, 1.0])
+    l1_c_min: float = 0.001
+    l1_c_max: float = 1.0
+    l1_c_points: int = 4
     l1_stability_thresh: float = Field(default=0.70, ge=0.0, le=1.0)
 
     # Hybrid mode
@@ -159,6 +161,7 @@ class LRConfig(BaseModel):
     max_iter: int = 1000
     class_weight_options: str = "balanced"
     random_state: int = 0
+    n_iter: Optional[int] = Field(default=None, ge=1, description="Override cv.n_iter for LR")
 
 
 class SVMConfig(BaseModel):
@@ -173,6 +176,7 @@ class SVMConfig(BaseModel):
     max_iter: int = 5000
     probability: bool = True
     random_state: int = 0
+    n_iter: Optional[int] = Field(default=None, ge=1, description="Override cv.n_iter for SVM")
 
 
 class RFConfig(BaseModel):
@@ -188,6 +192,7 @@ class RFConfig(BaseModel):
     class_weight_options: str = "balanced"
     n_jobs: int = -1
     random_state: int = 0
+    n_iter: Optional[int] = Field(default=None, ge=1, description="Override cv.n_iter for RF")
 
 
 class XGBoostConfig(BaseModel):
@@ -206,6 +211,7 @@ class XGBoostConfig(BaseModel):
     tree_method: str = "hist"
     n_jobs: int = -1
     random_state: int = 0
+    n_iter: Optional[int] = Field(default=None, ge=1, description="Override cv.n_iter for XGBoost")
 
 
 class CalibrationConfig(BaseModel):
@@ -215,6 +221,26 @@ class CalibrationConfig(BaseModel):
     method: Literal["sigmoid", "isotonic"] = "sigmoid"
     cv: int = 5
     ensemble: bool = False
+
+
+class OptunaConfig(BaseModel):
+    """Configuration for Optuna hyperparameter optimization."""
+
+    enabled: bool = False
+    n_trials: int = Field(default=100, ge=1)
+    timeout: Optional[float] = Field(default=None, ge=0)
+    sampler: Literal["tpe", "random", "cmaes", "grid"] = "tpe"
+    sampler_seed: Optional[int] = None
+    pruner: Literal["median", "percentile", "hyperband", "none"] = "median"
+    pruner_n_startup_trials: int = Field(default=5, ge=0)
+    pruner_percentile: float = Field(default=25.0, ge=0, le=100)
+    n_jobs: int = Field(default=1, ge=1)
+    storage: Optional[str] = None
+    study_name: Optional[str] = None
+    load_if_exists: bool = False
+    save_study: bool = True
+    save_trials_csv: bool = True
+    direction: Optional[Literal["minimize", "maximize"]] = None
 
 
 # ============================================================================
@@ -299,6 +325,16 @@ class OutputConfig(BaseModel):
     plot_format: str = "png"
     plot_dpi: int = 300
 
+    # Individual plot type controls
+    plot_roc: bool = True
+    plot_pr: bool = True
+    plot_calibration: bool = True
+    plot_risk_distribution: bool = True
+    plot_dca: bool = True
+    plot_learning_curve: bool = True
+    plot_oof_combined: bool = True
+    plot_optuna: bool = True
+
 
 # ============================================================================
 # Strictness and Validation Configuration
@@ -358,6 +394,7 @@ class TrainingConfig(BaseModel):
     rf: RFConfig = Field(default_factory=RFConfig)
     xgboost: XGBoostConfig = Field(default_factory=XGBoostConfig)
     calibration: CalibrationConfig = Field(default_factory=CalibrationConfig)
+    optuna: OptunaConfig = Field(default_factory=OptunaConfig)
 
     # Output
     outdir: Path = Field(default=Path("results"))
@@ -389,6 +426,74 @@ class TrainingConfig(BaseModel):
 # ============================================================================
 
 
+class AggregateConfig(BaseModel):
+    """Configuration for aggregate-splits command."""
+
+    # Input/output
+    results_dir: Path = Field(default=Path("results"))
+    outdir: Path = Field(default=Path("results_aggregated"))
+
+    # Discovery
+    split_pattern: str = "split_seed*"
+
+    # Pooling settings
+    predictions_method: Literal["median", "mean", "vote"] = "median"
+    save_individual: bool = False
+
+    # Summary statistics
+    summary_stats: List[str] = Field(default_factory=lambda: ["mean", "std", "median", "ci95"])
+    group_by: List[str] = Field(default_factory=lambda: ["scenario", "model"])
+
+    # Consensus panels
+    min_stability: float = Field(default=0.7, ge=0.0, le=1.0)
+    corr_method: Literal["pearson", "spearman"] = "pearson"
+    corr_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
+
+    # Output control
+    save_pooled_preds: bool = True
+    save_summary_csv: bool = True
+    save_plots: bool = True
+    save_thresholds: bool = True
+    plot_format: str = "png"
+    plot_dpi: int = 300
+
+    # Individual plot type controls
+    plot_roc: bool = True
+    plot_pr: bool = True
+    plot_calibration: bool = True
+    plot_risk_distribution: bool = True
+    plot_dca: bool = True
+    plot_oof_combined: bool = True
+
+
+class HoldoutEvalConfig(BaseModel):
+    """Configuration for holdout evaluation."""
+
+    # Data paths
+    infile: Path
+    holdout_idx: Path
+    model_artifact: Path
+    outdir: Path = Field(default=Path("holdout_results"))
+
+    # Evaluation settings
+    scenario: Optional[str] = None
+    compute_dca: bool = True
+    save_preds: bool = True
+    toprisk_fracs: List[float] = Field(default_factory=lambda: [0.01, 0.05, 0.10])
+    subgroup_min_n: int = Field(default=40, ge=1)
+
+    # DCA settings
+    dca_threshold_min: float = Field(default=0.0005, ge=0.0)
+    dca_threshold_max: float = Field(default=1.0, ge=0.0, le=1.0)
+    dca_threshold_step: float = Field(default=0.001, gt=0.0)
+    dca_report_points: List[float] = Field(default_factory=lambda: [0.01, 0.05, 0.10, 0.20])
+    dca_use_target_prevalence: bool = False
+
+    # Clinical thresholds
+    clinical_threshold_points: List[float] = Field(default_factory=list)
+    target_prevalence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+
 class RootConfig(BaseModel):
     """Root configuration for all CeD-ML commands."""
 
@@ -399,5 +504,7 @@ class RootConfig(BaseModel):
     # Sub-configs (populated based on command)
     splits: Optional[SplitsConfig] = None
     training: Optional[TrainingConfig] = None
+    aggregate: Optional[AggregateConfig] = None
+    holdout: Optional[HoldoutEvalConfig] = None
 
     model_config = {"arbitrary_types_allowed": True}

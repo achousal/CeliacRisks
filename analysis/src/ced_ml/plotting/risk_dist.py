@@ -62,6 +62,7 @@ def plot_risk_distribution(
     metrics_at_thresholds: Optional[Dict[str, Dict[str, float]]] = None,
     x_limits: Optional[Tuple[float, float]] = None,
     target_spec: float = 0.95,
+    threshold_bundle: Optional[Dict] = None,
 ) -> None:
     """Plot risk score distribution with optional thresholds and case-type subplots.
 
@@ -81,19 +82,15 @@ def plot_risk_distribution(
         pos_label: Label for positive class (e.g., "Incident CeD")
         meta_lines: Metadata lines for bottom of figure
         category_col: Array of category labels ("Controls", "Incident", "Prevalent")
-        dca_threshold: DCA zero-crossing threshold (0-1)
-        spec95_threshold: Specificity threshold (0-1)
-        youden_threshold: Youden's J statistic threshold (0-1)
-        alpha_threshold: Alpha/target specificity threshold (0-1)
-        metrics_at_thresholds: Performance metrics at each threshold
-            Format: {
-                'spec95': {'sensitivity': float, 'precision': float, 'fp': int, 'n_celiac': int},
-                'dca': {...},
-                'youden': {...},
-                'alpha': {...}
-            }
+        dca_threshold: DCA zero-crossing threshold (0-1) [deprecated, use threshold_bundle]
+        spec95_threshold: Specificity threshold (0-1) [deprecated, use threshold_bundle]
+        youden_threshold: Youden's J statistic threshold (0-1) [deprecated, use threshold_bundle]
+        alpha_threshold: Alpha/target specificity threshold (0-1) [deprecated, use threshold_bundle]
+        metrics_at_thresholds: Performance metrics at each threshold [deprecated, use threshold_bundle]
         x_limits: Optional tuple (xmin, xmax) for x-axis range
         target_spec: Target specificity value for annotation label (default: 0.95)
+        threshold_bundle: ThresholdBundle from compute_threshold_bundle() - preferred interface.
+            If provided, overrides individual threshold parameters.
 
     Notes:
         - If category_col is provided, creates three-category KDE plot
@@ -101,6 +98,42 @@ def plot_risk_distribution(
         - If neither is provided, creates single-category histogram
         - Incident/prevalent subplots only shown if category_col includes those categories
     """
+    # If threshold_bundle provided, extract values (preferred interface)
+    if threshold_bundle is not None:
+        youden_threshold = threshold_bundle.get("youden_threshold")
+        spec95_threshold = threshold_bundle.get("spec_target_threshold")
+        dca_threshold = threshold_bundle.get("dca_threshold")
+        target_spec = threshold_bundle.get("target_spec", 0.95)
+
+        # Build metrics_at_thresholds from bundle
+        metrics_at_thresholds = {}
+        if "youden" in threshold_bundle:
+            m = threshold_bundle["youden"]
+            metrics_at_thresholds["youden"] = {
+                "sensitivity": m.get("sensitivity"),
+                "precision": m.get("precision"),
+                "fp": m.get("fp"),
+                "n_celiac": (m.get("tp", 0) or 0) + (m.get("fn", 0) or 0),
+            }
+        if "spec_target" in threshold_bundle:
+            m = threshold_bundle["spec_target"]
+            metrics_at_thresholds["spec_target"] = {
+                "sensitivity": m.get("sensitivity"),
+                "precision": m.get("precision"),
+                "fp": m.get("fp"),
+                "n_celiac": (m.get("tp", 0) or 0) + (m.get("fn", 0) or 0),
+            }
+            # Also set spec95 and alpha for backward compat
+            metrics_at_thresholds["spec95"] = metrics_at_thresholds["spec_target"]
+            metrics_at_thresholds["alpha"] = metrics_at_thresholds["spec_target"]
+        if "dca" in threshold_bundle:
+            m = threshold_bundle["dca"]
+            metrics_at_thresholds["dca"] = {
+                "sensitivity": m.get("sensitivity"),
+                "precision": m.get("precision"),
+                "fp": m.get("fp"),
+                "n_celiac": (m.get("tp", 0) or 0) + (m.get("fn", 0) or 0),
+            }
     matplotlib.use("Agg")
 
     s = np.asarray(scores).astype(float)
@@ -126,22 +159,28 @@ def plot_risk_distribution(
     # Create figure with appropriate number of subplots
     # Determine figure size based on plot type (histogram vs KDE)
     if n_subplots == 1:
-        # Single plot: use different aspect ratios for KDE vs histogram
         height_ratios = [1]
         if category_col is not None:
-            # KDE plot with categories: 4:1 aspect ratio
+            # Single KDE plot: 4:1 aspect ratio
             figsize = (12, 3)
         else:
-            # Histogram or controls distribution: 3:2 aspect ratio
+            # Single histogram: 3:2 aspect ratio
             figsize = (9, 6)
     elif n_subplots == 2:
-        # Main + 1 KDE subplot: each KDE subplot is 3:2
-        height_ratios = [3, 2]
-        figsize = (9, 15)
+        # Main histogram (3:2) + 1 KDE subplot (4:1)
+        # With width=9: histogram needs height=6, KDE needs height=2.25
+        # Ratio: 6 / 2.25 = 8 / 3
+        height_ratios = [8, 3]
+        figsize = (9, 8.5)
+    elif n_subplots == 3:
+        # Main histogram (3:2) + 2 KDE subplots (4:1 each)
+        # Ratio: 6 : 2.25 : 2.25 = 8 : 3 : 3
+        height_ratios = [8, 3, 3]
+        figsize = (9, 11)
     else:
-        # Main + 2 KDE subplots: each KDE subplot is 3:2
-        height_ratios = [3, 2, 2]
-        figsize = (9, 21)
+        # Fallback for more subplots
+        height_ratios = [8] + [3] * (n_subplots - 1)
+        figsize = (9, 6 + 2.5 * (n_subplots - 1))
 
     fig, axes = plt.subplots(n_subplots, 1, figsize=figsize, height_ratios=height_ratios)
     if n_subplots == 1:
@@ -260,20 +299,22 @@ def plot_risk_distribution(
     threshold_handles = []
     threshold_labels = []
 
-    if spec95_threshold is not None and metrics_at_thresholds and "spec95" in metrics_at_thresholds:
-        m = metrics_at_thresholds["spec95"]
-        sens = m.get("sensitivity", np.nan)
-        ppv = m.get("precision", np.nan)
-        fp = m.get("fp", np.nan)
+    # Accept either "spec95" or "alpha" key for specificity threshold metrics
+    if spec95_threshold is not None and metrics_at_thresholds:
+        m = metrics_at_thresholds.get("spec95") or metrics_at_thresholds.get("alpha")
+        if m:
+            sens = m.get("sensitivity", np.nan)
+            ppv = m.get("precision", np.nan)
+            fp = m.get("fp", np.nan)
 
-        line_handle = Line2D([0], [0], color="red", linestyle="--", linewidth=2, alpha=0.7)
-        threshold_handles.append(line_handle)
+            line_handle = Line2D([0], [0], color="red", linestyle="--", linewidth=2, alpha=0.7)
+            threshold_handles.append(line_handle)
 
-        # Multi-line label format with each metric on separate line
-        label_text = f"{target_spec*100:.0f}% Spec"
-        if not np.isnan(sens) and not np.isnan(ppv) and not np.isnan(fp):
-            label_text += f"\nSens: {sens*100:.1f}%\nPPV: {ppv*100:.1f}%\nFP: {int(fp)}"
-        threshold_labels.append(label_text)
+            # Multi-line label format with each metric on separate line
+            label_text = f"{target_spec*100:.0f}% Spec"
+            if not np.isnan(sens) and not np.isnan(ppv) and not np.isnan(fp):
+                label_text += f"\nSens: {sens*100:.1f}%\nPPV: {ppv*100:.1f}%\nFP: {int(fp)}"
+            threshold_labels.append(label_text)
 
     if youden_threshold is not None and metrics_at_thresholds and "youden" in metrics_at_thresholds:
         m = metrics_at_thresholds["youden"]

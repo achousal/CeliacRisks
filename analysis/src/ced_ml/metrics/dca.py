@@ -99,7 +99,7 @@ def decision_curve_analysis(
     Args:
         y_true: True binary labels (0/1)
         y_pred_prob: Predicted probabilities
-        thresholds: Array of threshold probabilities (default: 0.001 to 0.10)
+        thresholds: Array of threshold probabilities (default: 0.0005 to 0.20)
         prevalence_adjustment: Optional prevalence for calibration adjustment
 
     Returns:
@@ -122,7 +122,7 @@ def decision_curve_analysis(
         return pd.DataFrame()
 
     if thresholds is None:
-        thresholds = generate_dca_thresholds(min_thr=0.001, max_thr=0.10, step=0.001)
+        thresholds = generate_dca_thresholds(min_thr=0.0005, max_thr=0.20, step=0.001)
 
     prevalence = np.mean(y)
     if prevalence_adjustment is not None:
@@ -173,6 +173,69 @@ def decision_curve_analysis(
         )
 
     return pd.DataFrame(results)
+
+
+def threshold_dca_zero_crossing(
+    y_true: np.ndarray,
+    y_pred_prob: np.ndarray,
+    thresholds: Optional[np.ndarray] = None,
+    prevalence_adjustment: Optional[float] = None,
+) -> Optional[float]:
+    """
+    Find the threshold where model net benefit crosses zero.
+
+    This threshold represents the point where the model transitions from
+    providing clinical utility (positive net benefit) to no utility or harm.
+    Useful for visualizing the practical decision threshold range.
+
+    Args:
+        y_true: True binary labels (0/1)
+        y_pred_prob: Predicted probabilities
+        thresholds: Array of threshold probabilities (default: 0.0005 to 0.20)
+        prevalence_adjustment: Optional prevalence for calibration adjustment
+
+    Returns:
+        Threshold where net benefit crosses zero, or None if no crossing found
+    """
+    if thresholds is None:
+        thresholds = generate_dca_thresholds(min_thr=0.0005, max_thr=0.20, step=0.001)
+
+    dca_df = decision_curve_analysis(
+        y_true=y_true,
+        y_pred_prob=y_pred_prob,
+        thresholds=thresholds,
+        prevalence_adjustment=prevalence_adjustment,
+    )
+
+    if dca_df.empty:
+        return None
+
+    nb_model = dca_df["net_benefit_model"].values
+    thr = dca_df["threshold"].values
+
+    # Find last positive net benefit point
+    positive_mask = nb_model > 0
+    if not np.any(positive_mask):
+        return None
+
+    # Get the last threshold where net benefit is positive
+    last_positive_idx = np.where(positive_mask)[0][-1]
+
+    # If at the end of array, return that threshold
+    if last_positive_idx >= len(thr) - 1:
+        return thr[last_positive_idx]
+
+    # Otherwise, interpolate between last positive and first non-positive
+    next_idx = last_positive_idx + 1
+    t1, t2 = thr[last_positive_idx], thr[next_idx]
+    nb1, nb2 = nb_model[last_positive_idx], nb_model[next_idx]
+
+    # Linear interpolation to find zero crossing
+    if nb1 == nb2:
+        return t1
+    zero_crossing = t1 + (t2 - t1) * (-nb1 / (nb2 - nb1))
+
+    return float(zero_crossing)
 
 
 def decision_curve_table(
@@ -426,8 +489,8 @@ def save_dca_results(
         y_true: True binary labels
         y_pred_prob: Predicted probabilities
         out_dir: Output directory
-        prefix: Filename prefix (e.g., "IncidentPlusPrevalent__RF__")
-        thresholds: Threshold array (default: 0.001 to 0.10, step 0.001)
+        prefix: Filename prefix (e.g., "RF__")
+        thresholds: Threshold array (default: 0.0005 to 0.20, step 0.001)
         report_points: Key thresholds for summary (default: [0.005, 0.01, 0.02, 0.05])
         prevalence_adjustment: Optional prevalence for calibration
 
@@ -441,7 +504,7 @@ def save_dca_results(
         >>> summary = save_dca_results(
         ...     y_test, y_pred_prob,
         ...     out_dir="results/diagnostics/dca",
-        ...     prefix="IncidentPlusPrevalent__RF__",
+        ...     prefix="RF__",
         ...     thresholds=np.linspace(0.0005, 1.0, 1000),
         ... )
         >>> print(summary["model_beats_all_range"])
@@ -495,20 +558,24 @@ def save_dca_results(
 
 
 def generate_dca_thresholds(
-    min_thr: float = 0.001,
-    max_thr: float = 0.10,
+    min_thr: float = 0.0005,
+    max_thr: float = 0.20,
     step: float = 0.001,
 ) -> np.ndarray:
     """
     Generate threshold array for DCA analysis.
 
     Args:
-        min_thr: Minimum threshold (clamped to 0.0001)
-        max_thr: Maximum threshold (clamped to 0.999)
-        step: Step size between thresholds (minimum 0.0001)
+        min_thr: Minimum threshold (clamped to 0.0001, default: 0.0005)
+        max_thr: Maximum threshold (clamped to 0.999, default: 0.20)
+        step: Step size between thresholds (minimum 0.0001, default: 0.001)
 
     Returns:
         Array of threshold values for DCA computation
+
+    Note:
+        Default range 0.05% to 20% covers clinically relevant thresholds
+        for most prediction tasks while maintaining computational efficiency.
     """
     min_thr = max(1e-4, float(min_thr))
     max_thr = min(0.999, float(max_thr))

@@ -220,19 +220,7 @@ def plot_learning_curve(
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    # Scatter training scores across splits
-    for split_idx in range(n_splits):
-        label = "Train split" if split_idx == 0 else None
-        ax.scatter(
-            train_sizes,
-            train_scores[:, split_idx],
-            color="darkgreen",
-            alpha=0.35,
-            s=25,
-            label=label,
-        )
-
-    # Scatter validation scores across splits
+    # Scatter validation scores across splits (main focus)
     for split_idx in range(n_splits):
         label = "Validation split" if split_idx == 0 else None
         ax.scatter(
@@ -248,17 +236,8 @@ def plot_learning_curve(
     val_mean = val_scores.mean(axis=1)
     val_sd = val_scores.std(axis=1)
     train_mean = train_scores.mean(axis=1)
-    train_sd = train_scores.std(axis=1)
 
-    # Plot shaded regions (SD bands)
-    ax.fill_between(
-        train_sizes,
-        train_mean - train_sd,
-        train_mean + train_sd,
-        color="darkgreen",
-        alpha=0.15,
-        label="Train ±1 SD",
-    )
+    # Plot validation SD band (main information)
     ax.fill_between(
         train_sizes,
         val_mean - val_sd,
@@ -268,16 +247,19 @@ def plot_learning_curve(
         label="Validation ±1 SD",
     )
 
-    # Plot mean lines
+    # Plot validation mean line (main information)
+    ax.plot(train_sizes, val_mean, "b-", linewidth=2, label="Validation mean")
+
+    # Plot train mean as thin reference line (minimal visual weight)
     ax.plot(
         train_sizes,
         train_mean,
         color="darkgreen",
-        linestyle="--",
-        linewidth=2,
-        label="Train mean",
+        linestyle=":",
+        linewidth=1,
+        alpha=0.6,
+        label="Train (reference)",
     )
-    ax.plot(train_sizes, val_mean, "b-", linewidth=2, label="Validation mean")
 
     metric_text = metric_label.replace("_", " ").upper()
     if metric_is_error:

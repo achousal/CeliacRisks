@@ -41,6 +41,7 @@ def plot_roc_curve(
     youden_threshold: Optional[float] = None,
     alpha_threshold: Optional[float] = None,
     metrics_at_thresholds: Optional[dict] = None,
+    threshold_bundle: Optional[dict] = None,
 ) -> None:
     """
     Plot ROC curve with optional split-wise confidence bands and threshold markers.
@@ -53,14 +54,25 @@ def plot_roc_curve(
         subtitle: Optional subtitle
         split_ids: Array indicating split membership for each sample
         meta_lines: Optional metadata lines to display at bottom
-        youden_threshold: Youden threshold value (for marker)
-        alpha_threshold: Alpha threshold value (for marker)
-        metrics_at_thresholds: Dict with 'youden' and 'alpha' keys containing
-            dicts with 'fpr' and 'tpr' values
+        youden_threshold: Youden threshold value (for marker) [deprecated, use threshold_bundle]
+        alpha_threshold: Alpha threshold value (for marker) [deprecated, use threshold_bundle]
+        metrics_at_thresholds: Dict with threshold keys containing fpr/tpr [deprecated, use threshold_bundle]
+        threshold_bundle: ThresholdBundle from compute_threshold_bundle() - preferred interface.
+            If provided, overrides individual threshold parameters.
 
     Returns:
         None. Saves plot to out_path.
     """
+    # If threshold_bundle provided, extract values (preferred interface)
+    if threshold_bundle is not None:
+        youden_threshold = threshold_bundle.get("youden_threshold")
+        alpha_threshold = threshold_bundle.get("spec_target_threshold")
+        metrics_at_thresholds = {
+            "youden": threshold_bundle.get("youden", {}),
+            "spec_target": threshold_bundle.get("spec_target", {}),
+        }
+        if "dca" in threshold_bundle:
+            metrics_at_thresholds["dca"] = threshold_bundle["dca"]
     if not _HAS_PLOTTING:
         return
 
@@ -155,8 +167,13 @@ def plot_roc_curve(
                     zorder=5,
                 )
 
-        if alpha_threshold is not None and "alpha" in metrics_at_thresholds:
-            m = metrics_at_thresholds["alpha"]
+        # Accept alpha, spec95, or spec_target keys for specificity threshold
+        spec_key = next(
+            (k for k in ["alpha", "spec95", "spec_target"] if k in metrics_at_thresholds),
+            None,
+        )
+        if alpha_threshold is not None and spec_key:
+            m = metrics_at_thresholds[spec_key]
             fpr_alpha = m.get("fpr", None)
             tpr_alpha = m.get("tpr", None)
             if (

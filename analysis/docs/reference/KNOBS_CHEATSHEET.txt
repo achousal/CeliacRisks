@@ -66,6 +66,29 @@ HYPERPARAMETER SEARCH (Inner CV):
                           neg_brier_score     - Calibration quality (negative Brier score)
                         Production: neg_brier_score (optimizes calibration)
 
+OPTUNA HYPERPARAMETER OPTIMIZATION (Alternative to RandomizedSearchCV):
+  enabled: false        Enable Optuna (vs RandomizedSearchCV)
+  n_trials: 100         Number of hyperparameter trials
+  sampler: tpe          Sampling algorithm
+                        Options:
+                          tpe       - Tree-structured Parzen Estimator (recommended)
+                          random    - Random search (baseline)
+                          cmaes     - CMA-ES (continuous params only)
+                          grid      - Grid search (small spaces)
+  sampler_seed: 42      RNG seed for reproducibility
+  pruner: median        Early stopping strategy
+                        Options:
+                          median    - Stop if below median (2-3x speedup)
+                          percentile - Stop if below 25th percentile (aggressive)
+                          hyperband - Successive halving (max efficiency)
+                          none      - No pruning (like RandomizedSearchCV)
+  pruner_n_startup_trials: 5   Trials before pruning starts
+  save_trials_csv: true        Export trials to CSV
+  storage: null         Optional: sqlite:///study.db for persistence
+
+  Performance: 2-5x faster than RandomizedSearchCV for expensive models (XGB, RF)
+  See: docs/adr/ADR-018-optuna-hyperparameter-optimization.md
+
 FEATURE SELECTION PIPELINE:
   feature_select: hybrid    Options: none, kbest, l1_stability, hybrid
   screen_method: mannwhitney    Pre-screening: mannwhitney or f_classif
@@ -99,13 +122,42 @@ OUTPUT:
   feature_report_max: 200
 
 ===============================================================================
+CLI USAGE & OVERRIDES
+===============================================================================
+
+BASIC COMMAND:
+  python -m ced_ml.cli.main train --config configs/training_config.yaml
+
+CONFIG OVERRIDES (modify config without editing YAML):
+  --override path.to.param=value
+
+  Examples:
+    # Enable Optuna
+    --override optuna.enabled=true --override optuna.n_trials=200
+
+    # Quick test run
+    --override cv.repeats=3 --override cv.folds=2 --override cv.n_iter=10
+
+    # Change scoring metric
+    --override cv.scoring=average_precision
+
+    # Adjust feature selection
+    --override features.screen_top_n=500 --override features.stability_thresh=0.80
+
+COMBINING MULTIPLE OVERRIDES:
+  python -m ced_ml.cli.main train \
+    --config configs/training_config.yaml \
+    --override optuna.enabled=true \
+    --override optuna.n_trials=150 \
+    --override optuna.sampler=tpe \
+    --override cv.repeats=5
+
+===============================================================================
 WORKFLOW RECIPES
 ===============================================================================
 
 1. DEVELOPMENT (fast iteration):
-   # splits_config.yaml
-   n_splits: 1
-
+   # Option A: Edit config file
    # training_config.yaml
    cv:
      folds: 2
@@ -113,12 +165,16 @@ WORKFLOW RECIPES
      n_iter: 3
      inner_folds: 2
 
-   ced train --config configs/training_config.yaml --model LR_EN ...
+   python -m ced_ml.cli.main train --config configs/training_config.yaml
+
+   # Option B: Use CLI overrides
+   python -m ced_ml.cli.main train \
+     --config configs/training_config.yaml \
+     --override cv.folds=2 \
+     --override cv.repeats=3 \
+     --override cv.n_iter=3
 
 2. QUALITY TEST (single split, thorough CV):
-   # splits_config.yaml
-   n_splits: 1
-
    # training_config.yaml
    cv:
      folds: 5
@@ -127,25 +183,47 @@ WORKFLOW RECIPES
      inner_folds: 5
      scoring: neg_brier_score
 
-   ced train --model LR_EN,RF,XGBoost,LinSVM_cal ...
+   python -m ced_ml.cli.main train --config configs/training_config.yaml
 
-3. PRODUCTION (robust CIs across repeated splits):
+3. OPTUNA OPTIMIZATION (faster hyperparameter search):
+   # Option A: Edit config file
+   optuna:
+     enabled: true
+     n_trials: 200
+     sampler: tpe
+     pruner: median
+
+   # Option B: CLI override
+   python -m ced_ml.cli.main train \
+     --config configs/training_config.yaml \
+     --override optuna.enabled=true \
+     --override optuna.n_trials=200 \
+     --override optuna.sampler=tpe \
+     --override optuna.pruner=median
+
+   # Compare: RandomizedSearchCV vs Optuna
+   # RandomizedSearchCV: 200 iters × 5 folds = 1000 fits (~45 min for XGB)
+   # Optuna (TPE+median): 100 trials × ~2.5 folds = 250 fits (~12 min, better params)
+
+4. PRODUCTION (robust CIs across repeated splits):
    # splits_config.yaml
    n_splits: 10
    seed_start: 0
 
    # training_config.yaml (same as Quality Test)
 
-   # Submit all 4 models x 10 seeds = 40 jobs
-   bsub < CeD_hpc.lsf
+   # HPC: Submit via job array
+   # See: run_hpc.sh and configs/pipeline_hpc.yaml
 
-4. HOLDOUT VALIDATION (final external validation):
+5. HOLDOUT VALIDATION (final external validation):
    # splits_config.yaml
    mode: holdout
    holdout_size: 0.30
 
    # Run ONCE only - no parameter tuning allowed
-   ced eval-holdout --holdout-idx splits/.../HOLDOUT_idx.csv ...
+   python -m ced_ml.cli.main eval-holdout \
+     --config configs/training_config.yaml \
+     --holdout-idx splits/.../HOLDOUT_idx.csv
 
 ===============================================================================
 MODEL-SPECIFIC NOTES

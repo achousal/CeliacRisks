@@ -27,6 +27,45 @@ from ..config import TrainingConfig
 logger = logging.getLogger(__name__)
 
 
+def get_model_n_iter(model_name: str, config: TrainingConfig) -> int:
+    """
+    Get n_iter for a model, using model-specific override or global fallback.
+
+    Args:
+        model_name: Model identifier (LR_EN, LR_L1, LinSVM_cal, RF, XGBoost)
+        config: TrainingConfig object
+
+    Returns:
+        n_iter value (>= 1)
+    """
+    model_configs = {
+        "LR_EN": config.lr,
+        "LR_L1": config.lr,
+        "LinSVM_cal": config.svm,
+        "RF": config.rf,
+        "XGBoost": config.xgboost,
+    }
+    model_cfg = model_configs.get(model_name)
+    if model_cfg is not None and getattr(model_cfg, "n_iter", None) is not None:
+        return model_cfg.n_iter
+    return config.cv.n_iter
+
+
+def _convert_numpy_types(obj: Any) -> Any:
+    """Convert numpy types to native Python types for JSON serialization."""
+    if isinstance(obj, dict):
+        return {k: _convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_convert_numpy_types(v) for v in obj]
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
+
 def oof_predictions_with_nested_cv(
     pipeline: Pipeline,
     model_name: str,
@@ -35,7 +74,7 @@ def oof_predictions_with_nested_cv(
     protein_cols: List[str],
     config: TrainingConfig,
     random_state: int,
-    grid_rng: Optional[np.random.RandomState] = None,
+    grid_rng: Optional[np.random.Generator] = None,
 ) -> Tuple[np.ndarray, float, pd.DataFrame, pd.DataFrame]:
     """
     Generate out-of-fold predictions using nested cross-validation.
@@ -149,15 +188,26 @@ def oof_predictions_with_nested_cv(
         preds[repeat_num, test_idx] = proba
 
         # Record best hyperparameters
-        best_params_rows.append(
-            {
-                "model": model_name,
-                "repeat": repeat_num,
-                "outer_split": split_idx,
-                "best_score_inner": best_score,
-                "best_params": json.dumps(best_params, sort_keys=True),
-            }
-        )
+        best_params_row = {
+            "model": model_name,
+            "repeat": repeat_num,
+            "outer_split": split_idx,
+            "best_score_inner": best_score,
+            "best_params": json.dumps(_convert_numpy_types(best_params), sort_keys=True),
+        }
+
+        # Add Optuna-specific metadata if available
+        if (
+            search is not None
+            and hasattr(search, "study_")
+            and search.study_ is not None
+            and hasattr(search, "n_trials_")
+        ):
+            best_params_row["optuna_n_trials"] = search.n_trials_
+            best_params_row["optuna_sampler"] = config.optuna.sampler
+            best_params_row["optuna_pruner"] = config.optuna.pruner
+
+        best_params_rows.append(best_params_row)
 
         # Extract selected proteins from this fold
         selected_proteins = _extract_selected_proteins_from_fold(
@@ -203,7 +253,7 @@ def _compute_xgb_scale_pos_weight(y_train: np.ndarray, config: TrainingConfig) -
     Compute XGBoost scale_pos_weight parameter from training labels.
 
     Default: ratio of negatives to positives (auto class balancing)
-    Override: config.models.xgboost.scale_pos_weight if set
+    Override: config.xgboost.scale_pos_weight_grid[0] if explicitly set
 
     Args:
         y_train: Training labels (0/1)
@@ -212,10 +262,10 @@ def _compute_xgb_scale_pos_weight(y_train: np.ndarray, config: TrainingConfig) -
     Returns:
         scale_pos_weight value (>= 1.0)
     """
-    # Check if user specified explicit value
-    spw_config = config.models.xgboost.scale_pos_weight
-    if spw_config is not None and spw_config > 0:
-        return float(spw_config)
+    # Check if user specified explicit value via scale_pos_weight_grid
+    spw_grid = getattr(config.xgboost, "scale_pos_weight_grid", None)
+    if spw_grid and len(spw_grid) == 1 and spw_grid[0] > 0:
+        return float(spw_grid[0])
 
     # Auto: ratio of negatives to positives
     n_pos = int(np.sum(y_train == 1))
@@ -229,21 +279,53 @@ def _compute_xgb_scale_pos_weight(y_train: np.ndarray, config: TrainingConfig) -
     return max(1.0, spw)
 
 
+def _scoring_to_direction(scoring: str) -> str:
+    """
+    Infer Optuna optimization direction from sklearn scoring metric.
+
+    Args:
+        scoring: sklearn scoring string (e.g., "roc_auc", "average_precision")
+
+    Returns:
+        "maximize" or "minimize"
+    """
+    # Metrics that should be maximized
+    maximize_metrics = {
+        "roc_auc",
+        "average_precision",
+        "f1",
+        "f1_weighted",
+        "f1_micro",
+        "f1_macro",
+        "accuracy",
+        "balanced_accuracy",
+        "precision",
+        "recall",
+        "jaccard",
+    }
+
+    # neg_* metrics are also maximized (sklearn convention)
+    if scoring in maximize_metrics or scoring.startswith("neg_"):
+        return "maximize"
+
+    return "maximize"  # Default to maximize for unknown metrics
+
+
 def _build_hyperparameter_search(
     pipeline: Pipeline,
     model_name: str,
     config: TrainingConfig,
     random_state: int,
     xgb_spw: Optional[float],
-    grid_rng: Optional[np.random.RandomState],
+    grid_rng: Optional[np.random.Generator],
 ):
     """
-    Build RandomizedSearchCV for inner CV hyperparameter tuning.
+    Build hyperparameter search object (Optuna or RandomizedSearchCV).
 
     Returns None if:
     - Model has no hyperparameters to tune
     - config.cv.inner_folds < 2 (tuning disabled)
-    - config.cv.n_iter < 1 (tuning disabled)
+    - n_iter < 1 (tuning disabled, for RandomizedSearchCV; uses get_model_n_iter())
 
     Args:
         pipeline: Base pipeline to tune
@@ -254,18 +336,8 @@ def _build_hyperparameter_search(
         grid_rng: Optional RNG for grid randomization
 
     Returns:
-        RandomizedSearchCV object or None
+        OptunaSearchCV, RandomizedSearchCV, or None
     """
-    from sklearn.model_selection import RandomizedSearchCV
-
-    from .hyperparams import get_param_distributions
-
-    # Get parameter distributions for this model
-    param_dists = get_param_distributions(model_name, config, xgb_spw=xgb_spw, grid_rng=grid_rng)
-
-    if not param_dists:
-        return None
-
     # Validate inner CV settings
     inner_folds = config.cv.inner_folds
     if inner_folds < 2:
@@ -274,13 +346,76 @@ def _build_hyperparameter_search(
         )
         return None
 
-    n_iter = config.cv.n_iter
+    # Build inner CV splitter
+    inner_cv = StratifiedKFold(n_splits=inner_folds, shuffle=True, random_state=random_state)
+
+    # === Optuna path ===
+    if config.optuna.enabled:
+        from .hyperparams import get_param_distributions_optuna
+        from .optuna_search import OptunaSearchCV, optuna_available
+
+        if not optuna_available():
+            logger.warning(
+                "[optuna] Optuna not installed; falling back to RandomizedSearchCV. "
+                "Install with: pip install optuna"
+            )
+        else:
+            # Get Optuna-format parameter distributions
+            param_dists = get_param_distributions_optuna(model_name, config, xgb_spw=xgb_spw)
+
+            if not param_dists:
+                logger.info(f"[optuna] No tunable params for {model_name}; skipping search.")
+                return None
+
+            # Determine direction from config or scoring metric
+            direction = config.optuna.direction
+            if direction is None:
+                direction = _scoring_to_direction(config.cv.scoring)
+
+            logger.info(
+                f"[optuna] Using Optuna: {config.optuna.n_trials} trials, "
+                f"sampler={config.optuna.sampler}, direction={direction}"
+            )
+
+            return OptunaSearchCV(
+                estimator=pipeline,
+                param_distributions=param_dists,
+                n_trials=config.optuna.n_trials,
+                timeout=config.optuna.timeout,
+                scoring=config.cv.scoring,
+                cv=inner_cv,
+                n_jobs=config.optuna.n_jobs,
+                random_state=random_state,
+                refit=True,
+                direction=direction,
+                sampler=config.optuna.sampler,
+                sampler_seed=config.optuna.sampler_seed,
+                pruner=config.optuna.pruner,
+                pruner_n_startup_trials=config.optuna.pruner_n_startup_trials,
+                pruner_percentile=config.optuna.pruner_percentile,
+                storage=config.optuna.storage,
+                study_name=config.optuna.study_name,
+                load_if_exists=config.optuna.load_if_exists,
+                verbose=0,
+            )
+
+    # === RandomizedSearchCV path (default) ===
+    from sklearn.model_selection import RandomizedSearchCV
+
+    from .hyperparams import get_param_distributions
+
+    n_iter = get_model_n_iter(model_name, config)
     if n_iter < 1:
         logger.warning(f"[tune] WARNING: n_iter={n_iter} < 1; skipping hyperparameter search.")
         return None
 
-    # Build inner CV splitter
-    inner_cv = StratifiedKFold(n_splits=inner_folds, shuffle=True, random_state=random_state)
+    logger.info(f"[tune] {model_name}: using n_iter={n_iter}")
+
+    # Get sklearn-format parameter distributions
+    param_dists = get_param_distributions(model_name, config, xgb_spw=xgb_spw, grid_rng=grid_rng)
+
+    if not param_dists:
+        return None
 
     # Determine parallelization strategy
     n_jobs = _get_search_n_jobs(model_name, config)
@@ -457,11 +592,7 @@ def _extract_selected_proteins_from_fold(
             selected_proteins.update(model_proteins)
 
     # Strategy 4: Permutation importance for RF (if enabled and hybrid mode)
-    if (
-        feature_select == "hybrid"
-        and model_name == "RF"
-        and config.features.rf_use_permutation
-    ):
+    if feature_select == "hybrid" and model_name == "RF" and config.features.rf_use_permutation:
         perm_proteins = _extract_from_rf_permutation(
             pipeline, X_train, y_train, protein_cols, config, random_state
         )
@@ -485,11 +616,21 @@ def _extract_from_kbest_transformed(pipeline: Pipeline, protein_cols: List[str])
     support = pipeline.named_steps["sel"].get_support()
     selected_names = feature_names[support]
 
-    # Extract protein columns (num__ prefix from ColumnTransformer)
+    # Extract protein columns (handle different feature naming patterns)
     proteins = set()
     for name in selected_names:
-        if name.startswith("num__"):
+        # Handle different feature naming patterns:
+        # - {protein} (plain name, verbose_feature_names_out=False)
+        # - num__{protein} (legacy/standard sklearn ColumnTransformer with prefix)
+        # - {protein}_resid (ResidualTransformer output)
+        if name in protein_cols:
+            proteins.add(name)
+        elif name.startswith("num__"):
             orig = name[len("num__") :]
+            if orig in protein_cols:
+                proteins.add(orig)
+        elif name.endswith("_resid"):
+            orig = name[: -len("_resid")]
             if orig in protein_cols:
                 proteins.add(orig)
 
@@ -549,10 +690,18 @@ def _extract_from_model_coefficients(
     # Extract proteins with |coef| > threshold
     proteins = set()
     for name, c in zip(feature_names, coefs):
+        # Handle different feature naming patterns:
+        # - num__{protein} (legacy/standard sklearn ColumnTransformer)
+        # - {protein}_resid (ResidualTransformer output)
         if name.startswith("num__"):
             orig = name[len("num__") :]
-            if orig in protein_cols and abs(c) > coef_thresh:
-                proteins.add(orig)
+        elif name.endswith("_resid"):
+            orig = name[: -len("_resid")]
+        else:
+            continue
+
+        if orig in protein_cols and abs(c) > coef_thresh:
+            proteins.add(orig)
 
     return proteins
 
@@ -605,10 +754,19 @@ def _extract_from_rf_permutation(
     for name, imp in zip(feature_names, importances):
         if not np.isfinite(imp):
             continue
+
+        # Handle different feature naming patterns:
+        # - num__{protein} (legacy/standard sklearn ColumnTransformer)
+        # - {protein}_resid (ResidualTransformer output)
         if name.startswith("num__"):
             orig = name[len("num__") :]
-            if orig in protein_cols:
-                protein_importance[orig] = protein_importance.get(orig, 0.0) + float(imp)
+        elif name.endswith("_resid"):
+            orig = name[: -len("_resid")]
+        else:
+            continue
+
+        if orig in protein_cols:
+            protein_importance[orig] = protein_importance.get(orig, 0.0) + float(imp)
 
     if not protein_importance:
         return set()

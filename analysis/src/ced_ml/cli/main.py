@@ -4,7 +4,7 @@ Main CLI entry point for CeD-ML pipeline.
 Provides subcommands:
   - ced save-splits: Generate train/val/test splits
   - ced train: Train ML models
-  - ced postprocess: Aggregate results across models
+  - ced aggregate-splits: Aggregate results across split seeds
   - ced eval-holdout: Evaluate on holdout set
 """
 
@@ -210,36 +210,65 @@ def train(ctx, config, **kwargs):
     )
 
 
-@cli.command("postprocess")
+@cli.command("aggregate-splits")
 @click.option(
     "--results-dir",
     type=click.Path(exists=True),
     required=True,
-    help="Directory containing model results",
+    help="Directory containing split_seedX subdirectories",
 )
 @click.option(
-    "--mode",
-    type=click.Choice(["models", "sensitivity", "single"]),
-    default="models",
-    help="Postprocessing mode",
+    "--stability-threshold",
+    type=float,
+    default=0.75,
+    help="Fraction of splits a feature must appear in to be 'stable' (default: 0.75)",
+)
+@click.option(
+    "--target-specificity",
+    type=float,
+    default=0.95,
+    help="Target specificity for alpha threshold (default: 0.95)",
+)
+@click.option(
+    "--plot-formats",
+    multiple=True,
+    default=["png"],
+    help="Plot output formats (can be repeated, e.g., --plot-formats png --plot-formats pdf)",
 )
 @click.option(
     "--n-boot",
     type=int,
     default=500,
-    help="Number of bootstrap iterations for CIs",
-)
-@click.option(
-    "--compute-dca",
-    is_flag=True,
-    help="Compute decision curve analysis",
+    help="Number of bootstrap iterations for CIs (reserved for future use)",
 )
 @click.pass_context
-def postprocess(ctx, **kwargs):
-    """Aggregate and compare results across models."""
-    from ced_ml.cli.postprocess import run_postprocess
+def aggregate_splits(ctx, **kwargs):
+    """
+    Aggregate results across multiple split seeds.
 
-    run_postprocess(**kwargs, verbose=ctx.obj.get("verbose", 0))
+    Discovers split_seedX subdirectories, collects metrics, computes pooled
+    metrics, generates aggregated plots with CI bands, and builds consensus
+    feature panels. Results are saved to an aggregated/ subdirectory.
+
+    Output structure:
+        aggregated/
+          core/                 # Pooled and summary metrics
+          cv/                   # CV metrics summary
+          preds/                # Pooled predictions
+          reports/              # Feature stability and consensus panels
+          diagnostics/plots/    # Aggregated ROC, PR, calibration, DCA plots
+
+    Example:
+        ced aggregate-splits --results-dir results_local/
+        ced aggregate-splits --results-dir results_local/ --stability-threshold 0.80
+        ced aggregate-splits --results-dir results_local/ --plot-formats png --plot-formats pdf
+    """
+    from ced_ml.cli.aggregate_splits import run_aggregate_splits
+
+    # Convert tuple to list for plot_formats
+    kwargs["plot_formats"] = list(kwargs["plot_formats"]) if kwargs["plot_formats"] else ["png"]
+
+    run_aggregate_splits(**kwargs, verbose=ctx.obj.get("verbose", 0))
 
 
 @cli.command("eval-holdout")

@@ -198,7 +198,7 @@ def test_check_split_files_exist_none(temp_outdir):
 
 def test_check_split_files_exist_train_only(temp_outdir):
     """Test detects existing train file."""
-    train_path = os.path.join(temp_outdir, "IncidentOnly_train_idx_seed42.csv")
+    train_path = os.path.join(temp_outdir, "train_idx_seed42.csv")
     Path(train_path).touch()
 
     exists, paths = check_split_files_exist(
@@ -215,9 +215,9 @@ def test_check_split_files_exist_train_only(temp_outdir):
 def test_check_split_files_exist_all_splits(temp_outdir):
     """Test detects all split files including metadata."""
     for fname in [
-        "IncidentOnly_train_idx_seed42.csv",
-        "IncidentOnly_test_idx_seed42.csv",
-        "IncidentOnly_split_meta_seed42.json",
+        "train_idx_seed42.csv",
+        "test_idx_seed42.csv",
+        "split_meta_seed42.json",
     ]:
         Path(os.path.join(temp_outdir, fname)).touch()
 
@@ -235,9 +235,9 @@ def test_check_split_files_exist_all_splits(temp_outdir):
 def test_check_split_files_exist_with_val(temp_outdir):
     """Test detects validation file when has_val=True."""
     for fname in [
-        "IncidentOnly_train_idx_seed42.csv",
-        "IncidentOnly_val_idx_seed42.csv",
-        "IncidentOnly_test_idx_seed42.csv",
+        "train_idx_seed42.csv",
+        "val_idx_seed42.csv",
+        "test_idx_seed42.csv",
     ]:
         Path(os.path.join(temp_outdir, fname)).touch()
 
@@ -436,7 +436,7 @@ def test_save_split_metadata_minimal(temp_outdir, valid_split, valid_labels):
     )
 
     assert os.path.exists(meta_path)
-    assert meta_path.endswith("IncidentOnly_split_meta_seed42.json")
+    assert meta_path.endswith("split_meta_seed42.json")
 
     with open(meta_path) as f:
         meta = json.load(f)
@@ -572,7 +572,7 @@ def test_save_holdout_indices(temp_outdir):
     )
 
     assert os.path.exists(holdout_path)
-    assert holdout_path.endswith("IncidentOnly_HOLDOUT_idx.csv")
+    assert holdout_path.endswith("HOLDOUT_idx.csv")
 
     # Check content
     holdout_df = np.loadtxt(holdout_path, delimiter=",", skiprows=1, dtype=int)
@@ -613,7 +613,7 @@ def test_save_holdout_metadata(temp_outdir):
     )
 
     assert os.path.exists(meta_path)
-    assert meta_path.endswith("IncidentOnly_HOLDOUT_meta.json")
+    assert meta_path.endswith("HOLDOUT_meta.json")
 
     with open(meta_path) as f:
         meta = json.load(f)

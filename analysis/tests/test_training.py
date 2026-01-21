@@ -160,10 +160,11 @@ def test_compute_xgb_scale_pos_weight_auto(minimal_config):
 
 
 def test_compute_xgb_scale_pos_weight_manual(minimal_config):
-    """Test manual override of scale_pos_weight."""
+    """Test manual override of scale_pos_weight via single-element grid."""
     from types import SimpleNamespace
 
-    minimal_config.models.xgboost = SimpleNamespace(scale_pos_weight=10.0)
+    # Single-element grid forces that value to be used
+    minimal_config.xgboost = SimpleNamespace(scale_pos_weight_grid=[10.0])
     y_train = np.array([0, 0, 0, 0, 1])
     spw = _compute_xgb_scale_pos_weight(y_train, minimal_config)
     assert spw == 10.0
@@ -281,6 +282,44 @@ def test_extract_from_kbest_transformed_with_sel(toy_data):
     assert all(p in protein_cols for p in proteins)
 
 
+def test_extract_from_kbest_transformed_plain_names():
+    """Test extraction with plain feature names (no prefix/suffix).
+
+    This tests the fix for verbose_feature_names_out=False, where feature
+    names don't have the 'num__' prefix or '_resid' suffix.
+    """
+    from sklearn.feature_selection import SelectKBest, f_classif
+
+    np.random.seed(42)
+    # Plain protein names (no prefix/suffix) - this is what verbose_feature_names_out=False produces
+    protein_cols = ["PROT_A", "PROT_B", "PROT_C", "PROT_D", "PROT_E"]
+    X = pd.DataFrame(np.random.randn(50, 5), columns=protein_cols)
+    y = (X["PROT_A"] + X["PROT_B"] > 0).astype(int)  # Make first two predictive
+
+    preprocessor = ColumnTransformer(
+        transformers=[("num", StandardScaler(), protein_cols)],
+        verbose_feature_names_out=False,  # Key setting that produces plain names
+    )
+
+    pipeline = Pipeline(
+        [
+            ("pre", preprocessor),
+            ("sel", SelectKBest(score_func=f_classif, k=3)),
+            ("clf", LogisticRegression(random_state=42)),
+        ]
+    )
+
+    pipeline.fit(X, y)
+
+    proteins = _extract_from_kbest_transformed(pipeline, protein_cols)
+
+    # Should extract 3 proteins
+    assert len(proteins) == 3
+    assert all(p in protein_cols for p in proteins)
+    # The predictive proteins should be captured
+    assert "PROT_A" in proteins or "PROT_B" in proteins
+
+
 def test_extract_from_model_coefficients(toy_data, minimal_config):
     """Test extraction from linear model coefficients."""
     X, y, protein_cols = toy_data
@@ -329,11 +368,11 @@ def test_extract_from_model_coefficients_high_threshold(toy_data, minimal_config
     pipeline.fit(X, y)
 
     # Low threshold
-    minimal_config.features.selection.coef_threshold = 1e-12
+    minimal_config.features.coef_threshold = 1e-12
     proteins_low = _extract_from_model_coefficients(pipeline, "LR_EN", protein_cols, minimal_config)
 
     # High threshold
-    minimal_config.features.selection.coef_threshold = 10.0
+    minimal_config.features.coef_threshold = 10.0
     proteins_high = _extract_from_model_coefficients(
         pipeline, "LR_EN", protein_cols, minimal_config
     )
@@ -351,9 +390,9 @@ def test_oof_predictions_with_kbest(toy_data, minimal_config):
 
     X, y, protein_cols = toy_data
 
-    minimal_config.features.selection.method = "kbest"
-    minimal_config.features.selection.k_grid = [5, 10]
-    minimal_config.features.selection.kbest_scope = "transformed"
+    minimal_config.features.feature_select = "kbest"
+    minimal_config.features.k_grid = [5, 10]
+    minimal_config.features.kbest_scope = "transformed"
 
     preprocessor = ColumnTransformer(
         transformers=[
@@ -384,7 +423,7 @@ def test_oof_predictions_tracks_selected_proteins(toy_data, minimal_config):
     """Test that selected proteins are tracked across CV folds."""
     X, y, protein_cols = toy_data
 
-    minimal_config.features.selection.method = "l1_stability"
+    minimal_config.features.feature_select = "l1_stability"
 
     preprocessor = ColumnTransformer(
         transformers=[

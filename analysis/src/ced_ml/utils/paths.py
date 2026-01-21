@@ -28,7 +28,7 @@ def get_run_dir(
     Format: {scenario}__{model}__{cv_config}__{val_config}__{test_config}{suffix}
 
     Example:
-        IncidentPlusPrevalent__RF__5x10__val0.25__test0.25__hybrid
+        RF__5x10__val0.25__test0.25__hybrid
     """
     parts = [scenario, model, cv_config]
 

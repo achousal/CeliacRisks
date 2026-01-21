@@ -9,10 +9,66 @@ Provides multiple strategies for choosing decision thresholds:
 All functions operate on true labels (y_true) and predicted probabilities (p).
 """
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple, TypedDict
 
 import numpy as np
-from sklearn.metrics import (
+
+# ============================================================================
+# ThresholdBundle: Standardized threshold data structure for plotting
+# ============================================================================
+
+
+class ThresholdMetrics(TypedDict, total=False):
+    """Metrics computed at a specific threshold.
+
+    Used for plotting threshold markers on ROC curves and risk distributions.
+    """
+
+    threshold: float
+    fpr: float
+    tpr: float
+    sensitivity: float
+    specificity: float
+    precision: float
+    f1: float
+    tp: int
+    fp: int
+    tn: int
+    fn: int
+
+
+class ThresholdBundle(TypedDict, total=False):
+    """Standardized container for all threshold-related data.
+
+    This bundle provides a single, consistent interface for passing threshold
+    information to plotting functions. All plotting functions should accept
+    this bundle and extract what they need.
+
+    Keys:
+        youden: ThresholdMetrics at Youden's J optimal threshold
+        spec_target: ThresholdMetrics at target specificity threshold
+        dca: ThresholdMetrics at DCA zero-crossing threshold (if computed)
+        target_spec: The actual specificity target value (e.g., 0.95)
+        youden_threshold: Raw threshold value for Youden
+        spec_target_threshold: Raw threshold value for specificity target
+        dca_threshold: Raw threshold value for DCA zero-crossing
+
+    Usage:
+        bundle = compute_threshold_bundle(y_true, y_pred, target_spec=0.95)
+        plot_roc_curve(..., threshold_bundle=bundle)
+        plot_risk_distribution(..., threshold_bundle=bundle)
+    """
+
+    youden: ThresholdMetrics
+    spec_target: ThresholdMetrics
+    dca: ThresholdMetrics
+    target_spec: float
+    youden_threshold: float
+    spec_target_threshold: float
+    dca_threshold: float
+
+
+from sklearn.metrics import (  # noqa: E402
     confusion_matrix,
     f1_score,
     precision_recall_curve,
@@ -250,6 +306,8 @@ def binary_metrics_at_threshold(y_true: np.ndarray, p: np.ndarray, thr: float) -
         - sensitivity: TP / (TP + FN) = recall = TPR
         - f1: F1-score
         - specificity: TN / (TN + FP)
+        - fpr: False positive rate = 1 - specificity
+        - tpr: True positive rate = sensitivity
         - tp, fp, tn, fn: Confusion matrix counts
 
     Notes:
@@ -264,12 +322,15 @@ def binary_metrics_at_threshold(y_true: np.ndarray, p: np.ndarray, thr: float) -
     rec = recall_score(y_true, y_hat, zero_division=0)
     f1 = f1_score(y_true, y_hat, zero_division=0)
     spec = (tn / (tn + fp)) if (tn + fp) > 0 else np.nan
+    fpr = 1.0 - spec if not np.isnan(spec) else np.nan
     return {
         "threshold": float(thr),
         "precision": float(prec),
         "sensitivity": float(rec),
         "f1": float(f1),
         "specificity": float(spec),
+        "fpr": float(fpr) if not np.isnan(fpr) else np.nan,
+        "tpr": float(rec),  # TPR = sensitivity = recall
         "tp": int(tp),
         "fp": int(fp),
         "tn": int(tn),
@@ -376,3 +437,94 @@ def choose_threshold_objective(
         )
     # fallback
     return ("max_f1", threshold_max_f1(y_true, p))
+
+
+def compute_threshold_bundle(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    target_spec: float = 0.95,
+    dca_threshold: Optional[float] = None,
+) -> ThresholdBundle:
+    """Compute all standard thresholds and metrics in a single call.
+
+    This factory function creates a ThresholdBundle containing Youden's J threshold,
+    the target specificity threshold, and optionally the DCA threshold with their
+    associated metrics. Use this to ensure consistent threshold handling across
+    all plotting functions.
+
+    Args:
+        y_true: True binary labels (0/1)
+        y_pred: Predicted probabilities [0, 1]
+        target_spec: Target specificity (default 0.95)
+        dca_threshold: Optional pre-computed DCA zero-crossing threshold
+
+    Returns:
+        ThresholdBundle with all threshold data needed for plotting
+
+    Example:
+        >>> bundle = compute_threshold_bundle(y_true, y_pred, target_spec=0.95)
+        >>> plot_roc_curve(..., threshold_bundle=bundle)
+        >>> plot_risk_distribution(..., threshold_bundle=bundle)
+    """
+    y_true = np.asarray(y_true).astype(int)
+    y_pred = np.asarray(y_pred).astype(float)
+
+    # Compute Youden threshold and metrics
+    youden_thr = threshold_youden(y_true, y_pred)
+    youden_metrics = binary_metrics_at_threshold(y_true, y_pred, youden_thr)
+
+    # Compute specificity target threshold and metrics
+    spec_thr = threshold_for_specificity(y_true, y_pred, target_spec=target_spec)
+    spec_metrics = binary_metrics_at_threshold(y_true, y_pred, spec_thr)
+
+    bundle: ThresholdBundle = {
+        "youden": {
+            "threshold": youden_thr,
+            "fpr": youden_metrics["fpr"],
+            "tpr": youden_metrics["tpr"],
+            "sensitivity": youden_metrics["sensitivity"],
+            "specificity": youden_metrics["specificity"],
+            "precision": youden_metrics["precision"],
+            "f1": youden_metrics["f1"],
+            "tp": youden_metrics["tp"],
+            "fp": youden_metrics["fp"],
+            "tn": youden_metrics["tn"],
+            "fn": youden_metrics["fn"],
+        },
+        "spec_target": {
+            "threshold": spec_thr,
+            "fpr": spec_metrics["fpr"],
+            "tpr": spec_metrics["tpr"],
+            "sensitivity": spec_metrics["sensitivity"],
+            "specificity": spec_metrics["specificity"],
+            "precision": spec_metrics["precision"],
+            "f1": spec_metrics["f1"],
+            "tp": spec_metrics["tp"],
+            "fp": spec_metrics["fp"],
+            "tn": spec_metrics["tn"],
+            "fn": spec_metrics["fn"],
+        },
+        "target_spec": target_spec,
+        "youden_threshold": youden_thr,
+        "spec_target_threshold": spec_thr,
+    }
+
+    # Add DCA threshold if provided
+    if dca_threshold is not None:
+        dca_metrics = binary_metrics_at_threshold(y_true, y_pred, dca_threshold)
+        bundle["dca"] = {
+            "threshold": dca_threshold,
+            "fpr": dca_metrics["fpr"],
+            "tpr": dca_metrics["tpr"],
+            "sensitivity": dca_metrics["sensitivity"],
+            "specificity": dca_metrics["specificity"],
+            "precision": dca_metrics["precision"],
+            "f1": dca_metrics["f1"],
+            "tp": dca_metrics["tp"],
+            "fp": dca_metrics["fp"],
+            "tn": dca_metrics["tn"],
+            "fn": dca_metrics["fn"],
+        }
+        bundle["dca_threshold"] = dca_threshold
+
+    return bundle

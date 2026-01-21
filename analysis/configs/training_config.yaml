@@ -3,14 +3,34 @@
 
 scenario: IncidentPlusPrevalent  # Options: IncidentOnly, PrevalentOnly, IncidentPlusPrevalent
 
+# Model Selection
+model: LR_EN  # Options: LR_EN, LR_L1, LinSVM_cal, RF, XGBoost
+
 # Cross-validation
 cv:
-  folds: 5
-  repeats: 10
+  folds: 2
+  repeats: 2
   scoring: roc_auc  # Options: roc_auc, average_precision, neg_brier_score
-  n_iter: 200  # RandomizedSearchCV iterations
-  inner_folds: 5
+  n_iter: 2  # Default RandomizedSearchCV iterations (can be overridden per-model below)
+  inner_folds: 2
   n_jobs: -1  # Use all available CPUs
+  random_state: 42
+  grid_randomize: true  # Randomize numeric grid values for more diverse search
+  verbose: 1
+
+# Optuna hyperparameter optimization (optional alternative to RandomizedSearchCV)
+optuna:
+  enabled: false  # Set to true to use Optuna instead of RandomizedSearchCV
+  n_trials: 100  # Number of hyperparameter trials
+  timeout: null  # Optional timeout in seconds (null = no limit)
+  sampler: tpe  # Options: tpe, random, cmaes, grid
+  sampler_seed: 42  # Seed for reproducibility
+  pruner: median  # Options: median, percentile, hyperband, none
+  pruner_n_startup_trials: 5  # Number of trials before pruning starts
+  pruner_percentile: 25.0  # Percentile for percentile pruner (0-100)
+  n_jobs: 1  # Number of parallel jobs for Optuna
+  save_study: true  # Save Optuna study object
+  save_trials_csv: true  # Save trials as CSV
 
 # Feature selection
 features:
@@ -18,16 +38,16 @@ features:
   kbest_scope: protein
   kbest_max: 800
   k_grid: [25, 50, 100, 200, 300, 400, 600, 800]
-  l1_c_grid: [0.001, 0.01, 0.1, 1.0]  # For l1_stability method
+  l1_c_min: 0.001  # For l1_stability method
+  l1_c_max: 1.0
+  l1_c_points: 4
   l1_stability_thresh: 0.70
   hybrid_kbest_first: true
   hybrid_k_for_stability: 200
 
-
   # Screening (pre-filter before k-best)
   screen_method: mannwhitney  # "mannwhitney" or "f_classif"
   screen_top_n: 1000  # 0 = no screening
-  screen_min_n_per_group: 20
 
   # Stability selection
   stability_thresh: 0.75  # Minimum frequency across folds
@@ -35,23 +55,39 @@ features:
   # Correlation pruning
   stable_corr_thresh: 0.85  # Remove features with r > 0.85
 
+# Per-model n_iter overrides (optional, defaults to cv.n_iter)
+# Uncomment to set different n_iter for specific models:
+lr:
+  n_iter: 2 # LR_EN and LR_L1
+svm:
+  n_iter: 2  # LinSVM_cal
+rf:
+  n_iter: 2  # RF often benefits from more iterations
+xgboost:
+  n_iter: 2  # XGBoost has many hyperparameters
+
 # Calibration and thresholding
 thresholds:
   objective: fixed_spec  # "max_f1", "max_fbeta", "youden", "fixed_spec", "fixed_ppv"
   fixed_spec: 0.95  # Target 95% specificity
+  fbeta: 1.0  # Beta parameter for max_fbeta objective
+  fixed_ppv: 0.10  # Target PPV for fixed_ppv objective
   threshold_source: val  # Select threshold on VAL set
   target_prevalence_source: test  # Use TEST prevalence for calibration
+  target_prevalence_fixed: null  # Override prevalence for calibration
+  risk_prob_source: test  # Options: test, val
 
 # Evaluation
 evaluation:
   test_ci_bootstrap: true
   n_boot: 500
-
-  # Learning curves
+  boot_random_state: 0
   learning_curve: true
-  lc_cv: 3
-  lc_min_frac: 0.30
-  lc_points: 6
+  lc_train_sizes: [0.1, 0.25, 0.5, 0.75, 1.0]
+  feature_reports: true
+  feature_report_max: 200
+  control_spec_targets: [0.90, 0.95, 0.99]
+  toprisk_fracs: [0.01, 0.05, 0.10]
 
 # Decision curve analysis
 dca:
@@ -59,46 +95,29 @@ dca:
   dca_threshold_min: 0.0005
   dca_threshold_max: 1.0
   dca_threshold_step: 0.001
+  dca_report_points: [0.01, 0.05, 0.10, 0.20]
 
 # Outputs
 output:
-  save_controls_oof: true
+  save_train_preds: true
   save_train_oof: true
   save_val_preds: true
   save_test_preds: true
   save_calibration: true
   calib_bins: 6
-  feature_reports: true  # boolean: true or false
-  feature_report_max: 200
-
-
-cv:
-  random_state: 0
-  tune_n_jobs: auto
-  error_score: nan
-  grid_randomize: true
-
-
-
-thresholds:
-  fbeta: 1.0  # Beta parameter for max_fbeta objective
-  fixed_ppv: 0.10  # Target PPV for fixed_ppv objective
-  target_prevalence_fixed: null  # Override prevalence for calibration
-  risk_prob_source: test  # Options: test, val
-
-evaluation:
-  boot_random_state: 0
-  lc_train_sizes: [0.1, 0.25, 0.5, 0.75, 1.0]
-  control_spec_targets: [0.90, 0.95, 0.99]
-  toprisk_fracs: [0.01, 0.05, 0.10]
-  feature_report_max: 100
-
-dca:
-  dca_report_points: [0.01, 0.05, 0.10, 0.20]
-
-output:
-  save_train_preds: false
+  save_controls_oof: true
   save_feature_importance: true
-  save_plots: true
+  feature_reports: true
   plot_format: png  # Options: png, pdf, svg
   plot_dpi: 300
+  save_plots: true
+
+  # Individual plot type controls
+  plot_roc: true
+  plot_pr: true
+  plot_calibration: true
+  plot_risk_distribution: true
+  plot_dca: true
+  plot_learning_curve: true
+  plot_oof_combined: true
+  plot_optuna: true

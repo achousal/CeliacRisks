@@ -119,15 +119,15 @@ class TestSaveSplitsDevelopmentMode:
         assert result.exit_code == 0, f"CLI failed: {result.output}"
 
         # Check output files exist
-        assert (outdir / "IncidentOnly_train_idx_seed0.csv").exists()
-        assert (outdir / "IncidentOnly_val_idx_seed0.csv").exists()
-        assert (outdir / "IncidentOnly_test_idx_seed0.csv").exists()
-        assert (outdir / "IncidentOnly_split_meta_seed0.json").exists()
+        assert (outdir / "train_idx_seed0.csv").exists()
+        assert (outdir / "val_idx_seed0.csv").exists()
+        assert (outdir / "test_idx_seed0.csv").exists()
+        assert (outdir / "split_meta_seed0.json").exists()
 
         # Validate splits
-        train_idx = pd.read_csv(outdir / "IncidentOnly_train_idx_seed0.csv")["idx"].values
-        val_idx = pd.read_csv(outdir / "IncidentOnly_val_idx_seed0.csv")["idx"].values
-        test_idx = pd.read_csv(outdir / "IncidentOnly_test_idx_seed0.csv")["idx"].values
+        train_idx = pd.read_csv(outdir / "train_idx_seed0.csv")["idx"].values
+        val_idx = pd.read_csv(outdir / "val_idx_seed0.csv")["idx"].values
+        test_idx = pd.read_csv(outdir / "test_idx_seed0.csv")["idx"].values
 
         # No overlap
         assert len(set(train_idx) & set(val_idx)) == 0
@@ -140,7 +140,7 @@ class TestSaveSplitsDevelopmentMode:
         assert all(test_idx >= 0)
 
         # Validate metadata
-        with open(outdir / "IncidentOnly_split_meta_seed0.json") as f:
+        with open(outdir / "split_meta_seed0.json") as f:
             meta = json.load(f)
 
         assert meta["scenario"] == "IncidentOnly"
@@ -186,14 +186,14 @@ class TestSaveSplitsDevelopmentMode:
         assert result.exit_code == 0, f"CLI failed: {result.output}"
 
         # Files should exist
-        assert (outdir / "IncidentPlusPrevalent_train_idx_seed0.csv").exists()
-        assert (outdir / "IncidentPlusPrevalent_val_idx_seed0.csv").exists()
-        assert (outdir / "IncidentPlusPrevalent_test_idx_seed0.csv").exists()
+        assert (outdir / "train_idx_seed0.csv").exists()
+        assert (outdir / "val_idx_seed0.csv").exists()
+        assert (outdir / "test_idx_seed0.csv").exists()
 
         # Load original data to verify prevalent handling
         df = pd.read_csv(toy_proteomics_csv)
-        val_idx = pd.read_csv(outdir / "IncidentPlusPrevalent_val_idx_seed0.csv")["idx"].values
-        test_idx = pd.read_csv(outdir / "IncidentPlusPrevalent_test_idx_seed0.csv")["idx"].values
+        val_idx = pd.read_csv(outdir / "val_idx_seed0.csv")["idx"].values
+        test_idx = pd.read_csv(outdir / "test_idx_seed0.csv")["idx"].values
 
         # VAL and TEST should only have Incident + Controls (no prevalent)
         val_labels = df.loc[val_idx, TARGET_COL].values
@@ -237,7 +237,7 @@ class TestSaveSplitsDevelopmentMode:
 
         # Check that TRAIN has reduced controls
         df = pd.read_csv(toy_proteomics_csv)
-        train_idx = pd.read_csv(outdir / "IncidentOnly_train_idx_seed0.csv")["idx"].values
+        train_idx = pd.read_csv(outdir / "train_idx_seed0.csv")["idx"].values
         train_labels = df.loc[train_idx, TARGET_COL].values
 
         n_cases = (train_labels == INCIDENT_LABEL).sum()
@@ -281,14 +281,14 @@ class TestSaveSplitsDevelopmentMode:
 
         # Check that all 3 splits were created
         for seed in [100, 101, 102]:
-            assert (outdir / f"IncidentOnly_train_idx_seed{seed}.csv").exists()
-            assert (outdir / f"IncidentOnly_val_idx_seed{seed}.csv").exists()
-            assert (outdir / f"IncidentOnly_test_idx_seed{seed}.csv").exists()
-            assert (outdir / f"IncidentOnly_split_meta_seed{seed}.json").exists()
+            assert (outdir / f"train_idx_seed{seed}.csv").exists()
+            assert (outdir / f"val_idx_seed{seed}.csv").exists()
+            assert (outdir / f"test_idx_seed{seed}.csv").exists()
+            assert (outdir / f"split_meta_seed{seed}.json").exists()
 
         # Verify splits are different
-        train_100 = pd.read_csv(outdir / "IncidentOnly_train_idx_seed100.csv")["idx"].values
-        train_101 = pd.read_csv(outdir / "IncidentOnly_train_idx_seed101.csv")["idx"].values
+        train_100 = pd.read_csv(outdir / "train_idx_seed100.csv")["idx"].values
+        train_101 = pd.read_csv(outdir / "train_idx_seed101.csv")["idx"].values
 
         # Different seeds should produce different splits
         assert not np.array_equal(sorted(train_100), sorted(train_101))
@@ -344,26 +344,26 @@ class TestSaveSplitsHoldoutMode:
         ), f"CLI failed with code {result.exit_code}: {result.output[:500]}"
 
         # Check holdout files
-        assert (outdir / "IncidentOnly_HOLDOUT_idx.csv").exists()
-        assert (outdir / "IncidentOnly_HOLDOUT_meta.json").exists()
+        assert (outdir / "HOLDOUT_idx.csv").exists()
+        assert (outdir / "HOLDOUT_meta.json").exists()
 
         # Check development split files
-        assert (outdir / "IncidentOnly_train_idx_seed0.csv").exists()
-        assert (outdir / "IncidentOnly_val_idx_seed0.csv").exists()
-        assert (outdir / "IncidentOnly_test_idx_seed0.csv").exists()
+        assert (outdir / "train_idx_seed0.csv").exists()
+        assert (outdir / "val_idx_seed0.csv").exists()
+        assert (outdir / "test_idx_seed0.csv").exists()
 
         # Load indices
-        holdout_idx = pd.read_csv(outdir / "IncidentOnly_HOLDOUT_idx.csv")["idx"].values
-        train_idx = pd.read_csv(outdir / "IncidentOnly_train_idx_seed0.csv")["idx"].values
-        val_idx = pd.read_csv(outdir / "IncidentOnly_val_idx_seed0.csv")["idx"].values
-        test_idx = pd.read_csv(outdir / "IncidentOnly_test_idx_seed0.csv")["idx"].values
+        holdout_idx = pd.read_csv(outdir / "HOLDOUT_idx.csv")["idx"].values
+        train_idx = pd.read_csv(outdir / "train_idx_seed0.csv")["idx"].values
+        val_idx = pd.read_csv(outdir / "val_idx_seed0.csv")["idx"].values
+        test_idx = pd.read_csv(outdir / "test_idx_seed0.csv")["idx"].values
 
         # Holdout should be disjoint from development sets
         dev_idx = np.concatenate([train_idx, val_idx, test_idx])
         assert len(set(holdout_idx) & set(dev_idx)) == 0
 
         # Validate holdout metadata
-        with open(outdir / "IncidentOnly_HOLDOUT_meta.json") as f:
+        with open(outdir / "HOLDOUT_meta.json") as f:
             meta = json.load(f)
 
         assert meta["split_type"] == "holdout"
@@ -515,15 +515,15 @@ class TestSaveSplitsReproducibility:
         assert result2.exit_code == 0
 
         # Compare indices
-        train1 = pd.read_csv(outdir1 / "IncidentOnly_train_idx_seed42.csv")["idx"].values
-        train2 = pd.read_csv(outdir2 / "IncidentOnly_train_idx_seed42.csv")["idx"].values
+        train1 = pd.read_csv(outdir1 / "train_idx_seed42.csv")["idx"].values
+        train2 = pd.read_csv(outdir2 / "train_idx_seed42.csv")["idx"].values
 
         np.testing.assert_array_equal(train1, train2)
 
         # Compare metadata (excluding timestamps if any)
-        with open(outdir1 / "IncidentOnly_split_meta_seed42.json") as f:
+        with open(outdir1 / "split_meta_seed42.json") as f:
             meta1 = json.load(f)
-        with open(outdir2 / "IncidentOnly_split_meta_seed42.json") as f:
+        with open(outdir2 / "split_meta_seed42.json") as f:
             meta2 = json.load(f)
 
         # Check key fields match

@@ -343,13 +343,16 @@ def test_save_controls_predictions(results_writer):
 
 
 def test_save_feature_report(results_writer):
-    """Test save_feature_report."""
+    """Test save_feature_report with all expected columns."""
     report_df = pd.DataFrame(
         {
+            "rank": [1, 2, 3],
             "protein": ["TGM2", "CXCL9", "ITGB7"],
-            "cohens_d": [1.73, 1.53, 1.50],
-            "p_value": [1e-20, 1e-18, 1e-17],
             "selection_freq": [1.0, 0.9, 0.8],
+            "effect_size": [1.73, 1.53, 1.50],
+            "p_value": [1e-20, 1e-18, 1e-17],
+            "scenario": ["IncidentPlusPrevalent"] * 3,
+            "model": ["LR_EN"] * 3,
         }
     )
 
@@ -361,6 +364,10 @@ def test_save_feature_report(results_writer):
     df = pd.read_csv(path)
     assert len(df) == 3
     assert df["protein"].iloc[0] == "TGM2"
+    assert "effect_size" in df.columns
+    assert "p_value" in df.columns
+    assert "selection_freq" in df.columns
+    assert df["rank"].iloc[0] == 1
 
 
 def test_save_stable_panel_report(results_writer):
@@ -402,6 +409,47 @@ def test_save_panel_manifest(results_writer):
         loaded = json.load(f)
     assert loaded["panel_size"] == 25
     assert loaded["final_proteins"] == ["TGM2", "CXCL9", "ITGB7"]
+
+
+def test_save_final_test_panel(results_writer):
+    """Test save_final_test_panel."""
+    panel_proteins = ["TGM2", "CXCL9", "ITGB7", "IL15", "MUC2"]
+    metadata = {
+        "selection_method": "hybrid",
+        "n_train": 1000,
+        "n_train_pos": 50,
+        "train_prevalence": 0.05,
+        "random_state": 42,
+    }
+
+    path = results_writer.save_final_test_panel(
+        panel_proteins, scenario="IncidentPlusPrevalent", model="LR_EN", metadata=metadata
+    )
+
+    assert os.path.exists(path)
+    assert "final_test_panel" in path
+    with open(path) as f:
+        loaded = json.load(f)
+    assert loaded["scenario"] == "IncidentPlusPrevalent"
+    assert loaded["model"] == "LR_EN"
+    assert loaded["panel_size"] == 5
+    assert len(loaded["proteins"]) == 5
+    assert "TGM2" in loaded["proteins"]
+    assert loaded["metadata"]["selection_method"] == "hybrid"
+    assert loaded["metadata"]["n_train"] == 1000
+
+
+def test_save_final_test_panel_no_metadata(results_writer):
+    """Test save_final_test_panel without metadata."""
+    panel_proteins = ["TGM2", "CXCL9"]
+
+    path = results_writer.save_final_test_panel(panel_proteins, scenario="IncidentOnly", model="RF")
+
+    assert os.path.exists(path)
+    with open(path) as f:
+        loaded = json.load(f)
+    assert loaded["panel_size"] == 2
+    assert loaded["metadata"] == {}
 
 
 def test_save_subgroup_metrics(results_writer):

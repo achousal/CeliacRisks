@@ -403,11 +403,11 @@ class TestPlotMetadataHelper:
     def test_metadata_with_lines(self, tmp_path):
         """Test metadata application with lines."""
         import matplotlib.pyplot as plt
-        from ced_ml.plotting.roc_pr import _apply_plot_metadata
+        from ced_ml.plotting.dca import apply_plot_metadata
 
         fig, ax = plt.subplots()
         meta_lines = ["Line 1", "Line 2", "Line 3"]
-        margin = _apply_plot_metadata(fig, meta_lines)
+        margin = apply_plot_metadata(fig, meta_lines)
 
         assert margin > 0.10
         assert margin <= 0.30
@@ -416,10 +416,10 @@ class TestPlotMetadataHelper:
     def test_metadata_without_lines(self):
         """Test metadata application without lines."""
         import matplotlib.pyplot as plt
-        from ced_ml.plotting.roc_pr import _apply_plot_metadata
+        from ced_ml.plotting.dca import apply_plot_metadata
 
         fig, ax = plt.subplots()
-        margin = _apply_plot_metadata(fig, None)
+        margin = apply_plot_metadata(fig, None)
 
         assert margin == 0.10
         plt.close()
@@ -427,10 +427,10 @@ class TestPlotMetadataHelper:
     def test_metadata_empty_list(self):
         """Test metadata with empty list."""
         import matplotlib.pyplot as plt
-        from ced_ml.plotting.roc_pr import _apply_plot_metadata
+        from ced_ml.plotting.dca import apply_plot_metadata
 
         fig, ax = plt.subplots()
-        margin = _apply_plot_metadata(fig, [])
+        margin = apply_plot_metadata(fig, [])
 
         assert margin == 0.10
         plt.close()
@@ -438,11 +438,11 @@ class TestPlotMetadataHelper:
     def test_metadata_caps_at_30_percent(self):
         """Test metadata margin caps at 30%."""
         import matplotlib.pyplot as plt
-        from ced_ml.plotting.roc_pr import _apply_plot_metadata
+        from ced_ml.plotting.dca import apply_plot_metadata
 
         fig, ax = plt.subplots()
         many_lines = [f"Line {i}" for i in range(50)]
-        margin = _apply_plot_metadata(fig, many_lines)
+        margin = apply_plot_metadata(fig, many_lines)
 
         assert margin == 0.30
         plt.close()

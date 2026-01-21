@@ -1,0 +1,36 @@
+# Pipeline Configuration - HPC Environment
+# Single source of truth for paths, models, and execution settings
+
+# Environment
+environment: hpc
+
+# Paths (relative to analysis/)
+paths:
+  infile: ../data/Celiac_dataset_proteomics_w_demo.parquet
+  splits_dir: ../splits
+  results_dir: ../results
+  logs_dir: ../logs
+
+# Configs
+configs:
+  splits: configs/splits_config.yaml
+  training: configs/training_config.yaml
+
+# Execution
+execution:
+  models: [LR_EN, LinSVM_cal, RF, XGBoost]  # All models for production
+  n_boot: 500  # Bootstrap iterations for aggregation (HPC: full)
+  overwrite_splits: false
+  dry_run: false
+
+# HPC Settings (LSF/Slurm)
+hpc:
+  scheduler: lsf  # lsf or slurm
+  project: YOUR_PROJECT_ALLOCATION  # Required: update before use
+  queue: normal
+  walltime: "144:00"  # hours:minutes
+  cores: 8
+  mem_per_core: 8000  # MB
+
+# The splits config controls n_splits and seed_start
+# Edit configs/splits_config.yaml to change those settings

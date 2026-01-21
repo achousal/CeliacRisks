@@ -25,9 +25,9 @@ Save split indices as **CSV files** with single column of row indices (int64).
 
 **Example:**
 ```
-IncidentPlusPrevalent_train_idx_seed42.csv
-IncidentPlusPrevalent_val_idx_seed42.csv
-IncidentPlusPrevalent_test_idx_seed42.csv
+train_idx_seed42.csv
+val_idx_seed42.csv
+test_idx_seed42.csv
 ```
 
 **Contents:**

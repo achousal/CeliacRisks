@@ -260,7 +260,7 @@ def parse_class_weight_options(s: str) -> List:
 
 
 def make_logspace(
-    minv: float, maxv: float, points: int, rng: Optional[np.random.RandomState] = None
+    minv: float, maxv: float, points: int, rng: Optional[np.random.Generator] = None
 ) -> np.ndarray:
     """Generate log-spaced values for regularization parameters.
 
@@ -290,7 +290,7 @@ def make_logspace(
 
 def _randomize_numeric_list(
     values: Sequence[Any],
-    rng: Optional[np.random.RandomState],
+    rng: Optional[np.random.Generator],
     *,
     as_int: bool = False,
     min_int: Optional[int] = None,
@@ -377,14 +377,14 @@ def _randomize_numeric_list(
                         if i + 1 < len(sorted_vals)
                         else max(1, int((high - low) * 0.1))
                     )
-                    offset = rng.randint(-max(1, gap // 2), gap + 1)
+                    offset = rng.integers(-max(1, gap // 2), gap + 1)
                 elif i == len(sorted_vals) - 1:
                     gap = int((val - sorted_vals[i - 1]) / 2)
-                    offset = rng.randint(-gap, max(1, gap // 2) + 1)
+                    offset = rng.integers(-gap, max(1, gap // 2) + 1)
                 else:
                     gap_left = int((val - sorted_vals[i - 1]) / 2)
                     gap_right = int((sorted_vals[i + 1] - val) / 2)
-                    offset = rng.randint(-gap_left, gap_right + 1)
+                    offset = rng.integers(-gap_left, gap_right + 1)
 
                 perturbed_val = int_val + offset
                 if min_int is not None:
@@ -396,7 +396,7 @@ def _randomize_numeric_list(
             if unique_int:
                 perturbed = list(dict.fromkeys(perturbed))
                 while len(perturbed) < n:
-                    extra = rng.randint(low, high + 1)
+                    extra = rng.integers(low, high + 1)
                     if min_int is not None:
                         extra = max(extra, int(min_int))
                     if max_int is not None:
@@ -412,7 +412,7 @@ def _randomize_numeric_list(
             if unique_int:
                 sampled_vals = list(rng.choice(range(low_int, high_int + 1), size=n, replace=False))
             else:
-                sampled_vals = [int(rng.randint(low_int, high_int + 1)) for _ in range(n)]
+                sampled_vals = [int(rng.integers(low_int, high_int + 1)) for _ in range(n)]
     else:
         # Float sampling
         if log_scale:
@@ -679,22 +679,23 @@ def build_models(
         )
 
     elif model_name == "RF":
-        # Get first value from n_estimators list for default model
-        n_est = config.rf.n_estimators[0] if config.rf.n_estimators else 100
+        # Get first value from n_estimators_grid list for default model
+        n_est = config.rf.n_estimators_grid[0] if config.rf.n_estimators_grid else 100
         return build_random_forest(
             n_estimators=n_est,
             random_state=random_state,
             n_jobs=int(max(1, n_jobs)),
-            # RF config doesn't have bootstrap/max_samples in new schema
         )
 
     elif model_name == "XGBoost":
-        # Get first values from lists for default model
-        n_est = config.xgboost.n_estimators[0] if config.xgboost.n_estimators else 100
-        max_d = config.xgboost.max_depth[0] if config.xgboost.max_depth else 5
-        lr = config.xgboost.learning_rate[0] if config.xgboost.learning_rate else 0.05
-        sub = config.xgboost.subsample[0] if config.xgboost.subsample else 0.8
-        col = config.xgboost.colsample_bytree[0] if config.xgboost.colsample_bytree else 0.8
+        # Get first values from grid lists for default model
+        n_est = config.xgboost.n_estimators_grid[0] if config.xgboost.n_estimators_grid else 100
+        max_d = config.xgboost.max_depth_grid[0] if config.xgboost.max_depth_grid else 5
+        lr = config.xgboost.learning_rate_grid[0] if config.xgboost.learning_rate_grid else 0.05
+        sub = config.xgboost.subsample_grid[0] if config.xgboost.subsample_grid else 0.8
+        col = (
+            config.xgboost.colsample_bytree_grid[0] if config.xgboost.colsample_bytree_grid else 0.8
+        )
         spw = 1.0  # Default, will be computed later
         return build_xgboost(
             n_estimators=n_est,
@@ -703,12 +704,16 @@ def build_models(
             subsample=sub,
             colsample_bytree=col,
             scale_pos_weight=spw,
-            reg_alpha=config.xgboost.reg_alpha[0] if config.xgboost.reg_alpha else 0.0,
-            reg_lambda=(config.xgboost.reg_lambda[0] if config.xgboost.reg_lambda else 1.0),
-            min_child_weight=(
-                config.xgboost.min_child_weight[0] if config.xgboost.min_child_weight else 1
+            reg_alpha=config.xgboost.reg_alpha_grid[0] if config.xgboost.reg_alpha_grid else 0.0,
+            reg_lambda=(
+                config.xgboost.reg_lambda_grid[0] if config.xgboost.reg_lambda_grid else 1.0
             ),
-            gamma=config.xgboost.gamma[0] if config.xgboost.gamma else 0.0,
+            min_child_weight=(
+                config.xgboost.min_child_weight_grid[0]
+                if config.xgboost.min_child_weight_grid
+                else 1
+            ),
+            gamma=config.xgboost.gamma_grid[0] if config.xgboost.gamma_grid else 0.0,
             tree_method=config.xgboost.tree_method,
             random_state=random_state,
             n_jobs=(int(max(1, n_jobs)) if config.xgboost.tree_method != "gpu_hist" else 1),
@@ -728,7 +733,7 @@ def get_param_distributions(
     k_grid: List[int],
     kbest_scope: str,
     xgb_scale_pos_weight: Optional[float] = None,
-    grid_rng: Optional[np.random.RandomState] = None,
+    grid_rng: Optional[np.random.Generator] = None,
     randomize_grids: bool = False,
 ) -> Dict[str, List]:
     """Generate hyperparameter distributions for RandomizedSearchCV.
@@ -759,13 +764,30 @@ def get_param_distributions(
             d["sel__k"] = k_grid
 
     # Get hyperparameter grids from config
-    lr_Cs = config.lr.C if hasattr(config.lr, "C") else [0.001, 0.01, 0.1, 1.0, 10.0]
-    svm_Cs = config.svm.C if hasattr(config.svm, "C") else [0.01, 0.1, 1.0, 10.0]
+    # LR and SVM use C_min/C_max/C_points to generate logspace grids
+    lr_Cs = (
+        make_logspace(config.lr.C_min, config.lr.C_max, config.lr.C_points, rng=rng)
+        if hasattr(config.lr, "C_min")
+        else [0.001, 0.01, 0.1, 1.0, 10.0]
+    )
+    svm_Cs = (
+        make_logspace(config.svm.C_min, config.svm.C_max, config.svm.C_points, rng=rng)
+        if hasattr(config.svm, "C_min")
+        else [0.01, 0.1, 1.0, 10.0]
+    )
 
-    # Convert class_weight strings to lists
-    lr_class_weight = [config.lr.class_weight] if config.lr.class_weight else [None]
-    svm_class_weight = [config.svm.class_weight] if config.svm.class_weight else [None]
-    rf_class_weight = [config.rf.class_weight] if config.rf.class_weight else [None]
+    # Convert class_weight_options string to list
+    lr_class_weight = parse_class_weight_options(
+        config.lr.class_weight_options if hasattr(config.lr, "class_weight_options") else "balanced"
+    )
+    svm_class_weight = parse_class_weight_options(
+        config.svm.class_weight_options
+        if hasattr(config.svm, "class_weight_options")
+        else "balanced"
+    )
+    rf_class_weight = parse_class_weight_options(
+        config.rf.class_weight_options if hasattr(config.rf, "class_weight_options") else "balanced"
+    )
 
     # Model-specific grids
     if model_name == "LR_L1":
@@ -808,7 +830,9 @@ def get_param_distributions(
 
     if model_name == "RF":
         n_estimators_grid = (
-            config.rf.n_estimators if hasattr(config.rf, "n_estimators") else [100, 300, 500]
+            config.rf.n_estimators_grid
+            if hasattr(config.rf, "n_estimators_grid")
+            else [100, 300, 500]
         )
         if rng is not None:
             n_estimators_grid = _randomize_numeric_list(
@@ -820,7 +844,9 @@ def get_param_distributions(
                 perturb_mode=True,
             )
 
-        max_depth = config.rf.max_depth if hasattr(config.rf, "max_depth") else [None, 10, 20, 40]
+        max_depth = (
+            config.rf.max_depth_grid if hasattr(config.rf, "max_depth_grid") else [None, 10, 20, 40]
+        )
         if rng is not None:
             max_depth = _randomize_numeric_list(
                 max_depth,
@@ -832,12 +858,20 @@ def get_param_distributions(
             )
 
         min_leaf = (
-            config.rf.min_samples_leaf if hasattr(config.rf, "min_samples_leaf") else [1, 2, 4]
+            config.rf.min_samples_leaf_grid
+            if hasattr(config.rf, "min_samples_leaf_grid")
+            else [1, 2, 4]
         )
         min_split = (
-            config.rf.min_samples_split if hasattr(config.rf, "min_samples_split") else [2, 5, 10]
+            config.rf.min_samples_split_grid
+            if hasattr(config.rf, "min_samples_split_grid")
+            else [2, 5, 10]
         )
-        max_feat = config.rf.max_features if hasattr(config.rf, "max_features") else ["sqrt", 0.5]
+        max_feat = (
+            config.rf.max_features_grid
+            if hasattr(config.rf, "max_features_grid")
+            else ["sqrt", 0.5]
+        )
 
         if rng is not None:
             max_feat = _randomize_numeric_list(
@@ -867,24 +901,28 @@ def get_param_distributions(
 
     if model_name == "XGBoost":
         n_estimators_grid = (
-            config.xgboost.n_estimators
-            if hasattr(config.xgboost, "n_estimators")
+            config.xgboost.n_estimators_grid
+            if hasattr(config.xgboost, "n_estimators_grid")
             else [100, 300, 500]
         )
         max_depth_grid = (
-            config.xgboost.max_depth if hasattr(config.xgboost, "max_depth") else [3, 5, 7]
+            config.xgboost.max_depth_grid
+            if hasattr(config.xgboost, "max_depth_grid")
+            else [3, 5, 7]
         )
         learning_rate_grid = (
-            config.xgboost.learning_rate
-            if hasattr(config.xgboost, "learning_rate")
+            config.xgboost.learning_rate_grid
+            if hasattr(config.xgboost, "learning_rate_grid")
             else [0.01, 0.05, 0.1]
         )
         subsample_grid = (
-            config.xgboost.subsample if hasattr(config.xgboost, "subsample") else [0.7, 0.8, 1.0]
+            config.xgboost.subsample_grid
+            if hasattr(config.xgboost, "subsample_grid")
+            else [0.7, 0.8, 1.0]
         )
         colsample_grid = (
-            config.xgboost.colsample_bytree
-            if hasattr(config.xgboost, "colsample_bytree")
+            config.xgboost.colsample_bytree_grid
+            if hasattr(config.xgboost, "colsample_bytree_grid")
             else [0.7, 0.8, 1.0]
         )
         spw_grid = [float(xgb_scale_pos_weight)] if xgb_scale_pos_weight is not None else [1.0]

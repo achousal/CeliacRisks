@@ -26,35 +26,32 @@ def minimal_config():
     """Minimal config for testing."""
     from types import SimpleNamespace
 
+    # Model configs at top level (matching TrainingConfig schema)
     return make_mock_config(
-        models=SimpleNamespace(
-            lr=SimpleNamespace(
-                C_min=0.01,
-                C_max=100.0,
-                C_points=10,
-                class_weight_options="None,balanced",
-            ),
-            svm=SimpleNamespace(
-                C_min=0.01, C_max=100.0, C_points=10, class_weight_options="balanced"
-            ),
-            rf=SimpleNamespace(
-                n_estimators_grid=[100, 200, 500],
-                max_depth_grid=[5, 10, 20],
-                min_samples_split_grid=[2, 5, 10],
-                min_samples_leaf_grid=[1, 2, 4],
-                max_features_grid=[0.3, 0.5, 0.7],
-                class_weight_options="None,balanced",
-            ),
-            xgboost=SimpleNamespace(
-                n_estimators_grid=[100, 200],
-                max_depth_grid=[3, 5, 7],
-                learning_rate_grid=[0.01, 0.1, 0.3],
-                subsample_grid=[0.7, 0.8, 1.0],
-                colsample_bytree_grid=[0.7, 0.8, 1.0],
-                scale_pos_weight=None,
-                scale_pos_weight_grid=[1.0, 5.0, 10.0],
-            ),
-        )
+        lr=SimpleNamespace(
+            C_min=0.01,
+            C_max=100.0,
+            C_points=10,
+            class_weight_options="None,balanced",
+        ),
+        svm=SimpleNamespace(C_min=0.01, C_max=100.0, C_points=10, class_weight_options="balanced"),
+        rf=SimpleNamespace(
+            n_estimators_grid=[100, 200, 500],
+            max_depth_grid=[5, 10, 20],
+            min_samples_split_grid=[2, 5, 10],
+            min_samples_leaf_grid=[1, 2, 4],
+            max_features_grid=[0.3, 0.5, 0.7],
+            class_weight_options="None,balanced",
+        ),
+        xgboost=SimpleNamespace(
+            n_estimators_grid=[100, 200],
+            max_depth_grid=[3, 5, 7],
+            learning_rate_grid=[0.01, 0.1, 0.3],
+            subsample_grid=[0.7, 0.8, 1.0],
+            colsample_bytree_grid=[0.7, 0.8, 1.0],
+            scale_pos_weight=None,
+            scale_pos_weight_grid=[1.0, 5.0, 10.0],
+        ),
     )
 
 
@@ -125,21 +122,22 @@ def test_get_param_distributions_xgboost_custom_spw(minimal_config):
 
 def test_get_param_distributions_with_kbest(minimal_config):
     """Test parameter distributions with K-best selection."""
-    minimal_config.features.selection.method = "kbest"
-    minimal_config.features.selection.k_grid = [10, 25, 50, 100]
-    minimal_config.features.selection.kbest_scope = "protein"
+    minimal_config.features.feature_select = "kbest"
+    minimal_config.features.k_grid = [10, 25, 50, 100]
+    minimal_config.features.kbest_scope = "protein"
 
     params = get_param_distributions("LR_EN", minimal_config)
 
-    assert "prot_sel__k" in params
-    assert params["prot_sel__k"] == [10, 25, 50, 100]
+    # Always uses 'sel__k' regardless of kbest_scope (pipeline step name)
+    assert "sel__k" in params
+    assert params["sel__k"] == [10, 25, 50, 100]
 
 
 def test_get_param_distributions_with_kbest_transformed(minimal_config):
     """Test parameter distributions with K-best in transformed space."""
-    minimal_config.features.selection.method = "kbest"
-    minimal_config.features.selection.k_grid = [10, 25, 50]
-    minimal_config.features.selection.kbest_scope = "transformed"
+    minimal_config.features.feature_select = "kbest"
+    minimal_config.features.k_grid = [10, 25, 50]
+    minimal_config.features.kbest_scope = "transformed"
 
     params = get_param_distributions("LR_EN", minimal_config)
 
@@ -149,8 +147,8 @@ def test_get_param_distributions_with_kbest_transformed(minimal_config):
 
 def test_get_param_distributions_no_k_grid_raises(minimal_config):
     """Test that kbest without k_grid raises ValueError."""
-    minimal_config.features.selection.method = "kbest"
-    minimal_config.features.selection.k_grid = []
+    minimal_config.features.feature_select = "kbest"
+    minimal_config.features.k_grid = []
 
     with pytest.raises(ValueError, match="k_grid"):
         get_param_distributions("LR_EN", minimal_config)
@@ -167,7 +165,7 @@ def test_get_param_distributions_unknown_model(minimal_config):
 
 def test_randomize_int_list():
     """Test integer list randomization."""
-    rng = np.random.RandomState(42)
+    rng = np.random.default_rng(42)
     values = [10, 50, 100, 200]
 
     randomized = _randomize_int_list(values, rng, min_val=1)
@@ -184,7 +182,7 @@ def test_randomize_int_list():
 
 def test_randomize_int_list_unique():
     """Test integer list randomization with uniqueness."""
-    rng = np.random.RandomState(42)
+    rng = np.random.default_rng(42)
     values = [10, 50, 100]
 
     randomized = _randomize_int_list(values, rng, min_val=1, unique=True)
@@ -193,9 +191,40 @@ def test_randomize_int_list_unique():
     assert len(randomized) == len(set(randomized))
 
 
+def test_randomize_int_list_with_none():
+    """Test integer list randomization preserves None values."""
+    rng = np.random.default_rng(42)
+    values = [None, 10, 20, 30]
+
+    randomized = _randomize_int_list(values, rng, min_val=1)
+
+    # Should preserve None
+    assert None in randomized
+    assert len(randomized) == len(values)
+
+    # Non-None values should be randomized
+    non_none_values = [v for v in randomized if v is not None]
+    assert all(v >= 1 for v in non_none_values)
+
+
+def test_randomize_int_list_with_none_unique():
+    """Test integer list randomization with None and uniqueness."""
+    rng = np.random.default_rng(42)
+    values = [None, 10, 20, 30]
+
+    randomized = _randomize_int_list(values, rng, min_val=1, unique=True)
+
+    # Should preserve None
+    assert None in randomized
+
+    # Non-None values should be unique
+    non_none_values = [v for v in randomized if v is not None]
+    assert len(non_none_values) == len(set(non_none_values))
+
+
 def test_randomize_float_list():
     """Test float list randomization."""
-    rng = np.random.RandomState(42)
+    rng = np.random.default_rng(42)
     values = [0.1, 0.5, 1.0]
 
     randomized = _randomize_float_list(values, rng, min_val=0.0, max_val=1.0)
@@ -209,7 +238,7 @@ def test_randomize_float_list():
 
 def test_randomize_float_list_log_scale():
     """Test float list randomization in log scale."""
-    rng = np.random.RandomState(42)
+    rng = np.random.default_rng(42)
     values = [0.001, 0.01, 0.1, 1.0]
 
     randomized = _randomize_float_list(values, rng, min_val=1e-6, log_scale=True)
@@ -221,19 +250,38 @@ def test_randomize_float_list_log_scale():
     assert all(v > 0 for v in randomized)
 
 
+def test_randomize_float_list_with_strings():
+    """Test float list randomization with mixed types (strings pass through)."""
+    rng = np.random.default_rng(42)
+    values = ["sqrt", "log2", 0.5]
+
+    randomized = _randomize_float_list(values, rng, min_val=0.1, max_val=1.0)
+
+    # Should have same length
+    assert len(randomized) == len(values)
+
+    # Strings should be preserved unchanged
+    assert randomized[0] == "sqrt"
+    assert randomized[1] == "log2"
+
+    # Float should be perturbed but within bounds
+    assert isinstance(randomized[2], float)
+    assert 0.1 <= randomized[2] <= 1.0
+
+
 def test_get_param_distributions_with_randomization(minimal_config):
     """Test that grid randomization works end-to-end."""
-    rng = np.random.RandomState(42)
+    rng = np.random.default_rng(42)
 
     params1 = get_param_distributions("RF", minimal_config, grid_rng=rng)
-    rng2 = np.random.RandomState(42)  # Same seed
+    rng2 = np.random.default_rng(42)  # Same seed
     params2 = get_param_distributions("RF", minimal_config, grid_rng=rng2)
 
     # Same seed should give same results
     assert params1["clf__n_estimators"] == params2["clf__n_estimators"]
 
     # Different from original config
-    assert params1["clf__n_estimators"] != minimal_config.models.rf.n_estimators_grid
+    assert params1["clf__n_estimators"] != minimal_config.rf.n_estimators_grid
 
 
 # ==================== Utility Function Tests ====================
@@ -270,7 +318,7 @@ def test_make_logspace_empty():
 
 def test_make_logspace_with_randomization():
     """Test log-spaced grid with perturbation."""
-    rng = np.random.RandomState(42)
+    rng = np.random.default_rng(42)
     grid1 = _make_logspace(0.01, 100.0, 5)
     grid2 = _make_logspace(0.01, 100.0, 5, rng=rng)
 
@@ -354,3 +402,121 @@ def test_params_are_json_serializable(minimal_config):
                 json.dumps(values)
             except (TypeError, ValueError):
                 pytest.fail(f"Parameter {key} for {model} is not JSON-serializable")
+
+
+# ==================== Per-Model n_iter Tests ====================
+
+
+def test_get_model_n_iter_global_fallback():
+    """Test that global n_iter is used when model-specific is None."""
+    from ced_ml.models.training import get_model_n_iter
+
+    config = make_mock_config()
+    config.cv.n_iter = 30
+
+    # Model configs have no n_iter set (default None)
+    for model_name in ["LR_EN", "LR_L1", "LinSVM_cal", "RF", "XGBoost"]:
+        assert get_model_n_iter(model_name, config) == 30
+
+
+def test_get_model_n_iter_model_override():
+    """Test that model-specific n_iter overrides global."""
+    from types import SimpleNamespace
+
+    from ced_ml.models.training import get_model_n_iter
+
+    config = make_mock_config()
+    config.cv.n_iter = 10
+
+    # Set model-specific n_iter
+    config.lr = SimpleNamespace(
+        n_iter=25,  # Override for LR
+        C_min=0.01,
+        C_max=100.0,
+        C_points=5,
+        class_weight_options="balanced",
+    )
+    config.rf = SimpleNamespace(
+        n_iter=50,  # Override for RF
+        n_estimators_grid=[100],
+        max_depth_grid=[5],
+        min_samples_split_grid=[2],
+        min_samples_leaf_grid=[1],
+        max_features_grid=[0.5],
+        class_weight_options="balanced",
+    )
+    config.xgboost = SimpleNamespace(
+        n_iter=100,  # Override for XGBoost
+        n_estimators_grid=[100],
+        max_depth_grid=[3],
+        learning_rate_grid=[0.1],
+        subsample_grid=[0.8],
+        colsample_bytree_grid=[0.8],
+        scale_pos_weight=None,
+        scale_pos_weight_grid=[1.0],
+    )
+    config.svm = SimpleNamespace(
+        n_iter=15,  # Override for SVM
+        C_min=0.01,
+        C_max=100.0,
+        C_points=5,
+        class_weight_options="balanced",
+    )
+
+    # LR models use config.lr
+    assert get_model_n_iter("LR_EN", config) == 25
+    assert get_model_n_iter("LR_L1", config) == 25
+
+    # SVM uses config.svm
+    assert get_model_n_iter("LinSVM_cal", config) == 15
+
+    # RF uses config.rf
+    assert get_model_n_iter("RF", config) == 50
+
+    # XGBoost uses config.xgboost
+    assert get_model_n_iter("XGBoost", config) == 100
+
+
+def test_get_model_n_iter_partial_override():
+    """Test mixed scenario: some models have override, others use global."""
+    from types import SimpleNamespace
+
+    from ced_ml.models.training import get_model_n_iter
+
+    config = make_mock_config()
+    config.cv.n_iter = 20
+
+    # Only override RF, leave others as None
+    config.rf = SimpleNamespace(
+        n_iter=75,
+        n_estimators_grid=[100],
+        max_depth_grid=[5],
+        min_samples_split_grid=[2],
+        min_samples_leaf_grid=[1],
+        max_features_grid=[0.5],
+        class_weight_options="balanced",
+    )
+    # LR has no n_iter attribute (uses global)
+    config.lr = SimpleNamespace(
+        C_min=0.01,
+        C_max=100.0,
+        C_points=5,
+        class_weight_options="balanced",
+    )
+
+    # RF uses override
+    assert get_model_n_iter("RF", config) == 75
+
+    # LR uses global (no n_iter attr)
+    assert get_model_n_iter("LR_EN", config) == 20
+
+
+def test_get_model_n_iter_unknown_model():
+    """Test that unknown models fall back to global n_iter."""
+    from ced_ml.models.training import get_model_n_iter
+
+    config = make_mock_config()
+    config.cv.n_iter = 42
+
+    # Unknown model falls back to global
+    assert get_model_n_iter("UnknownModel", config) == 42

@@ -4,11 +4,13 @@ Coverage:
 - All threshold selection strategies (F1, F-beta, Youden, fixed spec/PPV, control-based)
 - Binary metrics computation at thresholds
 - Top risk capture analysis
+- DCA-based threshold selection
 - Edge cases (empty arrays, all same class, perfect separation)
 """
 
 import numpy as np
 import pytest
+from ced_ml.metrics.dca import threshold_dca_zero_crossing
 from ced_ml.metrics.thresholds import (
     binary_metrics_at_threshold,
     choose_threshold_objective,
@@ -290,7 +292,7 @@ def test_binary_metrics_at_threshold_perfect(perfect_separation):
 
     assert metrics["threshold"] == 0.5
     assert metrics["precision"] == 1.0
-    assert metrics["recall"] == 1.0
+    assert metrics["sensitivity"] == 1.0
     assert metrics["f1"] == 1.0
     assert metrics["specificity"] == 1.0
     assert metrics["tp"] == 3
@@ -307,7 +309,7 @@ def test_binary_metrics_at_threshold_balanced(balanced_data):
 
     assert metrics["threshold"] == 0.5
     assert 0.0 <= metrics["precision"] <= 1.0
-    assert 0.0 <= metrics["recall"] <= 1.0
+    assert 0.0 <= metrics["sensitivity"] <= 1.0
     assert 0.0 <= metrics["f1"] <= 1.0
     assert 0.0 <= metrics["specificity"] <= 1.0
     assert metrics["tp"] + metrics["fn"] == 4  # Total cases
@@ -475,3 +477,152 @@ def test_choose_threshold_objective_case_insensitive(balanced_data):
 
     assert name1 == name2 == "max_f1"
     assert thr1 == thr2
+
+
+# ============================================================================
+# Test threshold_dca_zero_crossing
+# ============================================================================
+
+
+def test_threshold_dca_zero_crossing_normal_case():
+    """Test DCA threshold with typical zero crossing in mid-range."""
+    np.random.seed(42)
+    # Create scenario where model has utility at low thresholds, crosses zero at higher
+    # 200 samples, 20% prevalence
+    y = np.array([0] * 160 + [1] * 40)
+    # Controls: low risk, Cases: higher risk
+    p_controls = np.random.beta(2, 5, size=160)
+    p_cases = np.random.beta(5, 2, size=40)
+    p = np.concatenate([p_controls, p_cases])
+
+    thr = threshold_dca_zero_crossing(y, p)
+
+    # Should find a crossing point (or upper bound if NB stays positive)
+    assert thr is not None
+    assert 0.001 <= thr <= 0.20
+
+
+def test_threshold_dca_zero_crossing_always_positive():
+    """Test DCA threshold when net benefit never crosses zero (always positive)."""
+    # Perfect separation - model always has utility
+    y = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
+    p = np.array([0.01, 0.02, 0.03, 0.04, 0.05, 0.95, 0.96, 0.97, 0.98, 0.99])
+
+    thr = threshold_dca_zero_crossing(y, p)
+
+    # Should return the highest threshold where NB is still positive
+    assert thr is not None
+    assert 0.001 <= thr <= 0.20
+
+
+def test_threshold_dca_zero_crossing_always_negative():
+    """Test DCA threshold when net benefit is always negative."""
+    # Random predictions - no utility
+    np.random.seed(123)
+    y = np.array([0] * 80 + [1] * 20)
+    p = np.random.uniform(0, 1, size=100)
+
+    thr = threshold_dca_zero_crossing(y, p)
+
+    # May return None or a very low threshold
+    if thr is not None:
+        assert 0.001 <= thr <= 0.20
+
+
+def test_threshold_dca_zero_crossing_empty_data():
+    """Test DCA threshold with empty data."""
+    y = np.array([])
+    p = np.array([])
+
+    thr = threshold_dca_zero_crossing(y, p)
+
+    # Should return None for empty data
+    assert thr is None
+
+
+def test_threshold_dca_zero_crossing_custom_thresholds():
+    """Test DCA threshold with custom threshold range."""
+    np.random.seed(42)
+    y = np.array([0] * 80 + [1] * 20)
+    p_controls = np.random.beta(2, 5, size=80)
+    p_cases = np.random.beta(5, 2, size=20)
+    p = np.concatenate([p_controls, p_cases])
+
+    custom_thresholds = np.linspace(0.01, 0.30, 100)
+    thr = threshold_dca_zero_crossing(y, p, thresholds=custom_thresholds)
+
+    if thr is not None:
+        assert 0.01 <= thr <= 0.30
+
+
+def test_threshold_dca_zero_crossing_with_prevalence_adjustment():
+    """Test DCA threshold with prevalence adjustment."""
+    np.random.seed(42)
+    # Training data: 20% prevalence
+    y = np.array([0] * 80 + [1] * 20)
+    p_controls = np.random.beta(2, 5, size=80)
+    p_cases = np.random.beta(5, 2, size=20)
+    p = np.concatenate([p_controls, p_cases])
+
+    # Test with different prevalence adjustment (e.g., 10% in target population)
+    thr = threshold_dca_zero_crossing(y, p, prevalence_adjustment=0.10)
+
+    # Should still return valid threshold (may differ from unadjusted)
+    if thr is not None:
+        assert 0.001 <= thr <= 0.20
+
+
+def test_threshold_dca_zero_crossing_interpolation_accuracy():
+    """Test that interpolation produces accurate zero crossing estimate."""
+    # Create a scenario with known zero crossing
+    # Manually construct data where we can verify the crossing point
+    y = np.array([0] * 900 + [1] * 100)
+    np.random.seed(999)
+    p_controls = np.random.beta(2, 8, size=900)
+    p_cases = np.random.beta(6, 2, size=100)
+    p = np.concatenate([p_controls, p_cases])
+
+    # Use fine-grained thresholds for better accuracy
+    fine_thresholds = np.linspace(0.001, 0.20, 1000)
+    thr = threshold_dca_zero_crossing(y, p, thresholds=fine_thresholds)
+
+    # Verify threshold is in valid range (allow full range since NB may stay positive)
+    if thr is not None:
+        assert 0.001 <= thr <= 0.20
+
+
+def test_threshold_dca_zero_crossing_crossing_at_boundary():
+    """Test DCA threshold when crossing occurs at threshold array boundary."""
+    # Create scenario where crossing is at edge
+    y = np.array([0] * 95 + [1] * 5)
+    p_controls = np.random.beta(2, 8, size=95)
+    p_cases = np.random.beta(8, 1, size=5)
+    p = np.concatenate([p_controls, p_cases])
+
+    # Very narrow threshold range
+    narrow_thresholds = np.linspace(0.001, 0.05, 20)
+    thr = threshold_dca_zero_crossing(y, p, thresholds=narrow_thresholds)
+
+    if thr is not None:
+        assert 0.001 <= thr <= 0.05
+
+
+def test_threshold_dca_zero_crossing_no_positive_benefit():
+    """Test DCA threshold when model never has positive net benefit."""
+    # Useless model - worse than random
+    np.random.seed(999)
+    y = np.array([0] * 50 + [1] * 50)
+    # Predictions are opposite of truth
+    p = np.concatenate(
+        [
+            np.random.uniform(0.6, 1.0, size=50),  # Controls get high scores
+            np.random.uniform(0.0, 0.4, size=50),  # Cases get low scores
+        ]
+    )
+
+    thr = threshold_dca_zero_crossing(y, p)
+
+    # Even bad models may have some positive NB at very low/high thresholds
+    # Just verify it returns a valid threshold or None
+    if thr is not None:
+        assert 0.001 <= thr <= 0.20

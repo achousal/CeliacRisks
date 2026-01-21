@@ -150,18 +150,18 @@ fi
 
 # Create required directories
 info "Creating output directories..."
-mkdir -p logs
-mkdir -p splits_hpc
-mkdir -p results_hpc
+mkdir -p ../logs
+mkdir -p ../splits
+mkdir -p ../results
 success "Output directories created"
 
 # Check for data file
 info "Checking for input data file..."
-if [ -f "../data/Celiac_dataset_proteomics.csv" ]; then
-    DATA_SIZE=$(du -h ../data/Celiac_dataset_proteomics.csv | cut -f1)
+if [ -f "../data/Celiac_dataset_proteomics_w_demo.parquet" ]; then
+    DATA_SIZE=$(du -h ../data/Celiac_dataset_proteomics_w_demo.parquet | cut -f1)
     success "Data file found (size: $DATA_SIZE)"
 else
-    warning "Data file not found at ../data/Celiac_dataset_proteomics.csv"
+    warning "Data file not found at ../data/Celiac_dataset_proteomics_w_demo.parquet"
     echo "  You need to copy it from shared storage before running the pipeline."
 fi
 
@@ -219,17 +219,15 @@ echo "   ls configs/*.yaml"
 echo ""
 echo "4. Choose your workflow:"
 echo "   Local testing:"
-echo "     ./my_run_local.sh"
+echo "     ./run_local.sh"
 echo ""
 echo "   HPC production:"
-echo "     # Edit PROJECT allocation in my_run_hpc.sh first"
-echo "     ./my_run_hpc.sh"
+echo "     # Edit project allocation in configs/pipeline_hpc.yaml first"
+echo "     ./run_hpc.sh"
 echo ""
 echo "Documentation:"
 echo "  - Setup guide: SETUP_README.md (READ THIS FIRST)"
-echo "  - Quick start: HPC_README.md"
-echo "  - Project overview: CLAUDE.MD"
+echo "  - Project overview: CLAUDE.md"
 echo "  - Architecture: docs/ARCHITECTURE.md"
-echo "  - Workflow guide: WORKFLOW.md"
 echo ""
 echo "=========================================="

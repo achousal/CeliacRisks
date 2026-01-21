@@ -30,14 +30,14 @@ def apply_plot_metadata(
     """
     lines = [str(line) for line in (meta_lines or []) if line]
     if not lines:
-        return 0.10  # Default minimum bottom margin
+        return 0.12  # Default minimum bottom margin
 
     # Position metadata at very bottom with fixed offset from edge
     fig.text(0.5, 0.005, "\n".join(lines), ha="center", va="bottom", fontsize=8, wrap=True)
 
     # Calculate required bottom margin: base + space per line
-    # Each line ~0.015 height + small padding
-    required_bottom = 0.10 + (0.018 * len(lines))
+    # Increased spacing for better separation between metadata and figures
+    required_bottom = 0.12 + (0.022 * len(lines))
     return min(required_bottom, 0.30)  # Cap at 30% to avoid excessive margin
 
 
@@ -93,11 +93,25 @@ def plot_dca(
     ax.legend(loc="upper right")
     ax.grid(True, alpha=0.3)
 
-    # Set reasonable y-axis limits
-    y_min = min(nb_model.min(), nb_all.min(), -0.01)
-    y_max = max(nb_model.max(), nb_all.max(), 0.01) * 1.1
-    ax.set_ylim(y_min, y_max)
-    ax.set_xlim(thresholds.min(), thresholds.max())
+    # Set reasonable y-axis limits with consistent padding
+    y_min = min(nb_model.min(), nb_all.min(), nb_none.min())
+    y_max = max(nb_model.max(), nb_all.max(), nb_none.max())
+    y_range = y_max - y_min
+    if y_range > 0:
+        y_min_padded = y_min - 0.1 * y_range
+        y_max_padded = y_max + 0.1 * y_range
+    else:
+        y_min_padded = min(y_min, -0.05)
+        y_max_padded = max(y_max, 0.05)
+    ax.set_ylim(y_min_padded, y_max_padded)
+
+    # Set x-axis to start at 0 and extend to data max with small margin
+    # Add 2% beyond max threshold for better visualization
+    x_max = min(100, thresholds.max() * 1.02)
+    ax.set_xlim(0, x_max)
+
+    # Add horizontal line at y=0 for reference
+    ax.axhline(y=0, color="gray", linestyle="-", linewidth=0.5, alpha=0.5)
 
     bottom_margin = apply_plot_metadata(fig, meta_lines)
     plt.subplots_adjust(left=0.15, right=0.9, top=0.8, bottom=bottom_margin)
@@ -153,6 +167,9 @@ def plot_dca_curve(
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
+    # Convert thresholds to percentage for consistent x-axis scale
+    thresholds_pct = thresholds * 100
+
     # Multi-split handling
     if split_ids is not None:
         split_ids = np.asarray(split_ids)[mask]
@@ -196,11 +213,11 @@ def plot_dca_curve(
             nb_all_mean = np.mean(nb_all_curves, axis=0)
             nb_none_mean = np.mean(nb_none_curves, axis=0)
 
-            thr = thresholds[: len(nb_model_mean)]
+            thr_pct = thresholds_pct[: len(nb_model_mean)]
 
             # Plot with confidence bands
             ax.fill_between(
-                thr,
+                thr_pct,
                 nb_model_lo,
                 nb_model_hi,
                 color="steelblue",
@@ -208,7 +225,7 @@ def plot_dca_curve(
                 label="95% CI",
             )
             ax.fill_between(
-                thr,
+                thr_pct,
                 np.maximum(0, nb_model_mean - nb_model_sd),
                 np.minimum(1, nb_model_mean + nb_model_sd),
                 color="steelblue",
@@ -216,19 +233,19 @@ def plot_dca_curve(
                 label="±1 SD",
             )
             ax.plot(
-                thr,
+                thr_pct,
                 nb_model_mean,
                 color="steelblue",
                 linestyle="-",
                 linewidth=2,
                 label="Model",
             )
-            ax.plot(thr, nb_all_mean, "r--", linewidth=1.5, label="Treat All")
-            ax.plot(thr, nb_none_mean, "k:", linewidth=1.5, label="Treat None")
+            ax.plot(thr_pct, nb_all_mean, "r--", linewidth=1.5, label="Treat All")
+            ax.plot(thr_pct, nb_none_mean, "k:", linewidth=1.5, label="Treat None")
 
             # Shade region where model is better
             ax.fill_between(
-                thr,
+                thr_pct,
                 np.maximum(nb_all_mean, nb_none_mean),
                 nb_model_mean,
                 where=(nb_model_mean > np.maximum(nb_all_mean, nb_none_mean)),
@@ -240,9 +257,9 @@ def plot_dca_curve(
             # Fallback to single curve if all splits fail
             dca_df = decision_curve_analysis(y, p, thresholds=thresholds)
             if not dca_df.empty:
-                thr = dca_df["threshold"].values
+                thr_pct = dca_df["threshold"].values * 100
                 ax.plot(
-                    thr,
+                    thr_pct,
                     dca_df["net_benefit_model"].values,
                     color="steelblue",
                     linestyle="-",
@@ -250,21 +267,21 @@ def plot_dca_curve(
                     label="Model",
                 )
                 ax.plot(
-                    thr,
+                    thr_pct,
                     dca_df["net_benefit_all"].values,
                     "r--",
                     linewidth=1.5,
                     label="Treat All",
                 )
                 ax.plot(
-                    thr,
+                    thr_pct,
                     dca_df["net_benefit_none"].values,
                     "k:",
                     linewidth=1.5,
                     label="Treat None",
                 )
                 ax.fill_between(
-                    thr,
+                    thr_pct,
                     np.maximum(
                         dca_df["net_benefit_all"].values,
                         dca_df["net_benefit_none"].values,
@@ -285,9 +302,9 @@ def plot_dca_curve(
         # Single split or no split_ids
         dca_df = decision_curve_analysis(y, p, thresholds=thresholds)
         if not dca_df.empty:
-            thr = dca_df["threshold"].values
+            thr_pct = dca_df["threshold"].values * 100
             ax.plot(
-                thr,
+                thr_pct,
                 dca_df["net_benefit_model"].values,
                 color="steelblue",
                 linestyle="-",
@@ -295,21 +312,21 @@ def plot_dca_curve(
                 label="Model",
             )
             ax.plot(
-                thr,
+                thr_pct,
                 dca_df["net_benefit_all"].values,
                 "r--",
                 linewidth=1.5,
                 label="Treat All",
             )
             ax.plot(
-                thr,
+                thr_pct,
                 dca_df["net_benefit_none"].values,
                 "k:",
                 linewidth=1.5,
                 label="Treat None",
             )
             ax.fill_between(
-                thr,
+                thr_pct,
                 np.maximum(dca_df["net_benefit_all"].values, dca_df["net_benefit_none"].values),
                 dca_df["net_benefit_model"].values,
                 where=(
@@ -361,11 +378,17 @@ def plot_dca_curve(
         y_min_padded = y_min - 0.1 * y_range
         y_max_padded = y_max + 0.1 * y_range
     else:
-        y_min_padded = -0.1
-        y_max_padded = 0.1
+        y_min_padded = min(y_min, -0.05)
+        y_max_padded = max(y_max, 0.05)
     ax.set_ylim([y_min_padded, y_max_padded])
 
-    ax.set_xlabel("Threshold Probability", fontsize=12)
+    # Set x-axis to match actual data extent with small margin
+    # Add 2% beyond max threshold for better visualization
+    x_max_data = max_pt * 100  # Convert to percentage
+    x_max_display = min(100, x_max_data * 1.02)
+    ax.set_xlim(0, x_max_display)
+
+    ax.set_xlabel("Threshold Probability (%)", fontsize=12)
     ax.set_ylabel("Net Benefit", fontsize=12)
     if subtitle:
         ax.set_title(f"{title}\n{subtitle}", fontsize=12)

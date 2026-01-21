@@ -19,13 +19,19 @@ from ced_ml.config.defaults import (
     DEFAULT_DCA_CONFIG,
     DEFAULT_EVALUATION_CONFIG,
     DEFAULT_FEATURE_CONFIG,
+    DEFAULT_OPTUNA_CONFIG,
     DEFAULT_OUTPUT_CONFIG,
     DEFAULT_PANEL_CONFIG,
     DEFAULT_SPLITS_CONFIG,
     DEFAULT_STRICTNESS_CONFIG,
     DEFAULT_THRESHOLD_CONFIG,
 )
-from ced_ml.config.schema import SplitsConfig, TrainingConfig
+from ced_ml.config.schema import (
+    AggregateConfig,
+    HoldoutEvalConfig,
+    SplitsConfig,
+    TrainingConfig,
+)
 
 
 def load_yaml(file_path: Union[str, Path]) -> Dict[str, Any]:
@@ -199,6 +205,7 @@ def load_training_config(
         "dca": DEFAULT_DCA_CONFIG.copy(),
         "output": DEFAULT_OUTPUT_CONFIG.copy(),
         "strictness": DEFAULT_STRICTNESS_CONFIG.copy(),
+        "optuna": DEFAULT_OPTUNA_CONFIG.copy(),
     }
 
     # Load from file if provided
@@ -221,6 +228,62 @@ def load_training_config(
         return TrainingConfig(**config_dict)
     except ValidationError as e:
         raise ValueError(f"Invalid training configuration:\n{e}") from e
+
+
+def load_aggregate_config(
+    config_file: Optional[Union[str, Path]] = None,
+    overrides: Optional[list[str]] = None,
+) -> AggregateConfig:
+    """
+    Load aggregate configuration from file and CLI overrides.
+
+    Args:
+        config_file: Path to YAML config file (optional)
+        overrides: List of CLI overrides in "key=value" format (optional)
+
+    Returns:
+        Validated AggregateConfig instance
+    """
+    config_dict = {}
+
+    if config_file is not None:
+        config_dict = load_yaml(config_file)
+
+    if overrides:
+        config_dict = apply_overrides(config_dict, overrides)
+
+    try:
+        return AggregateConfig(**config_dict)
+    except ValidationError as e:
+        raise ValueError(f"Invalid aggregate configuration:\n{e}") from e
+
+
+def load_holdout_config(
+    config_file: Optional[Union[str, Path]] = None,
+    overrides: Optional[list[str]] = None,
+) -> HoldoutEvalConfig:
+    """
+    Load holdout evaluation configuration from file and CLI overrides.
+
+    Args:
+        config_file: Path to YAML config file (optional)
+        overrides: List of CLI overrides in "key=value" format (optional)
+
+    Returns:
+        Validated HoldoutEvalConfig instance
+    """
+    config_dict = {}
+
+    if config_file is not None:
+        config_dict = load_yaml(config_file)
+
+    if overrides:
+        config_dict = apply_overrides(config_dict, overrides)
+
+    try:
+        return HoldoutEvalConfig(**config_dict)
+    except ValidationError as e:
+        raise ValueError(f"Invalid holdout configuration:\n{e}") from e
 
 
 def save_config(config: Union[SplitsConfig, TrainingConfig], output_path: Union[str, Path]):

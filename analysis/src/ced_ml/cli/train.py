@@ -31,15 +31,14 @@ from ced_ml.evaluation.reports import OutputDirectories, ResultsWriter
 from ced_ml.features.kbest import (
     build_kbest_pipeline_step,
 )
+from ced_ml.features.panels import build_multi_size_panels
 from ced_ml.features.screening import screen_proteins
 from ced_ml.features.stability import (
     compute_selection_frequencies,
     extract_stable_panel,
 )
-from ced_ml.features.panels import build_multi_size_panels
-from ced_ml.metrics.dca import save_dca_results
 from ced_ml.metrics.bootstrap import stratified_bootstrap_ci
-from ced_ml.plotting.learning_curve import save_learning_curve_csv
+from ced_ml.metrics.dca import save_dca_results, threshold_dca_zero_crossing
 
 # Feature selection modules
 # Metrics modules
@@ -49,8 +48,7 @@ from ced_ml.metrics.discrimination import (
 from ced_ml.metrics.thresholds import (
     binary_metrics_at_threshold,
     choose_threshold_objective,
-    threshold_for_specificity,
-    threshold_youden,
+    compute_threshold_bundle,
 )
 from ced_ml.models.prevalence import (
     PrevalenceAdjustedModel,
@@ -62,6 +60,8 @@ from ced_ml.models.registry import (
     build_models,
 )
 from ced_ml.models.training import (
+    _extract_selected_proteins_from_fold,
+    get_model_n_iter,
     oof_predictions_with_nested_cv,
 )
 
@@ -73,7 +73,10 @@ from ced_ml.plotting import (
     plot_risk_distribution,
     plot_roc_curve,
 )
+from ced_ml.plotting.dca import plot_dca_curve
+from ced_ml.plotting.learning_curve import save_learning_curve_csv
 from ced_ml.utils.logging import log_section, setup_logger
+from ced_ml.utils.metadata import build_oof_metadata, build_plot_metadata
 
 
 def build_preprocessor(
@@ -161,9 +164,9 @@ def load_split_indices(
     """
     split_dir = Path(split_dir)
 
-    train_file = split_dir / f"{scenario}_train_idx_seed{seed}.csv"
-    val_file = split_dir / f"{scenario}_val_idx_seed{seed}.csv"
-    test_file = split_dir / f"{scenario}_test_idx_seed{seed}.csv"
+    train_file = split_dir / f"train_idx_seed{seed}.csv"
+    val_file = split_dir / f"val_idx_seed{seed}.csv"
+    test_file = split_dir / f"test_idx_seed{seed}.csv"
 
     if not train_file.exists():
         raise FileNotFoundError(f"Train split file not found: {train_file}")
@@ -310,14 +313,17 @@ def run_train(
     protein_cols = resolved.protein_cols
     logger.info(f"Using {len(protein_cols)} protein columns")
 
-    # Step 4: Create output directories
+    # Determine split seed (used for output subdirs and loading splits)
+    seed = getattr(config, "split_seed", getattr(config, "seed", 0))
+
+    # Step 4: Create output directories (with split-specific subdir)
     log_section(logger, "Setting Up Output Structure")
-    outdirs = OutputDirectories.create(config.outdir, exist_ok=True)
+    outdirs = OutputDirectories.create(config.outdir, exist_ok=True, split_seed=seed)
     logger.info(f"Output root: {outdirs.root}")
+    logger.info(f"Split seed: {seed}")
 
     # Step 5: Load split indices
     log_section(logger, "Loading Splits")
-    seed = getattr(config, "seed", getattr(config, "split_seed", 0))
     try:
         train_idx, val_idx, test_idx = load_split_indices(
             str(config.split_dir), config.scenario, seed
@@ -332,18 +338,13 @@ def run_train(
             {
                 "idx": np.concatenate([train_idx, val_idx, test_idx]),
                 "split": (
-                    ["train"] * len(train_idx)
-                    + ["val"] * len(val_idx)
-                    + ["test"] * len(test_idx)
+                    ["train"] * len(train_idx) + ["val"] * len(val_idx) + ["test"] * len(test_idx)
                 ),
                 "scenario": config.scenario,
                 "seed": seed,
             }
         )
-        split_trace_path = (
-            Path(outdirs.diag_splits)
-            / f"{config.scenario}__train_test_split_trace.csv"
-        )
+        split_trace_path = Path(outdirs.diag_splits) / "train_test_split_trace.csv"
         split_trace_df.to_csv(split_trace_path, index=False)
         logger.info(f"Split trace saved: {split_trace_path}")
     except FileNotFoundError as e:
@@ -433,6 +434,22 @@ def run_train(
     final_pipeline.fit(X_train, y_train)
     logger.info("Final model fitted")
 
+    # Extract selected proteins from final model for test panel
+    try:
+        final_selected_proteins = _extract_selected_proteins_from_fold(
+            fitted_model=final_pipeline,
+            model_name=config.model,
+            protein_cols=protein_cols,
+            config=config,
+            X_train=X_train,
+            y_train=y_train,
+            random_state=seed,
+        )
+        logger.info(f"Final test panel: {len(final_selected_proteins)} proteins selected")
+    except Exception as e:
+        logger.warning(f"Could not extract final test panel: {e}")
+        final_selected_proteins = []
+
     # Step 11: Evaluate on validation set (threshold selection)
     log_section(logger, "Validation Set Evaluation")
     # Determine target prevalence based on config
@@ -471,26 +488,19 @@ def run_train(
     # Step 14: Save outputs
     log_section(logger, "Saving Results")
 
-    ResultsWriter(outdirs)
+    writer = ResultsWriter(outdirs)
 
     # Save model
-    model_filename = f"{config.scenario}__{config.model}__final_model.joblib"
+    model_filename = f"{config.model}__final_model.joblib"
     model_path = Path(outdirs.core) / model_filename
     import joblib
 
     joblib.dump(prevalence_model, model_path)
     logger.info(f"Model saved: {model_path}")
 
-    # Save metrics
-    val_metrics_df = pd.DataFrame([val_metrics])
-    val_metrics_path = Path(outdirs.core) / "val_metrics.csv"
-    val_metrics_df.to_csv(val_metrics_path, index=False)
-    logger.info(f"Val metrics saved: {val_metrics_path}")
-
-    test_metrics_df = pd.DataFrame([test_metrics])
-    test_metrics_path = Path(outdirs.core) / "test_metrics.csv"
-    test_metrics_df.to_csv(test_metrics_path, index=False)
-    logger.info(f"Test metrics saved: {test_metrics_path}")
+    # Save metrics (using ResultsWriter with append mode)
+    writer.save_val_metrics(val_metrics, config.scenario, config.model)
+    writer.save_test_metrics(test_metrics, config.scenario, config.model)
 
     # Save CV artifacts
     best_params_path = Path(outdirs.cv) / "best_params_per_split.csv"
@@ -501,6 +511,101 @@ def run_train(
     selected_proteins_df.to_csv(selected_proteins_path, index=False)
     logger.info(f"Selected proteins saved: {selected_proteins_path}")
 
+    # Save final test panel (proteins used in final model for test predictions)
+    if final_selected_proteins:
+        panel_metadata = {
+            "selection_method": config.features.feature_select,
+            "n_train": len(y_train),
+            "n_train_pos": int(y_train.sum()),
+            "train_prevalence": float(train_prev),
+            "random_state": seed,
+            "timestamp": datetime.now().isoformat(),
+        }
+        writer.save_final_test_panel(
+            panel_proteins=final_selected_proteins,
+            scenario=config.scenario,
+            model=config.model,
+            metadata=panel_metadata,
+        )
+
+    # Save Optuna artifacts if enabled
+    if config.optuna.enabled:
+        optuna_dir = Path(outdirs.cv) / "optuna"
+        optuna_dir.mkdir(parents=True, exist_ok=True)
+
+        # Check if Optuna metadata was collected
+        if "optuna_n_trials" in best_params_df.columns:
+            # Save Optuna summary
+            optuna_summary = {
+                "enabled": True,
+                "sampler": config.optuna.sampler,
+                "pruner": config.optuna.pruner,
+                "n_trials_per_fold": int(config.optuna.n_trials),
+                "timeout": config.optuna.timeout,
+                "direction": config.optuna.direction or "maximize",
+                "total_folds": len(best_params_df),
+            }
+            optuna_summary_path = optuna_dir / "optuna_config.json"
+            with open(optuna_summary_path, "w") as f:
+                json.dump(optuna_summary, f, indent=2)
+            logger.info(f"Optuna config saved: {optuna_summary_path}")
+
+            # Save best params with Optuna metadata
+            optuna_params_path = optuna_dir / "best_params_optuna.csv"
+            best_params_df.to_csv(optuna_params_path, index=False)
+            logger.info(f"Optuna best params saved: {optuna_params_path}")
+
+            # Generate Optuna plots by refitting final model with hyperparameter search
+            try:
+                from ced_ml.models.training import _build_hyperparameter_search
+                from ced_ml.plotting.optuna_plots import save_optuna_plots
+
+                logger.info("Generating Optuna hyperparameter tuning plots...")
+
+                # Build and fit hyperparameter search on full training set
+                optuna_pipeline = build_training_pipeline(
+                    config,
+                    classifier,
+                    protein_cols,
+                    resolved.categorical_metadata,
+                    resolved.numeric_metadata,
+                )
+
+                xgb_spw = None
+                if config.model == "XGBoost":
+                    from ced_ml.models.training import _compute_xgb_scale_pos_weight
+
+                    xgb_spw = _compute_xgb_scale_pos_weight(y_train, config)
+
+                optuna_search = _build_hyperparameter_search(
+                    optuna_pipeline, config.model, config, seed, xgb_spw, grid_rng=None
+                )
+
+                if optuna_search is not None and hasattr(optuna_search, "study_"):
+                    optuna_search.fit(X_train, y_train)
+
+                    if hasattr(optuna_search, "study_") and optuna_search.study_ is not None:
+                        save_optuna_plots(
+                            study=optuna_search.study_,
+                            out_dir=optuna_dir,
+                            prefix=f"{config.model}__",
+                            plot_format=config.output.plot_format,
+                        )
+                        logger.info(f"Optuna plots saved to: {optuna_dir}")
+                    else:
+                        logger.warning("Optuna study object not available for plotting")
+                else:
+                    logger.info("Hyperparameter search not using Optuna, skipping plots")
+
+            except Exception as e:
+                logger.warning(f"Failed to generate Optuna plots: {e}")
+
+        else:
+            logger.warning(
+                "[optuna] Optuna was enabled but no trial metadata found. "
+                "Check if optuna is installed: pip install optuna"
+            )
+
     # Save cv_repeat_metrics.csv (per-repeat OOF metrics)
     cv_repeat_rows = []
     for repeat in range(oof_preds.shape[0]):
@@ -509,11 +614,7 @@ def run_train(
         if valid_mask.sum() > 0:
             y_repeat = y_train[valid_mask]
             p_repeat = repeat_preds[valid_mask]
-            auroc = (
-                roc_auc_score(y_repeat, p_repeat)
-                if len(np.unique(y_repeat)) > 1
-                else np.nan
-            )
+            auroc = roc_auc_score(y_repeat, p_repeat) if len(np.unique(y_repeat)) > 1 else np.nan
             prauc = (
                 average_precision_score(y_repeat, p_repeat)
                 if len(np.unique(y_repeat)) > 1
@@ -538,10 +639,8 @@ def run_train(
                 }
             )
     if cv_repeat_rows:
-        cv_repeat_df = pd.DataFrame(cv_repeat_rows)
-        cv_repeat_path = Path(outdirs.cv) / "cv_repeat_metrics.csv"
-        cv_repeat_df.to_csv(cv_repeat_path, index=False)
-        logger.info(f"CV repeat metrics saved: {cv_repeat_path}")
+        # Use ResultsWriter with append mode
+        writer.save_cv_repeat_metrics(cv_repeat_rows, config.scenario, config.model)
 
     # Save run settings
     run_settings = {
@@ -607,11 +706,10 @@ def run_train(
             "idx": test_idx,
             "y_true": y_test,
             "y_prob": prevalence_model.predict_proba(X_test)[:, 1],
+            "category": cat_test,
         }
     )
-    test_preds_path = (
-        Path(outdirs.preds_test) / f"{config.scenario}__test_preds__{config.model}.csv"
-    )
+    test_preds_path = Path(outdirs.preds_test) / f"test_preds__{config.model}.csv"
     test_preds_df.to_csv(test_preds_path, index=False)
     logger.info(f"Test predictions saved: {test_preds_path}")
 
@@ -620,9 +718,10 @@ def run_train(
             "idx": val_idx,
             "y_true": y_val,
             "y_prob": prevalence_model.predict_proba(X_val)[:, 1],
+            "category": cat_val,
         }
     )
-    val_preds_path = Path(outdirs.preds_val) / f"{config.scenario}__val_preds__{config.model}.csv"
+    val_preds_path = Path(outdirs.preds_val) / f"val_preds__{config.model}.csv"
     val_preds_df.to_csv(val_preds_path, index=False)
     logger.info(f"Val predictions saved: {val_preds_path}")
 
@@ -631,13 +730,12 @@ def run_train(
         {
             "idx": train_idx,
             "y_true": y_train,
+            "category": cat_train,
         }
     )
     for repeat in range(oof_preds.shape[0]):
         oof_preds_df[f"y_prob_repeat{repeat}"] = oof_preds[repeat, :]
-    oof_preds_path = (
-        Path(outdirs.preds_train_oof) / f"{config.scenario}__train_oof__{config.model}.csv"
-    )
+    oof_preds_path = Path(outdirs.preds_train_oof) / f"train_oof__{config.model}.csv"
     oof_preds_df.to_csv(oof_preds_path, index=False)
     logger.info(f"OOF predictions saved: {oof_preds_path}")
 
@@ -654,8 +752,7 @@ def run_train(
             }
         )
         controls_oof_path = (
-            Path(outdirs.preds_controls)
-            / f"{config.scenario}__controls_risk__{config.model}__oof_mean.csv"
+            Path(outdirs.preds_controls) / f"controls_risk__{config.model}__oof_mean.csv"
         )
         controls_oof_df.to_csv(controls_oof_path, index=False)
         logger.info(f"Controls OOF predictions saved: {controls_oof_path}")
@@ -666,176 +763,244 @@ def run_train(
         plots_dir = Path(outdirs.diag_plots)
         plots_dir.mkdir(parents=True, exist_ok=True)
 
-        # Common metadata for plots
-        meta_lines = [
-            f"Model: {config.model} | Scenario: {config.scenario} | Seed: {seed}",
-            f"Train prev: {train_prev:.3f} | Target prev: {target_prev:.3f}",
-        ]
+        # Common metadata for plots (enriched with run context)
+        meta_lines = build_plot_metadata(
+            model=config.model,
+            scenario=config.scenario,
+            seed=seed,
+            train_prev=train_prev,
+            target_prev=target_prev,
+            cv_folds=config.cv.folds,
+            cv_repeats=config.cv.repeats,
+            cv_scoring=config.cv.scoring,
+            n_features=len(final_selected_proteins) if final_selected_proteins else None,
+            feature_method=config.features.feature_select,
+            n_train=len(y_train),
+            n_val=len(y_val),
+            n_test=len(y_test),
+            n_train_pos=int(y_train.sum()),
+            n_val_pos=int(y_val.sum()),
+            n_test_pos=int(y_test.sum()),
+            split_mode="development",
+            optuna_enabled=config.optuna.enabled,
+            n_trials=config.optuna.n_trials if config.optuna.enabled else None,
+            n_iter=get_model_n_iter(config.model, config) if not config.optuna.enabled else None,
+            threshold_objective=config.thresholds.objective,
+            prevalence_adjusted=True,
+        )
 
         # Validation set plots
         val_y_prob = val_preds_df["y_prob"].values
         val_title = f"{config.model} - Validation Set"
 
-        plot_roc_curve(
-            y_true=y_val,
-            y_pred=val_y_prob,
-            out_path=plots_dir / f"{config.scenario}__{config.model}__val_roc.{config.output.plot_format}",
-            title=val_title,
-            subtitle="ROC Curve",
-            meta_lines=meta_lines,
+        # Compute validation threshold bundle (standardized interface)
+        val_bundle = compute_threshold_bundle(
+            y_val, val_y_prob, target_spec=config.thresholds.fixed_spec
         )
-        logger.info("Val ROC curve saved")
 
-        plot_pr_curve(
-            y_true=y_val,
-            y_pred=val_y_prob,
-            out_path=plots_dir / f"{config.scenario}__{config.model}__val_pr.{config.output.plot_format}",
-            title=val_title,
-            subtitle="Precision-Recall Curve",
-            meta_lines=meta_lines,
-        )
-        logger.info("Val PR curve saved")
+        if config.output.plot_roc:
+            plot_roc_curve(
+                y_true=y_val,
+                y_pred=val_y_prob,
+                out_path=plots_dir / f"{config.model}__val_roc.{config.output.plot_format}",
+                title=val_title,
+                subtitle="ROC Curve",
+                meta_lines=meta_lines,
+                threshold_bundle=val_bundle,
+            )
+            logger.info("Val ROC curve saved")
 
-        plot_calibration_curve(
-            y_true=y_val,
-            y_pred=val_y_prob,
-            out_path=plots_dir / f"{config.scenario}__{config.model}__val_calibration.{config.output.plot_format}",
-            title=val_title,
-            subtitle="Calibration",
-            n_bins=config.output.calib_bins,
-            meta_lines=meta_lines,
-        )
-        logger.info("Val calibration plot saved")
+        if config.output.plot_pr:
+            plot_pr_curve(
+                y_true=y_val,
+                y_pred=val_y_prob,
+                out_path=plots_dir / f"{config.model}__val_pr.{config.output.plot_format}",
+                title=val_title,
+                subtitle="Precision-Recall Curve",
+                meta_lines=meta_lines,
+            )
+            logger.info("Val PR curve saved")
+
+        if config.output.plot_calibration:
+            plot_calibration_curve(
+                y_true=y_val,
+                y_pred=val_y_prob,
+                out_path=plots_dir / f"{config.model}__val_calibration.{config.output.plot_format}",
+                title=val_title,
+                subtitle="Calibration",
+                n_bins=config.output.calib_bins,
+                meta_lines=meta_lines,
+            )
+            logger.info("Val calibration plot saved")
 
         # Test set plots
         test_y_prob = test_preds_df["y_prob"].values
         test_title = f"{config.model} - Test Set"
 
-        # Compute thresholds for plotting
-        youden_thr = threshold_youden(y_test, test_y_prob)
-        spec95_thr = threshold_for_specificity(y_test, test_y_prob, target_spec=0.95)
-        logger.info(f"Thresholds: Youden={youden_thr:.4f}, Spec95={spec95_thr:.4f}")
-
-        # Compute metrics at each threshold
-        metrics_at_thresholds = {
-            "youden": binary_metrics_at_threshold(y_test, test_y_prob, youden_thr),
-            "spec95": binary_metrics_at_threshold(y_test, test_y_prob, spec95_thr),
-        }
-
-        plot_roc_curve(
-            y_true=y_test,
-            y_pred=test_y_prob,
-            out_path=plots_dir / f"{config.scenario}__{config.model}__test_roc.{config.output.plot_format}",
-            title=test_title,
-            subtitle="ROC Curve",
-            meta_lines=meta_lines,
-            youden_threshold=youden_thr,
-            alpha_threshold=spec95_thr,
-            metrics_at_thresholds=metrics_at_thresholds,
+        # Compute test threshold bundle (standardized interface)
+        dca_thr = threshold_dca_zero_crossing(y_test, test_y_prob)
+        test_bundle = compute_threshold_bundle(
+            y_test,
+            test_y_prob,
+            target_spec=config.thresholds.fixed_spec,
+            dca_threshold=dca_thr,
         )
-        logger.info("Test ROC curve saved")
+        youden_thr = test_bundle["youden_threshold"]
+        spec95_thr = test_bundle["spec_target_threshold"]
+        dca_str = f"{dca_thr:.4f}" if dca_thr is not None else "N/A"
+        logger.info(f"Thresholds: Youden={youden_thr:.4f}, Spec95={spec95_thr:.4f}, DCA={dca_str}")
 
-        plot_pr_curve(
-            y_true=y_test,
-            y_pred=test_y_prob,
-            out_path=plots_dir / f"{config.scenario}__{config.model}__test_pr.{config.output.plot_format}",
-            title=test_title,
-            subtitle="Precision-Recall Curve",
-            meta_lines=meta_lines,
-        )
-        logger.info("Test PR curve saved")
+        if config.output.plot_roc:
+            plot_roc_curve(
+                y_true=y_test,
+                y_pred=test_y_prob,
+                out_path=plots_dir / f"{config.model}__test_roc.{config.output.plot_format}",
+                title=test_title,
+                subtitle="ROC Curve",
+                meta_lines=meta_lines,
+                threshold_bundle=test_bundle,
+            )
+            logger.info("Test ROC curve saved")
 
-        plot_calibration_curve(
-            y_true=y_test,
-            y_pred=test_y_prob,
-            out_path=plots_dir / f"{config.scenario}__{config.model}__test_calibration.{config.output.plot_format}",
-            title=test_title,
-            subtitle="Calibration",
-            n_bins=config.output.calib_bins,
-            meta_lines=meta_lines,
-        )
-        logger.info("Test calibration plot saved")
+        if config.output.plot_pr:
+            plot_pr_curve(
+                y_true=y_test,
+                y_pred=test_y_prob,
+                out_path=plots_dir / f"{config.model}__test_pr.{config.output.plot_format}",
+                title=test_title,
+                subtitle="Precision-Recall Curve",
+                meta_lines=meta_lines,
+            )
+            logger.info("Test PR curve saved")
+
+        if config.output.plot_calibration:
+            plot_calibration_curve(
+                y_true=y_test,
+                y_pred=test_y_prob,
+                out_path=plots_dir
+                / f"{config.model}__test_calibration.{config.output.plot_format}",
+                title=test_title,
+                subtitle="Calibration",
+                n_bins=config.output.calib_bins,
+                meta_lines=meta_lines,
+            )
+            logger.info("Test calibration plot saved")
+
+        # DCA plots for test set
+        if config.output.plot_dca:
+            plot_dca_curve(
+                y_true=y_test,
+                y_pred=test_y_prob,
+                out_path=str(plots_dir / f"{config.model}__test_dca.{config.output.plot_format}"),
+                title=test_title,
+                subtitle="Decision Curve Analysis",
+                meta_lines=meta_lines,
+            )
+            logger.info("Test DCA plot saved")
+
+        # DCA plots for validation set
+        if config.output.plot_dca:
+            plot_dca_curve(
+                y_true=y_val,
+                y_pred=val_preds_df["y_prob"].values,
+                out_path=str(plots_dir / f"{config.model}__val_dca.{config.output.plot_format}"),
+                title=f"{config.model} - Validation Set",
+                subtitle="Decision Curve Analysis",
+                meta_lines=meta_lines,
+            )
+            logger.info("Validation DCA plot saved")
 
         # Combined OOF plots across CV repeats
-        plot_oof_combined(
-            y_true=y_train,
-            oof_preds=oof_preds,
-            out_dir=plots_dir,
-            model_name=config.model,
+        oof_meta = build_oof_metadata(
+            model=config.model,
             scenario=config.scenario,
             seed=seed,
             cv_folds=config.cv.folds,
+            cv_repeats=config.cv.repeats,
             train_prev=train_prev,
-            plot_format=config.output.plot_format,
-            calib_bins=config.output.calib_bins,
+            n_train=len(y_train),
+            n_train_pos=int(y_train.sum()),
+            n_features=len(final_selected_proteins) if final_selected_proteins else None,
+            feature_method=config.features.feature_select,
+            cv_scoring=config.cv.scoring,
         )
-        logger.info("OOF combined plots saved")
+        if config.output.plot_oof_combined:
+            plot_oof_combined(
+                y_true=y_train,
+                oof_preds=oof_preds,
+                out_dir=plots_dir,
+                model_name=config.model,
+                scenario=config.scenario,
+                seed=seed,
+                cv_folds=config.cv.folds,
+                train_prev=train_prev,
+                plot_format=config.output.plot_format,
+                calib_bins=config.output.calib_bins,
+                meta_lines=oof_meta,
+            )
+            logger.info("OOF combined plots saved")
 
         # Generate risk distribution plots (go to preds/plots/)
         preds_plots_dir = Path(outdirs.preds_plots)
         preds_plots_dir.mkdir(parents=True, exist_ok=True)
 
         # Test set risk distribution
-        plot_risk_distribution(
-            y_true=y_test,
-            scores=test_preds_df["y_prob"].values,
-            out_path=preds_plots_dir
-            / f"{config.scenario}__{config.model}__TEST_risk_distribution.{config.output.plot_format}",
-            title=f"{config.model} - Test Set",
-            subtitle="Risk Score Distribution",
-            meta_lines=meta_lines,
-            category_col=cat_test,
-            youden_threshold=youden_thr,
-            spec95_threshold=spec95_thr,
-            metrics_at_thresholds=metrics_at_thresholds,
-        )
-        logger.info("Test risk distribution plot saved")
+        if config.output.plot_risk_distribution:
+            plot_risk_distribution(
+                y_true=y_test,
+                scores=test_preds_df["y_prob"].values,
+                out_path=preds_plots_dir
+                / f"{config.model}__TEST_risk_distribution.{config.output.plot_format}",
+                title=f"{config.model} - Test Set",
+                subtitle="Risk Score Distribution",
+                meta_lines=meta_lines,
+                category_col=cat_test,
+                threshold_bundle=test_bundle,
+            )
+            logger.info("Test risk distribution plot saved")
 
-        # Val set risk distribution
-        plot_risk_distribution(
-            y_true=y_val,
-            scores=val_preds_df["y_prob"].values,
-            out_path=preds_plots_dir
-            / f"{config.scenario}__{config.model}__VAL_risk_distribution.{config.output.plot_format}",
-            title=f"{config.model} - Validation Set",
-            subtitle="Risk Score Distribution",
-            meta_lines=meta_lines,
-            category_col=cat_val,
-            youden_threshold=youden_thr,
-            spec95_threshold=spec95_thr,
-            metrics_at_thresholds=metrics_at_thresholds,
-        )
-        logger.info("Val risk distribution plot saved")
+        # Val set risk distribution (use VAL bundle)
+        if config.output.plot_risk_distribution:
+            plot_risk_distribution(
+                y_true=y_val,
+                scores=val_preds_df["y_prob"].values,
+                out_path=preds_plots_dir
+                / f"{config.model}__VAL_risk_distribution.{config.output.plot_format}",
+                title=f"{config.model} - Validation Set",
+                subtitle="Risk Score Distribution",
+                meta_lines=meta_lines,
+                category_col=cat_val,
+                threshold_bundle=val_bundle,
+            )
+            logger.info("Val risk distribution plot saved")
 
-        # Train OOF risk distribution (mean across repeats)
-        oof_mean = oof_preds.mean(axis=0)
-        plot_risk_distribution(
-            y_true=y_train,
-            scores=oof_mean,
-            out_path=preds_plots_dir
-            / f"{config.scenario}__{config.model}__TRAIN_OOF_risk_distribution.{config.output.plot_format}",
-            title=f"{config.model} - Train OOF",
-            subtitle="Risk Score Distribution (mean across repeats)",
-            meta_lines=meta_lines,
-            category_col=cat_train,
-            youden_threshold=youden_thr,
-            spec95_threshold=spec95_thr,
-            metrics_at_thresholds=metrics_at_thresholds,
-        )
-        logger.info("Train OOF risk distribution plot saved")
+        # Train OOF risk distribution (mean across repeats) - use test bundle
+        if config.output.plot_risk_distribution:
+            oof_mean = oof_preds.mean(axis=0)
+            plot_risk_distribution(
+                y_true=y_train,
+                scores=oof_mean,
+                out_path=preds_plots_dir
+                / f"{config.model}__TRAIN_OOF_risk_distribution.{config.output.plot_format}",
+                title=f"{config.model} - Train OOF",
+                subtitle="Risk Score Distribution (mean across repeats)",
+                meta_lines=meta_lines,
+                category_col=cat_train,
+                threshold_bundle=test_bundle,
+            )
+            logger.info("Train OOF risk distribution plot saved")
 
         # Controls-only risk distribution (if any controls in training set)
-        if controls_mask.sum() > 0:
+        if config.output.plot_risk_distribution and controls_mask.sum() > 0:
             plot_risk_distribution(
                 y_true=None,
                 scores=controls_oof_mean,
                 out_path=preds_plots_dir
-                / f"{config.scenario}__{config.model}__TRAIN_OOF_controls_risk_distribution.{config.output.plot_format}",
+                / f"{config.model}__TRAIN_OOF_controls_risk_distribution.{config.output.plot_format}",
                 title=f"{config.model} - Controls (Train OOF)",
                 subtitle="Risk Score Distribution",
                 meta_lines=meta_lines,
-                youden_threshold=youden_thr,
-                spec95_threshold=spec95_thr,
+                threshold_bundle=test_bundle,
             )
             logger.info("Controls risk distribution plot saved")
 
@@ -854,33 +1019,34 @@ def run_train(
         prob_true_test, prob_pred_test = calibration_curve(
             y_test, test_y_prob, n_bins=config.output.calib_bins, strategy="uniform"
         )
-        calib_df_test = pd.DataFrame({
-            "bin_center": prob_pred_test,
-            "observed_freq": prob_true_test,
-            "split": "test",
-            "scenario": config.scenario,
-            "model": config.model,
-        })
+        calib_df_test = pd.DataFrame(
+            {
+                "bin_center": prob_pred_test,
+                "observed_freq": prob_true_test,
+                "split": "test",
+                "scenario": config.scenario,
+                "model": config.model,
+            }
+        )
 
         # Val set calibration data
         val_y_prob = val_preds_df["y_prob"].values
         prob_true_val, prob_pred_val = calibration_curve(
             y_val, val_y_prob, n_bins=config.output.calib_bins, strategy="uniform"
         )
-        calib_df_val = pd.DataFrame({
-            "bin_center": prob_pred_val,
-            "observed_freq": prob_true_val,
-            "split": "val",
-            "scenario": config.scenario,
-            "model": config.model,
-        })
+        calib_df_val = pd.DataFrame(
+            {
+                "bin_center": prob_pred_val,
+                "observed_freq": prob_true_val,
+                "split": "val",
+                "scenario": config.scenario,
+                "model": config.model,
+            }
+        )
 
         # Combine and save
         calib_df = pd.concat([calib_df_test, calib_df_val], ignore_index=True)
-        calib_csv_path = (
-            Path(outdirs.diag_calibration)
-            / f"{config.scenario}__{config.model}__calibration.csv"
-        )
+        calib_csv_path = Path(outdirs.diag_calibration) / f"{config.model}__calibration.csv"
         calib_df.to_csv(calib_csv_path, index=False)
         logger.info(f"Calibration data saved: {calib_csv_path}")
     except Exception as e:
@@ -892,7 +1058,7 @@ def run_train(
             y_true=y_test,
             y_pred_prob=test_preds_df["y_prob"].values,
             out_dir=str(outdirs.diag_dca),
-            prefix=f"{config.scenario}__{config.model}__test__",
+            prefix=f"{config.model}__test__",
             thresholds=None,  # Use default thresholds
             report_points=None,
             prevalence_adjustment=target_prev,
@@ -904,7 +1070,7 @@ def run_train(
             y_true=y_val,
             y_pred_prob=val_preds_df["y_prob"].values,
             out_dir=str(outdirs.diag_dca),
-            prefix=f"{config.scenario}__{config.model}__val__",
+            prefix=f"{config.model}__val__",
             thresholds=None,
             report_points=None,
             prevalence_adjustment=target_prev,
@@ -916,19 +1082,27 @@ def run_train(
     # --- Learning curve CSV export ---
     try:
         lc_enabled = getattr(config.evaluation, "learning_curve", False)
-        if lc_enabled:
-            lc_csv_path = (
-                Path(outdirs.diag_learning)
-                / f"{config.scenario}__{config.model}__learning_curve.csv"
-            )
+        plot_lc = getattr(config.output, "plot_learning_curve", True)
+        if lc_enabled and plot_lc:
+            lc_csv_path = Path(outdirs.diag_learning) / f"{config.model}__learning_curve.csv"
             lc_plot_path = (
                 Path(outdirs.diag_learning)
-                / f"{config.scenario}__{config.model}__learning_curve.{config.output.plot_format}"
+                / f"{config.model}__learning_curve.{config.output.plot_format}"
             )
-            lc_meta = [
-                f"Model: {config.model} | Scenario: {config.scenario}",
-                f"CV: {config.cv.folds} folds | Scoring: {config.cv.scoring}",
-            ]
+            lc_meta = build_plot_metadata(
+                model=config.model,
+                scenario=config.scenario,
+                seed=seed,
+                train_prev=train_prev,
+                cv_folds=min(config.cv.folds, 5),  # Matches actual CV used in learning curve
+                cv_repeats=1,  # Learning curve doesn't use repeats
+                cv_scoring=config.cv.scoring,
+                n_features=len(final_selected_proteins) if final_selected_proteins else None,
+                feature_method=config.features.feature_select,
+                n_train=len(y_train),
+                n_train_pos=int(y_train.sum()),
+                split_mode="development",
+            )
             # Build a fresh pipeline for learning curve (don't use fitted one)
             lc_pipeline = build_training_pipeline(
                 config,
@@ -970,8 +1144,7 @@ def run_train(
                 screening_stats["scenario"] = config.scenario
                 screening_stats["model"] = config.model
                 screening_path = (
-                    Path(outdirs.diag_screening)
-                    / f"{config.scenario}__{config.model}__screening_results.csv"
+                    Path(outdirs.diag_screening) / f"{config.model}__screening_results.csv"
                 )
                 screening_stats.to_csv(screening_path, index=False)
                 logger.info(f"Screening results saved: {screening_path}")
@@ -987,11 +1160,40 @@ def run_train(
         )
 
         if selection_freq:
-            # Feature report: frequencies and rankings
-            feature_report = pd.DataFrame([
-                {"protein": p, "selection_freq": f}
-                for p, f in selection_freq.items()
-            ])
+            # Build base feature report with selection frequencies
+            feature_report = pd.DataFrame(
+                [{"protein": p, "selection_freq": f} for p, f in selection_freq.items()]
+            )
+
+            # Merge with screening statistics if available (effect_size, p_value)
+            screen_method = getattr(config.features, "screen_method", "none")
+            if screen_method and screen_method != "none":
+                screen_top_n = getattr(config.features, "screen_top_n", 1000)
+                try:
+                    _, screening_stats = screen_proteins(
+                        X_train=X_train,
+                        y_train=y_train,
+                        protein_cols=protein_cols,
+                        method=screen_method,
+                        top_n=0,  # Get all proteins, no filtering
+                    )
+                    # screening_stats has columns: protein, effect_size, p_value, rank
+                    if not screening_stats.empty:
+                        feature_report = feature_report.merge(
+                            screening_stats[["protein", "effect_size", "p_value"]],
+                            on="protein",
+                            how="left",
+                        )
+                except Exception as e:
+                    logger.warning(f"Could not merge screening stats into feature report: {e}")
+
+            # Add NaN columns if not present (when screening is disabled)
+            if "effect_size" not in feature_report.columns:
+                feature_report["effect_size"] = np.nan
+            if "p_value" not in feature_report.columns:
+                feature_report["p_value"] = np.nan
+
+            # Sort by selection frequency and add rank
             feature_report = feature_report.sort_values(
                 "selection_freq", ascending=False
             ).reset_index(drop=True)
@@ -999,12 +1201,20 @@ def run_train(
             feature_report["scenario"] = config.scenario
             feature_report["model"] = config.model
 
-            feature_report_path = (
-                Path(outdirs.reports_features)
-                / f"{config.scenario}__{config.model}__feature_report_train.csv"
-            )
-            feature_report.to_csv(feature_report_path, index=False)
-            logger.info(f"Feature report saved: {feature_report_path}")
+            # Reorder columns for readability
+            col_order = [
+                "rank",
+                "protein",
+                "selection_freq",
+                "effect_size",
+                "p_value",
+                "scenario",
+                "model",
+            ]
+            feature_report = feature_report[col_order]
+
+            # Use ResultsWriter to save
+            writer.save_feature_report(feature_report, config.scenario, config.model)
 
             # Stable panel extraction
             stable_panel_df, stable_proteins, _ = extract_stable_panel(
@@ -1016,12 +1226,10 @@ def run_train(
             )
             if not stable_panel_df.empty:
                 stable_panel_df["scenario"] = config.scenario
-                stable_panel_path = (
-                    Path(outdirs.reports_stable)
-                    / f"{config.scenario}__stable_panel__KBest.csv"
+                # Use ResultsWriter to save
+                writer.save_stable_panel_report(
+                    stable_panel_df, config.scenario, panel_type="KBest"
                 )
-                stable_panel_df.to_csv(stable_panel_path, index=False)
-                logger.info(f"Stable panel saved: {stable_panel_path} ({len(stable_proteins)} proteins)")
 
             # Panel manifests (multiple sizes)
             panel_sizes = getattr(config.panels, "panel_sizes", [10, 25, 50])
@@ -1044,13 +1252,8 @@ def run_train(
                         "corr_threshold": corr_threshold,
                         "proteins": panel_proteins,
                     }
-                    manifest_path = (
-                        Path(outdirs.reports_panels)
-                        / f"{config.scenario}__{config.model}__N{size}__panel_manifest.json"
-                    )
-                    with open(manifest_path, "w") as f:
-                        json.dump(manifest, f, indent=2)
-                    logger.info(f"Panel manifest saved: {manifest_path}")
+                    # Use ResultsWriter to save
+                    writer.save_panel_manifest(manifest, config.scenario, config.model, size)
     except Exception as e:
         logger.warning(f"Failed to save feature reports/panels: {e}")
 
@@ -1079,21 +1282,24 @@ def run_train(
                 seed=seed,
             )
 
-            bootstrap_ci_df = pd.DataFrame([{
-                "scenario": config.scenario,
-                "model": config.model,
-                "n_test": len(y_test),
-                "n_boot": 1000,
-                "AUROC": test_metrics["AUROC"],
-                "AUROC_ci_lo": auroc_lo,
-                "AUROC_ci_hi": auroc_hi,
-                "PR_AUC": test_metrics["PR_AUC"],
-                "PR_AUC_ci_lo": prauc_lo,
-                "PR_AUC_ci_hi": prauc_hi,
-            }])
+            bootstrap_ci_df = pd.DataFrame(
+                [
+                    {
+                        "scenario": config.scenario,
+                        "model": config.model,
+                        "n_test": len(y_test),
+                        "n_boot": 1000,
+                        "AUROC": test_metrics["AUROC"],
+                        "AUROC_ci_lo": auroc_lo,
+                        "AUROC_ci_hi": auroc_hi,
+                        "PR_AUC": test_metrics["PR_AUC"],
+                        "PR_AUC_ci_lo": prauc_lo,
+                        "PR_AUC_ci_hi": prauc_hi,
+                    }
+                ]
+            )
             bootstrap_ci_path = (
-                Path(outdirs.diag_test_ci)
-                / f"{config.scenario}__{config.model}__test_bootstrap_ci.csv"
+                Path(outdirs.diag_test_ci) / f"{config.model}__test_bootstrap_ci.csv"
             )
             bootstrap_ci_df.to_csv(bootstrap_ci_path, index=False)
             logger.info(
