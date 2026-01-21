@@ -99,7 +99,7 @@ def decision_curve_analysis(
     Args:
         y_true: True binary labels (0/1)
         y_pred_prob: Predicted probabilities
-        thresholds: Array of threshold probabilities (default: 0.0005 to 0.20)
+        thresholds: Array of threshold probabilities (default: 0.001 to 0.10)
         prevalence_adjustment: Optional prevalence for calibration adjustment
 
     Returns:
@@ -122,7 +122,7 @@ def decision_curve_analysis(
         return pd.DataFrame()
 
     if thresholds is None:
-        thresholds = generate_dca_thresholds(min_thr=0.0005, max_thr=0.20, step=0.001)
+        thresholds = generate_dca_thresholds(min_thr=0.001, max_thr=0.10, step=0.001)
 
     prevalence = np.mean(y)
     if prevalence_adjustment is not None:
@@ -191,14 +191,14 @@ def threshold_dca_zero_crossing(
     Args:
         y_true: True binary labels (0/1)
         y_pred_prob: Predicted probabilities
-        thresholds: Array of threshold probabilities (default: 0.0005 to 0.20)
+        thresholds: Array of threshold probabilities (default: 0.001 to 0.10)
         prevalence_adjustment: Optional prevalence for calibration adjustment
 
     Returns:
         Threshold where net benefit crosses zero, or None if no crossing found
     """
     if thresholds is None:
-        thresholds = generate_dca_thresholds(min_thr=0.0005, max_thr=0.20, step=0.001)
+        thresholds = generate_dca_thresholds(min_thr=0.001, max_thr=0.10, step=0.001)
 
     dca_df = decision_curve_analysis(
         y_true=y_true,
@@ -558,23 +558,23 @@ def save_dca_results(
 
 
 def generate_dca_thresholds(
-    min_thr: float = 0.0005,
-    max_thr: float = 0.20,
+    min_thr: float = 0.001,
+    max_thr: float = 0.10,
     step: float = 0.001,
 ) -> np.ndarray:
     """
     Generate threshold array for DCA analysis.
 
     Args:
-        min_thr: Minimum threshold (clamped to 0.0001, default: 0.0005)
-        max_thr: Maximum threshold (clamped to 0.999, default: 0.20)
+        min_thr: Minimum threshold (clamped to 0.0001, default: 0.001)
+        max_thr: Maximum threshold (clamped to 0.999, default: 0.10)
         step: Step size between thresholds (minimum 0.0001, default: 0.001)
 
     Returns:
         Array of threshold values for DCA computation
 
     Note:
-        Default range 0.05% to 20% covers clinically relevant thresholds
+        Default range 0.1% to 10% covers clinically relevant thresholds
         for most prediction tasks while maintaining computational efficiency.
     """
     min_thr = max(1e-4, float(min_thr))

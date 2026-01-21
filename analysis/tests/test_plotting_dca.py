@@ -43,7 +43,7 @@ class TestApplyPlotMetadata:
         """Empty metadata should return default margin."""
         fig = plt.figure()
         margin = apply_plot_metadata(fig, None)
-        assert margin == 0.10
+        assert margin == 0.12
         plt.close()
 
     def test_metadata_increases_margin(self):
@@ -56,11 +56,11 @@ class TestApplyPlotMetadata:
         plt.close()
 
     def test_margin_calculation_formula(self):
-        """Verify margin calculation: 0.10 + (0.018 * n_lines)."""
+        """Verify margin calculation: 0.12 + (0.022 * n_lines)."""
         fig = plt.figure()
         meta = ["Line 1", "Line 2"]
         margin = apply_plot_metadata(fig, meta)
-        expected = 0.10 + (0.018 * 2)
+        expected = 0.12 + (0.022 * 2)
         assert margin == pytest.approx(expected)
         plt.close()
 
@@ -76,7 +76,7 @@ class TestApplyPlotMetadata:
         """Empty list should return default margin."""
         fig = plt.figure()
         margin = apply_plot_metadata(fig, [])
-        assert margin == 0.10
+        assert margin == 0.12
         plt.close()
 
     def test_filters_none_values(self):
@@ -84,7 +84,7 @@ class TestApplyPlotMetadata:
         fig = plt.figure()
         meta = ["Line 1", None, "Line 2", None]
         margin = apply_plot_metadata(fig, meta)
-        expected = 0.10 + (0.018 * 2)  # Only 2 valid lines
+        expected = 0.12 + (0.022 * 2)  # Only 2 valid lines
         assert margin == pytest.approx(expected)
         plt.close()
 

@@ -421,7 +421,7 @@ class TestPlotMetadataHelper:
         fig, ax = plt.subplots()
         margin = apply_plot_metadata(fig, None)
 
-        assert margin == 0.10
+        assert margin == 0.12
         plt.close()
 
     def test_metadata_empty_list(self):
@@ -432,7 +432,7 @@ class TestPlotMetadataHelper:
         fig, ax = plt.subplots()
         margin = apply_plot_metadata(fig, [])
 
-        assert margin == 0.10
+        assert margin == 0.12
         plt.close()
 
     def test_metadata_caps_at_30_percent(self):

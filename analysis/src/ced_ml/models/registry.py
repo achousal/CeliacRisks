@@ -377,14 +377,14 @@ def _randomize_numeric_list(
                         if i + 1 < len(sorted_vals)
                         else max(1, int((high - low) * 0.1))
                     )
-                    offset = rng.integers(-max(1, gap // 2), gap + 1)
+                    offset = rng.randint(-max(1, gap // 2), gap + 1)
                 elif i == len(sorted_vals) - 1:
                     gap = int((val - sorted_vals[i - 1]) / 2)
-                    offset = rng.integers(-gap, max(1, gap // 2) + 1)
+                    offset = rng.randint(-gap, max(1, gap // 2) + 1)
                 else:
                     gap_left = int((val - sorted_vals[i - 1]) / 2)
                     gap_right = int((sorted_vals[i + 1] - val) / 2)
-                    offset = rng.integers(-gap_left, gap_right + 1)
+                    offset = rng.randint(-gap_left, gap_right + 1)
 
                 perturbed_val = int_val + offset
                 if min_int is not None:
@@ -396,7 +396,7 @@ def _randomize_numeric_list(
             if unique_int:
                 perturbed = list(dict.fromkeys(perturbed))
                 while len(perturbed) < n:
-                    extra = rng.integers(low, high + 1)
+                    extra = rng.randint(low, high + 1)
                     if min_int is not None:
                         extra = max(extra, int(min_int))
                     if max_int is not None:
@@ -412,7 +412,7 @@ def _randomize_numeric_list(
             if unique_int:
                 sampled_vals = list(rng.choice(range(low_int, high_int + 1), size=n, replace=False))
             else:
-                sampled_vals = [int(rng.integers(low_int, high_int + 1)) for _ in range(n)]
+                sampled_vals = [int(rng.randint(low_int, high_int + 1)) for _ in range(n)]
     else:
         # Float sampling
         if log_scale:
