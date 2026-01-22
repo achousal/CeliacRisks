@@ -250,20 +250,20 @@ class TestEvaluateHoldout:
     @pytest.fixture
     def mock_dataset(self, tmp_path):
         """Create a mock Celiac dataset."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n = 200
 
         data = {
             TARGET_COL: ["Control"] * 180 + ["Incident"] * 20,
-            "age": np.random.uniform(20, 80, n),
-            "BMI": np.random.uniform(18, 35, n),
-            "sex": np.random.choice(["Male", "Female"], n),
-            "Genetic ethnic grouping": np.random.choice(["White", "Asian", "Other"], n),
+            "age": rng.uniform(20, 80, n),
+            "BMI": rng.uniform(18, 35, n),
+            "sex": rng.choice(["Male", "Female"], n),
+            "Genetic ethnic grouping": rng.choice(["White", "Asian", "Other"], n),
         }
 
         # Add protein columns
         for i in range(50):
-            data[f"P{i:05d}_resid"] = np.random.randn(n)
+            data[f"P{i:05d}_resid"] = rng.standard_normal(n)
 
         df = pd.DataFrame(data)
         csv_path = tmp_path / "dataset.csv"
@@ -273,12 +273,13 @@ class TestEvaluateHoldout:
     @pytest.fixture
     def mock_model_artifact(self, tmp_path):
         """Create a mock trained model artifact."""
+        rng = np.random.default_rng(42)
 
         model = RandomForestClassifier(n_estimators=10, random_state=42)
 
         # Create dummy training data
-        X_train = np.random.randn(100, 20)
-        y_train = np.random.randint(0, 2, 100)
+        X_train = rng.standard_normal((100, 20))
+        y_train = rng.integers(0, 2, 100)
         model.fit(X_train, y_train)
 
         bundle = {

@@ -14,6 +14,7 @@ import pandas as pd
 from ced_ml.data.schema import (
     CAT_COLS,
     CED_DATE_COL,
+    EXPECTED_N_PROTEINS,
     ID_COL,
     META_NUM_COLS,
     TARGET_COL,
@@ -215,6 +216,33 @@ def validate_required_columns(df: pd.DataFrame) -> None:
     logger.debug(f"Validated required columns: {required}")
 
 
+def validate_binary_outcome(y) -> None:
+    """
+    Validate that outcome labels are binary (0/1 only).
+
+    Args:
+        y: Outcome array (np.ndarray) or pd.Series to validate
+
+    Raises:
+        ValueError: If outcome contains values other than 0 or 1
+    """
+    import numpy as np
+
+    y_arr = np.asarray(y)
+    if np.issubdtype(y_arr.dtype, np.floating):
+        mask = ~np.isnan(y_arr)
+        unique_vals = np.unique(y_arr[mask])
+    else:
+        unique_vals = np.unique(y_arr)
+    valid_vals = {0, 1, 0.0, 1.0}
+    invalid = [v for v in unique_vals.tolist() if v not in valid_vals]
+    if invalid:
+        raise ValueError(
+            f"Outcome labels must be binary (0/1). Found invalid values: {sorted(invalid)}. "
+            f"Unique values in outcome: {sorted(unique_vals.tolist())}"
+        )
+
+
 def coerce_numeric_columns(
     df: pd.DataFrame, columns: list[str], inplace: bool = False
 ) -> pd.DataFrame:
@@ -292,8 +320,7 @@ def fill_missing_categorical(
 
 
 def identify_protein_columns(df: pd.DataFrame) -> list[str]:
-    """
-    Identify protein feature columns (*_resid suffix).
+    """Identify protein feature columns (*_resid suffix).
 
     Args:
         df: DataFrame to scan
@@ -302,7 +329,7 @@ def identify_protein_columns(df: pd.DataFrame) -> list[str]:
         List of protein column names (sorted)
 
     Raises:
-        ValueError: If no protein columns found or insufficient protein count
+        ValueError: If no protein columns found
 
     Example:
         >>> df = pd.DataFrame({"age": [25], "APOE_resid": [0.5], "IL6_resid": [1.2]})
@@ -312,12 +339,11 @@ def identify_protein_columns(df: pd.DataFrame) -> list[str]:
     protein_cols = sorted([c for c in df.columns if isinstance(c, str) and c.endswith("_resid")])
     if not protein_cols:
         raise ValueError(
-            "No protein columns (*_resid) found. " "Check column naming or usecols filter."
+            "No protein columns (*_resid) found. Check column naming or usecols filter."
         )
     if len(protein_cols) < 10:
-        raise ValueError(
-            f"Insufficient protein columns: found {len(protein_cols)}, minimum required is 10. "
-            "Check that input data has the expected format with *_resid suffix columns."
+        logger.warning(
+            f"Only {len(protein_cols)} protein columns found (expected ~{EXPECTED_N_PROTEINS})"
         )
     logger.info(f"Identified {len(protein_cols):,} protein columns")
     return protein_cols

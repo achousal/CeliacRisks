@@ -12,8 +12,9 @@ from ced_ml.plotting.dca import apply_plot_metadata, plot_dca, plot_dca_curve
 @pytest.fixture
 def sample_dca_df():
     """Create sample DCA DataFrame for testing."""
+    rng = np.random.default_rng(42)
     thresholds = np.linspace(0, 20, 50)  # 0-20% as percentages
-    nb_model = 0.02 - 0.003 * thresholds + np.random.randn(50) * 0.001
+    nb_model = 0.02 - 0.003 * thresholds + rng.standard_normal(50) * 0.001
     nb_all = 0.02 - 0.004 * thresholds
     nb_none = np.zeros(50)
 

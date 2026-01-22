@@ -101,7 +101,6 @@ MODELS_STR=$(get_yaml_list "${PIPELINE_CONFIG}" "models")
 N_BOOT=$(get_yaml "${PIPELINE_CONFIG}" "n_boot")
 OVERWRITE_SPLITS_CFG=$(get_yaml "${PIPELINE_CONFIG}" "overwrite_splits")
 DRY_RUN_CFG=$(get_yaml "${PIPELINE_CONFIG}" "dry_run")
-POSTPROCESS_ONLY_CFG=$(get_yaml "${PIPELINE_CONFIG}" "postprocess_only")
 
 # Read HPC settings
 PROJECT=$(get_yaml "${PIPELINE_CONFIG}" "project")
@@ -112,7 +111,6 @@ MEM=$(get_yaml "${PIPELINE_CONFIG}" "mem_per_core")
 
 # Environment variable overrides
 DRY_RUN="$(normalize_bool "${DRY_RUN:-${DRY_RUN_CFG}}")"
-POSTPROCESS_ONLY="$(normalize_bool "${POSTPROCESS_ONLY:-${POSTPROCESS_ONLY_CFG}}")"
 OVERWRITE_SPLITS="$(normalize_bool "${OVERWRITE_SPLITS:-${OVERWRITE_SPLITS_CFG}}")"
 RUN_MODELS="${RUN_MODELS:-${MODELS_STR}}"
 PROJECT="${PROJECT:-YOUR_PROJECT_ALLOCATION}"
@@ -166,7 +164,6 @@ log "Models: ${RUN_MODELS}"
 log "HPC: ${PROJECT} / ${QUEUE} / ${WALLTIME} / ${CORES}c / ${MEM}MB"
 log "Ensemble: ${ENSEMBLE_ENABLED} (base: ${ENSEMBLE_BASE_MODELS:-none})"
 log "Dry run: ${DRY_RUN}"
-log "Postprocess only: ${POSTPROCESS_ONLY}"
 log "============================================"
 
 #==============================================================
@@ -203,10 +200,7 @@ fi
 #==============================================================
 # STEP 2: SUBMIT TRAINING JOBS (PER MODEL x SPLIT)
 #==============================================================
-if [[ ${POSTPROCESS_ONLY} -eq 1 ]]; then
-  log "POSTPROCESS_ONLY=1: Skipping job submission"
-else
-  log "Step 2/4: Submit training jobs (${N_SPLITS} splits x models)"
+log "Step 2/4: Submit training jobs (${N_SPLITS} splits x models)"
 
   IFS=',' read -r -a MODEL_ARRAY <<< "${RUN_MODELS}"
   SUBMITTED_JOBS=()
@@ -364,7 +358,6 @@ EOF
   else
     log "Step 2.5/4: Ensemble training disabled (ensemble.enabled: false)"
   fi
-fi
 
 #==============================================================
 # STEP 3: SAVE RUN METADATA

@@ -218,5 +218,66 @@ def test_resolve_paths_non_path_values_unchanged(tmp_path):
     assert resolved == config_dict
 
 
+def test_unwired_feature_selection_config_defaults():
+    """Test that default feature selection config produces no validation issues (H2 fix)."""
+    from ced_ml.config.schema import TrainingConfig
+    from ced_ml.config.validation import _validate_unwired_feature_selection_config
+
+    config = TrainingConfig(infile="/tmp/test.parquet")
+    issues = []
+    _validate_unwired_feature_selection_config(config, issues)
+
+    assert len(issues) == 0, "Default config should not produce validation issues"
+
+
+def test_unwired_feature_selection_config_screen_top_n():
+    """Test that non-default screen_top_n produces validation issue (H2 fix)."""
+    from ced_ml.config.schema import FeatureConfig, TrainingConfig
+    from ced_ml.config.validation import _validate_unwired_feature_selection_config
+
+    config = TrainingConfig(infile="/tmp/test.parquet", features=FeatureConfig(screen_top_n=500))
+    issues = []
+    _validate_unwired_feature_selection_config(config, issues)
+
+    assert len(issues) == 1, "Non-default screen_top_n should produce validation issue"
+    assert "screen_top_n=500" in issues[0]
+
+
+def test_unwired_feature_selection_config_advanced_mode():
+    """Test that advanced feature_select modes produce validation issue (H2 fix)."""
+    from ced_ml.config.schema import FeatureConfig, TrainingConfig
+    from ced_ml.config.validation import _validate_unwired_feature_selection_config
+
+    for mode in ["hybrid", "l1_stability"]:
+        config = TrainingConfig(
+            infile="/tmp/test.parquet", features=FeatureConfig(feature_select=mode)
+        )
+        issues = []
+        _validate_unwired_feature_selection_config(config, issues)
+
+        assert len(issues) == 1, f"Advanced mode '{mode}' should produce validation issue"
+        assert mode in issues[0]
+
+
+def test_unwired_feature_selection_config_multiple_non_defaults():
+    """Test that multiple non-default settings are combined in one issue (H2 fix)."""
+    from ced_ml.config.schema import FeatureConfig, TrainingConfig
+    from ced_ml.config.validation import _validate_unwired_feature_selection_config
+
+    config = TrainingConfig(
+        infile="/tmp/test.parquet",
+        features=FeatureConfig(
+            screen_top_n=1000, stability_thresh=0.90, feature_select="l1_stability"
+        ),
+    )
+    issues = []
+    _validate_unwired_feature_selection_config(config, issues)
+
+    assert len(issues) == 1, "Multiple non-defaults should be combined in one issue"
+    assert "screen_top_n=1000" in issues[0]
+    assert "stability_thresh=0.9" in issues[0]
+    assert "l1_stability" in issues[0]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

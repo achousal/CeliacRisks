@@ -300,6 +300,129 @@ This happens automatically in [hyperparams.py:get_param_distributions_optuna()](
 6. **Log-space for regularization** (C, learning_rate, reg_alpha) - already configured
 7. **Linear-space for fractions** (subsample, colsample_bytree, l1_ratio)
 
+## Parallelization Settings (n_jobs)
+
+The pipeline has two independent `n_jobs` settings that control parallelization at different levels:
+
+```yaml
+cv:
+  n_jobs: -1      # Parallelizes CV folds within each trial
+
+optuna:
+  n_jobs: 1       # Parallelizes Optuna trials themselves
+```
+
+### What Each Setting Controls
+
+| Setting | Controls | Scope |
+|---------|----------|-------|
+| `cv.n_jobs` | Cross-validation fold parallelism | Within a single hyperparameter trial |
+| `optuna.n_jobs` | Trial parallelism | Across multiple hyperparameter configurations |
+
+### Nested Parallelism Behavior
+
+When both are set to `-1`, joblib detects nested parallelism and throttles the inner layer:
+
+```
+optuna.n_jobs=-1 spawns N parallel trials
+  ├── Trial 1: cv.n_jobs falls back to 1 (nested detection)
+  ├── Trial 2: cv.n_jobs falls back to 1
+  └── Trial N: cv.n_jobs falls back to 1
+```
+
+This prevents CPU thrashing but changes the parallelization strategy.
+
+### Recommended Settings
+
+#### Local Development (4-8 cores)
+
+```yaml
+cv:
+  n_jobs: -1      # Use all cores for CV
+
+optuna:
+  n_jobs: 1       # Sequential trials (TPE works best)
+```
+
+**Why:** TPE sampler benefits from sequential trials (each informs the next). Parallel CV within each trial maximizes core usage without losing TPE effectiveness.
+
+#### HPC Production (8+ cores)
+
+```yaml
+cv:
+  n_jobs: -1      # Use all allocated cores for CV
+
+optuna:
+  n_jobs: 1       # Sequential trials
+```
+
+**Why:** Same reasoning. With `-1`, the pipeline automatically uses whatever cores HPC allocates (8, 16, 32, etc.) without config changes.
+
+#### High-Throughput Mode (100+ trials, random sampler)
+
+```yaml
+cv:
+  n_jobs: -1      # Falls back to 1 due to nesting
+
+optuna:
+  n_jobs: -1      # Parallelize trials
+  sampler: random # TPE ineffective when parallel anyway
+```
+
+**Why:** With many trials and random sampling, trial-level parallelism provides better throughput. TPE guidance is less critical with 100+ trials.
+
+### When to Use Each Configuration
+
+#### Use `cv.n_jobs=-1, optuna.n_jobs=1` (Recommended Default)
+
+- TPE sampler (`sampler: tpe`)
+- Few trials (3-50)
+- Expensive models (RF, XGBoost)
+- Want best hyperparameter quality
+
+**Effect:** Each trial runs fast (parallel CV), TPE learns from each completed trial before suggesting the next.
+
+#### Use `cv.n_jobs=-1, optuna.n_jobs=-1`
+
+- Random sampler (`sampler: random`)
+- Many trials (100+)
+- Cheap models (LR_EN, LinSVM)
+- Throughput matters more than per-trial quality
+
+**Effect:** Many trials run simultaneously (each with sequential CV). Faster wall-clock time but TPE becomes essentially random search.
+
+### Trade-off Summary
+
+| Config | Trial Quality | Throughput | Memory | Best For |
+|--------|---------------|------------|--------|----------|
+| `-1, 1` | High (TPE works) | Moderate | Low (1 trial) | Default, expensive models |
+| `-1, -1` | Low (parallel TPE) | High | High (N trials) | Many trials, random sampler |
+| `4, 2` | Medium | Medium | Medium | Manual tuning on large nodes |
+
+### HPC-Specific Notes
+
+1. **Core allocation:** `-1` automatically detects allocated cores from the job scheduler
+2. **Memory scaling:** Each parallel trial loads its own data copy; monitor memory with `-1, -1`
+3. **Portability:** Using `-1` instead of hardcoded values works across different allocations
+
+### Example: 8-Core HPC Node
+
+```yaml
+# Option A: Maximize TPE effectiveness (recommended)
+cv:
+  n_jobs: -1      # 8 cores for CV folds
+optuna:
+  n_jobs: 1       # Sequential trials
+  sampler: tpe
+
+# Option B: Maximize throughput (random search)
+cv:
+  n_jobs: -1      # Falls back to ~1 due to nesting
+optuna:
+  n_jobs: -1      # 8 parallel trials
+  sampler: random
+```
+
 ## Troubleshooting
 
 ### Convergence warnings for LogisticRegression

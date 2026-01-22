@@ -5,6 +5,7 @@ Thin wrapper around existing celiacML_faith.py logic with new config system.
 """
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,7 @@ from ced_ml.metrics.thresholds import (
     compute_multi_target_specificity_metrics,
     compute_threshold_bundle,
 )
+from ced_ml.models.calibration import OOFCalibratedModel
 from ced_ml.models.prevalence import (
     PrevalenceAdjustedModel,
     adjust_probabilities_for_prevalence,
@@ -176,19 +178,48 @@ def build_training_pipeline(
 
     Returns:
         Pipeline with named steps: pre (preprocessing), sel (feature selection), clf (classifier)
+
+    Note:
+        Currently only uses kbest_max for SelectKBest feature selection.
+        Advanced config options (screen_top_n, stability_thresh, stable_corr_thresh,
+        kbest_scope) are logged for provenance but not wired into the pipeline.
+        See ADR-004-hybrid-feature-selection.md for the planned implementation.
     """
+    logger = logging.getLogger(__name__)
     preprocessor = build_preprocessor(protein_cols, cat_cols, meta_num_cols)
 
     steps = [("pre", preprocessor)]
+
+    # Log warning if advanced feature selection configs are set but not used (H2 fix)
+    _log_unwired_feature_selection_settings(config, logger)
 
     if config.features.feature_select and config.features.feature_select != "none":
         k_val = config.features.kbest_max if hasattr(config.features, "kbest_max") else 500
         kbest = build_kbest_pipeline_step(k=k_val)
         steps.append(("sel", kbest))
+        logger.debug(f"Feature selection: SelectKBest(k={k_val})")
 
     steps.append(("clf", classifier))
 
     return Pipeline(steps=steps)
+
+
+def _log_unwired_feature_selection_settings(config: Any, logger: logging.Logger) -> None:
+    """Log warning if advanced feature selection configs are set but not implemented."""
+    unwired = []
+    if getattr(config.features, "screen_top_n", 0) > 0:
+        unwired.append("screen_top_n")
+    if getattr(config.features, "stability_thresh", 0.70) != 0.70:
+        unwired.append("stability_thresh")
+    if getattr(config.features, "stable_corr_thresh", 0.80) != 0.80:
+        unwired.append("stable_corr_thresh")
+    if getattr(config.features, "feature_select", "none") in ("l1_stability", "hybrid"):
+        unwired.append("advanced feature_select")
+
+    if unwired:
+        logger.warning(
+            f"Feature selection options set but not wired: {', '.join(unwired)}. Pipeline uses SelectKBest only."
+        )
 
 
 def load_split_indices(
@@ -470,6 +501,34 @@ def run_train(
         split_trace_path = Path(outdirs.diag_splits) / "train_test_split_trace.csv"
         split_trace_df.to_csv(split_trace_path, index=False)
         logger.info(f"Split trace saved: {split_trace_path}")
+
+        # Validate row filter alignment (C3 fix)
+        # Load split metadata and check that meta_num_cols_used matches current config
+        from ced_ml.data.persistence import load_split_metadata
+
+        split_meta = load_split_metadata(str(config.split_dir), config.scenario, seed)
+        if split_meta is not None:
+            row_filters = split_meta.get("row_filters", {})
+            split_meta_num_cols = set(row_filters.get("meta_num_cols_used", []))
+            current_meta_num_cols = set(resolved.numeric_metadata)
+
+            if split_meta_num_cols and split_meta_num_cols != current_meta_num_cols:
+                logger.error("Row filter column mismatch detected!")
+                logger.error(f"  Splits used:   {sorted(split_meta_num_cols)}")
+                logger.error(f"  Training uses: {sorted(current_meta_num_cols)}")
+                logger.error("This can cause train/val/test contamination.")
+                logger.error(
+                    "Please regenerate splits with matching config or update training config."
+                )
+                raise ValueError(
+                    f"Row filter alignment error: splits used {sorted(split_meta_num_cols)}, "
+                    f"but training uses {sorted(current_meta_num_cols)}. "
+                    "Regenerate splits or update config to match."
+                )
+            elif split_meta_num_cols:
+                logger.info(f"Row filter alignment verified: {sorted(split_meta_num_cols)}")
+        else:
+            logger.warning("Split metadata not found - cannot verify row filter alignment")
     except FileNotFoundError as e:
         logger.error(f"Split files not found: {e}")
         logger.error("Please run 'ced save-splits' first to generate splits")
@@ -570,16 +629,19 @@ def run_train(
     # Create grid RNG if grid randomization is enabled
     grid_rng = np.random.default_rng(seed) if config.cv.grid_randomize else None
 
-    oof_preds, elapsed_sec, best_params_df, selected_proteins_df = oof_predictions_with_nested_cv(
-        pipeline=pipeline,
-        model_name=config.model,
-        X=X_train,
-        y=y_train,
-        protein_cols=protein_cols,
-        config=config,
-        random_state=seed,
-        grid_rng=grid_rng,
+    oof_preds, elapsed_sec, best_params_df, selected_proteins_df, oof_calibrator = (
+        oof_predictions_with_nested_cv(
+            pipeline=pipeline,
+            model_name=config.model,
+            X=X_train,
+            y=y_train,
+            protein_cols=protein_cols,
+            config=config,
+            random_state=seed,
+            grid_rng=grid_rng,
+        )
     )
+    # oof_calibrator is saved to model bundle for stacking ensemble consumption
 
     logger.info(f"CV completed in {elapsed_sec:.1f}s")
 
@@ -606,7 +668,16 @@ def run_train(
         y_train=y_train,
         random_state=seed,
     )
-    if config.calibration.enabled and config.model != "LinSVM_cal":
+
+    # For oof_posthoc strategy, wrap final model with the OOF calibrator
+    # This ensures val/test predictions are calibrated consistently with OOF predictions
+    if oof_calibrator is not None:
+        final_pipeline = OOFCalibratedModel(
+            base_model=final_pipeline,
+            calibrator=oof_calibrator,
+        )
+        logger.info(f"Final model wrapped with OOF calibrator (method={oof_calibrator.method})")
+    elif config.calibration.enabled and config.model != "LinSVM_cal":
         logger.info(f"Final model calibrated using {config.calibration.method}")
 
     # Extract selected proteins from final model for test panel
@@ -703,6 +774,9 @@ def run_train(
     import joblib
     import sklearn
 
+    # Determine effective calibration strategy for this model
+    calibration_strategy = config.calibration.get_strategy_for_model(config.model)
+
     model_bundle = {
         "model": prevalence_model,
         "scenario": config.scenario,
@@ -716,6 +790,10 @@ def run_train(
             ),
         },
         "prevalence": {
+            # Standardized keys for holdout compatibility
+            "train_sample": train_prev,  # Sample prevalence from training set
+            "target": test_target_prev,  # Target prevalence used for adjustment
+            # Additional keys for detailed tracking
             "train": train_prev,
             "val_target": val_target_prev,
             "test_target": test_target_prev,
@@ -723,6 +801,15 @@ def run_train(
         "calibration": {
             "enabled": config.calibration.enabled,
             "method": config.calibration.method if config.calibration.enabled else None,
+            "strategy": calibration_strategy,
+            "oof_calibrator": oof_calibrator,  # For stacking ensemble consumption
+        },
+        # Store resolved columns for holdout compatibility (C6 fix)
+        # These are the actual columns used during training, not just config values
+        "resolved_columns": {
+            "protein_cols": protein_cols,
+            "numeric_metadata": resolved.numeric_metadata,
+            "categorical_metadata": resolved.categorical_metadata,
         },
         "config": config.model_dump() if hasattr(config, "model_dump") else config.dict(),
         "seed": seed,
@@ -933,6 +1020,7 @@ def run_train(
         "target_prevalence": float(target_prev),
         "cv_elapsed_sec": elapsed_sec,
         "n_proteins": len(resolved.protein_cols),
+        "bootstrap_seed": seed,
         "timestamp": datetime.now().isoformat(),
     }
     config_metadata_path = Path(outdirs.root) / "config_metadata.json"
@@ -949,6 +1037,16 @@ def run_train(
             "category": cat_test,
         }
     )
+    # H4: Validate test predictions (NaN, Inf, bounds)
+    test_probs = test_preds_df["y_prob"].values
+    if np.isnan(test_probs).any():
+        raise ValueError("Test predictions contain NaN values")
+    if np.isinf(test_probs).any():
+        raise ValueError("Test predictions contain Inf values")
+    if (test_probs < 0).any() or (test_probs > 1).any():
+        raise ValueError(
+            f"Test predictions out of [0,1] bounds: min={test_probs.min():.4f}, max={test_probs.max():.4f}"
+        )
     test_preds_path = Path(outdirs.preds_test) / f"test_preds__{config.model}.csv"
     test_preds_df.to_csv(test_preds_path, index=False)
     logger.info(f"Test predictions saved: {test_preds_path}")
@@ -961,6 +1059,16 @@ def run_train(
             "category": cat_val,
         }
     )
+    # H4: Validate val predictions (NaN, Inf, bounds)
+    val_probs = val_preds_df["y_prob"].values
+    if np.isnan(val_probs).any():
+        raise ValueError("Val predictions contain NaN values")
+    if np.isinf(val_probs).any():
+        raise ValueError("Val predictions contain Inf values")
+    if (val_probs < 0).any() or (val_probs > 1).any():
+        raise ValueError(
+            f"Val predictions out of [0,1] bounds: min={val_probs.min():.4f}, max={val_probs.max():.4f}"
+        )
     val_preds_path = Path(outdirs.preds_val) / f"val_preds__{config.model}.csv"
     val_preds_df.to_csv(val_preds_path, index=False)
     logger.info(f"Val predictions saved: {val_preds_path}")
@@ -975,6 +1083,15 @@ def run_train(
     )
     for repeat in range(oof_preds.shape[0]):
         oof_preds_df[f"y_prob_repeat{repeat}"] = oof_preds[repeat, :]
+    # H4: Validate OOF predictions (NaN, Inf, bounds)
+    if np.isnan(oof_preds).any():
+        raise ValueError("OOF predictions contain NaN values")
+    if np.isinf(oof_preds).any():
+        raise ValueError("OOF predictions contain Inf values")
+    if (oof_preds < 0).any() or (oof_preds > 1).any():
+        raise ValueError(
+            f"OOF predictions out of [0,1] bounds: min={oof_preds.min():.4f}, max={oof_preds.max():.4f}"
+        )
     oof_preds_path = Path(outdirs.preds_train_oof) / f"train_oof__{config.model}.csv"
     oof_preds_df.to_csv(oof_preds_path, index=False)
     logger.info(f"OOF predictions saved: {oof_preds_path}")
@@ -1525,6 +1642,7 @@ def run_train(
                         "model": config.model,
                         "n_test": len(y_test),
                         "n_boot": 1000,
+                        "bootstrap_seed": seed,
                         "AUROC": test_metrics["AUROC"],
                         "AUROC_ci_lo": auroc_lo,
                         "AUROC_ci_hi": auroc_hi,

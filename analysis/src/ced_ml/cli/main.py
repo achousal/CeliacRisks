@@ -29,9 +29,16 @@ def cli(ctx, verbose):
     A modular, reproducible ML pipeline for predicting incident Celiac Disease
     risk from proteomics biomarkers.
     """
+    from ced_ml.utils.random import apply_seed_global
+
     # Store global options in context
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
+
+    # Apply SEED_GLOBAL if set (for single-threaded reproducibility debugging)
+    seed_applied = apply_seed_global()
+    if seed_applied is not None:
+        ctx.obj["seed_global"] = seed_applied
 
 
 @cli.command("save-splits")

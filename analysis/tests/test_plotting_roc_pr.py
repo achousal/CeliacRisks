@@ -13,7 +13,7 @@ class TestROCCurvePlotting:
     @pytest.fixture
     def basic_predictions(self):
         """Basic binary classification predictions."""
-        np.random.seed(42)
+        _rng = np.random.default_rng(42)
         y_true = np.concatenate([np.zeros(180), np.ones(20)])
         y_pred = np.concatenate(
             [
@@ -26,7 +26,7 @@ class TestROCCurvePlotting:
     @pytest.fixture
     def split_predictions(self):
         """Predictions with multiple splits."""
-        np.random.seed(42)
+        _rng = np.random.default_rng(42)
         n_splits = 5
         n_per_split = 40
         y_true = []
@@ -184,9 +184,9 @@ class TestROCCurvePlotting:
 
     def test_roc_random_predictions(self, tmp_path):
         """Test ROC curve with random predictions."""
-        np.random.seed(42)
-        y_true = np.random.randint(0, 2, 100)
-        y_pred = np.random.rand(100)
+        rng = np.random.default_rng(42)
+        y_true = rng.integers(0, 2, 100)
+        y_pred = rng.random(100)
         out_path = tmp_path / "roc_random.png"
 
         plot_roc_curve(
@@ -244,7 +244,7 @@ class TestPRCurvePlotting:
     @pytest.fixture
     def basic_predictions(self):
         """Basic binary classification predictions."""
-        np.random.seed(42)
+        _rng = np.random.default_rng(42)
         y_true = np.concatenate([np.zeros(180), np.ones(20)])
         y_pred = np.concatenate(
             [
@@ -257,7 +257,7 @@ class TestPRCurvePlotting:
     @pytest.fixture
     def split_predictions(self):
         """Predictions with multiple splits."""
-        np.random.seed(42)
+        _rng = np.random.default_rng(42)
         n_splits = 5
         n_per_split = 40
         y_true = []
@@ -412,7 +412,7 @@ class TestPRCurvePlotting:
 
     def test_pr_extreme_imbalance(self, tmp_path):
         """Test PR curve with extreme class imbalance."""
-        np.random.seed(42)
+        _rng = np.random.default_rng(42)
         y_true = np.concatenate([np.zeros(990), np.ones(10)])
         y_pred = np.concatenate(
             [

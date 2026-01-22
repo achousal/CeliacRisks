@@ -24,7 +24,7 @@ from click.testing import CliRunner
 @pytest.fixture
 def toy_proteomics_csv(tmp_path):
     """Create a minimal proteomics CSV for testing."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n_samples = 1000
     n_proteins = 10
 
@@ -33,17 +33,17 @@ def toy_proteomics_csv(tmp_path):
     data = {
         ID_COL: [f"SAMPLE_{i:04d}" for i in range(n_samples)],
         TARGET_COL: ([CONTROL_LABEL] * 800 + [INCIDENT_LABEL] * 100 + [PREVALENT_LABEL] * 100),
-        "age": np.random.randint(30, 70, n_samples),  # Narrower age range for better stratification
-        "BMI": np.random.uniform(18, 35, n_samples),
-        "sex": np.random.choice(["M", "F"], n_samples),
-        "Genetic_ethnic_grouping": np.random.choice(
+        "age": rng.integers(30, 70, n_samples),  # Narrower age range for better stratification
+        "BMI": rng.uniform(18, 35, n_samples),
+        "sex": rng.choice(["M", "F"], n_samples),
+        "Genetic_ethnic_grouping": rng.choice(
             ["White", "Asian"], n_samples  # Fewer categories for better stratification
         ),
     }
 
     # Add protein columns
     for i in range(n_proteins):
-        data[f"PROT_{i:03d}_resid"] = np.random.randn(n_samples)
+        data[f"PROT_{i:03d}_resid"] = rng.standard_normal(n_samples)
 
     df = pd.DataFrame(data)
     csv_path = tmp_path / "toy_proteomics.csv"
@@ -343,9 +343,9 @@ class TestSaveSplitsHoldoutMode:
             result.exit_code == 0
         ), f"CLI failed with code {result.exit_code}: {result.output[:500]}"
 
-        # Check holdout files
-        assert (outdir / "HOLDOUT_idx.csv").exists()
-        assert (outdir / "HOLDOUT_meta.json").exists()
+        # Check holdout files (scenario-specific naming per M6 fix)
+        assert (outdir / "HOLDOUT_idx_IncidentOnly.csv").exists()
+        assert (outdir / "HOLDOUT_meta_IncidentOnly.json").exists()
 
         # Check development split files (new format with scenario in filename)
         assert (outdir / "train_idx_IncidentOnly_seed0.csv").exists()
@@ -353,7 +353,7 @@ class TestSaveSplitsHoldoutMode:
         assert (outdir / "test_idx_IncidentOnly_seed0.csv").exists()
 
         # Load indices
-        holdout_idx = pd.read_csv(outdir / "HOLDOUT_idx.csv")["idx"].values
+        holdout_idx = pd.read_csv(outdir / "HOLDOUT_idx_IncidentOnly.csv")["idx"].values
         train_idx = pd.read_csv(outdir / "train_idx_IncidentOnly_seed0.csv")["idx"].values
         val_idx = pd.read_csv(outdir / "val_idx_IncidentOnly_seed0.csv")["idx"].values
         test_idx = pd.read_csv(outdir / "test_idx_IncidentOnly_seed0.csv")["idx"].values
@@ -363,7 +363,7 @@ class TestSaveSplitsHoldoutMode:
         assert len(set(holdout_idx) & set(dev_idx)) == 0
 
         # Validate holdout metadata
-        with open(outdir / "HOLDOUT_meta.json") as f:
+        with open(outdir / "HOLDOUT_meta_IncidentOnly.json") as f:
             meta = json.load(f)
 
         assert meta["split_type"] == "holdout"

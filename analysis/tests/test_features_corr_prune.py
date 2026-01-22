@@ -31,14 +31,14 @@ from ced_ml.features.corr_prune import (
 @pytest.fixture
 def basic_data():
     """Simple correlated data for testing."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n = 100
 
     # Create correlated features
-    a = np.random.randn(n)
-    b = a + np.random.randn(n) * 0.1  # High correlation with a
-    c = np.random.randn(n)  # Independent
-    d = c + np.random.randn(n) * 0.1  # High correlation with c
+    a = rng.standard_normal(n)
+    b = a + rng.standard_normal(n) * 0.1  # High correlation with a
+    c = rng.standard_normal(n)  # Independent
+    d = c + rng.standard_normal(n) * 0.1  # High correlation with c
 
     df = pd.DataFrame(
         {
@@ -169,11 +169,12 @@ class TestFindHighCorrelationPairs:
 
     def test_no_pairs_above_threshold(self):
         """No pairs above threshold returns empty DataFrame."""
+        rng = np.random.default_rng(42)
         # Uncorrelated data
         df = pd.DataFrame(
             {
-                "PROT_A": np.random.randn(50),
-                "PROT_B": np.random.randn(50),
+                "PROT_A": rng.standard_normal(50),
+                "PROT_B": rng.standard_normal(50),
             }
         )
 
@@ -212,11 +213,12 @@ class TestBuildCorrelationGraph:
 
     def test_isolated_proteins(self):
         """Isolated proteins have empty neighbor sets."""
+        rng = np.random.default_rng(42)
         # Uncorrelated data
         df = pd.DataFrame(
             {
-                "PROT_A": np.random.randn(50),
-                "PROT_B": np.random.randn(50),
+                "PROT_A": rng.standard_normal(50),
+                "PROT_B": rng.standard_normal(50),
             }
         )
 
@@ -284,7 +286,7 @@ class TestComputeUnivariateStrength:
 
     def test_basic_univariate_strength(self):
         """Mann-Whitney p-value computed correctly."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n = 100
 
         # Create discriminative feature
@@ -292,11 +294,11 @@ class TestComputeUnivariateStrength:
             {
                 "PROT_STRONG": np.concatenate(
                     [
-                        np.random.randn(50),  # Controls
-                        np.random.randn(50) + 2.0,  # Cases (shifted)
+                        rng.standard_normal(50),  # Controls
+                        rng.standard_normal(50) + 2.0,  # Cases (shifted)
                     ]
                 ),
-                "PROT_WEAK": np.random.randn(n),  # Non-discriminative
+                "PROT_WEAK": rng.standard_normal(n),  # Non-discriminative
             }
         )
         y = np.array([0] * 50 + [1] * 50)
@@ -327,7 +329,8 @@ class TestComputeUnivariateStrength:
 
     def test_missing_protein(self):
         """Missing proteins are skipped."""
-        df = pd.DataFrame({"PROT_A": np.random.randn(50)})
+        rng = np.random.default_rng(42)
+        df = pd.DataFrame({"PROT_A": rng.standard_normal(50)})
         y = np.array([0] * 25 + [1] * 25)
 
         strength = compute_univariate_strength(df, y, ["PROT_MISSING"])
@@ -443,11 +446,12 @@ class TestPruneCorrelatedProteins:
 
     def test_no_correlations(self):
         """No correlations keeps all proteins."""
+        rng = np.random.default_rng(42)
         df = pd.DataFrame(
             {
-                "PROT_A": np.random.randn(50),
-                "PROT_B": np.random.randn(50),
-                "PROT_C": np.random.randn(50),
+                "PROT_A": rng.standard_normal(50),
+                "PROT_B": rng.standard_normal(50),
+                "PROT_C": rng.standard_normal(50),
             }
         )
         y = np.array([0] * 25 + [1] * 25)

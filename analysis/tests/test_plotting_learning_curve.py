@@ -19,11 +19,11 @@ from sklearn.preprocessing import StandardScaler
 @pytest.fixture
 def simple_classification_data():
     """Generate simple binary classification data."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n_samples = 200
     n_features = 5
 
-    X = np.random.randn(n_samples, n_features)
+    X = rng.standard_normal((n_samples, n_features))
     y = (X[:, 0] + X[:, 1] > 0).astype(int)
 
     return X, y

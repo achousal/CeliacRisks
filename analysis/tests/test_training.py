@@ -35,20 +35,20 @@ from sklearn.preprocessing import StandardScaler
 @pytest.fixture
 def toy_data():
     """Small dataset for quick training tests."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n_samples = 100
     n_proteins = 20
 
     X = pd.DataFrame(
-        np.random.randn(n_samples, n_proteins),
+        rng.standard_normal((n_samples, n_proteins)),
         columns=[f"prot_{i}_resid" for i in range(n_proteins)],
     )
     # Add demographics
-    X["age"] = np.random.uniform(20, 80, n_samples)
-    X["sex"] = np.random.choice(["M", "F"], n_samples)
+    X["age"] = rng.uniform(20, 80, n_samples)
+    X["sex"] = rng.choice(["M", "F"], n_samples)
 
     # Imbalanced labels (10% positive)
-    y = np.random.binomial(1, 0.1, n_samples)
+    y = rng.binomial(1, 0.1, n_samples)
 
     protein_cols = [c for c in X.columns if c.endswith("_resid")]
 
@@ -112,24 +112,21 @@ def test_oof_predictions_basic(toy_data, simple_pipeline, minimal_config):
     assert "outer_split" in best_params_df.columns
 
 
-def test_oof_predictions_no_cv(toy_data, simple_pipeline, minimal_config):
-    """Test OOF with n_splits < 2 (in-sample predictions)."""
+def test_oof_predictions_folds_less_than_2_raises(toy_data, simple_pipeline, minimal_config):
+    """Test that cv.folds < 2 raises ValueError (not just a warning)."""
     X, y, protein_cols = toy_data
     minimal_config.cv.folds = 1
 
-    preds, elapsed, best_params_df, selected_proteins_df, _ = oof_predictions_with_nested_cv(
-        simple_pipeline,
-        "LR_EN",
-        X,
-        y,
-        protein_cols,
-        minimal_config,
-        random_state=42,
-    )
-
-    # Should still return predictions
-    assert preds.shape == (minimal_config.cv.repeats, len(y))
-    assert not np.isnan(preds).any()
+    with pytest.raises(ValueError, match="cv.folds must be >= 2"):
+        oof_predictions_with_nested_cv(
+            simple_pipeline,
+            "LR_EN",
+            X,
+            y,
+            protein_cols,
+            minimal_config,
+            random_state=42,
+        )
 
 
 def test_oof_predictions_invalid_repeats(toy_data, simple_pipeline, minimal_config):
@@ -321,10 +318,10 @@ def test_extract_from_kbest_transformed_plain_names():
     """
     from sklearn.feature_selection import SelectKBest, f_classif
 
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     # Plain protein names (no prefix/suffix) - this is what verbose_feature_names_out=False produces
     protein_cols = ["PROT_A", "PROT_B", "PROT_C", "PROT_D", "PROT_E"]
-    X = pd.DataFrame(np.random.randn(50, 5), columns=protein_cols)
+    X = pd.DataFrame(rng.standard_normal((50, 5)), columns=protein_cols)
     y = (X["PROT_A"] + X["PROT_B"] > 0).astype(int)  # Make first two predictive
 
     preprocessor = ColumnTransformer(

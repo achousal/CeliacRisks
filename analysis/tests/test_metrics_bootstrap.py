@@ -53,9 +53,9 @@ class TestStratifiedBootstrapCI:
     @pytest.fixture
     def basic_data(self):
         """Simple balanced dataset."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         y_true = np.array([0] * 50 + [1] * 50)
-        y_pred = np.random.rand(100)
+        y_pred = rng.random(100)
         return y_true, y_pred
 
     def test_basic_ci_computation(self, basic_data):
@@ -132,8 +132,8 @@ class TestStratifiedBootstrapCI:
         """Should handle imbalanced datasets."""
         # 10 cases, 90 controls
         y_true = np.array([0] * 90 + [1] * 10)
-        np.random.seed(42)
-        y_pred = np.random.rand(100)
+        rng = np.random.default_rng(42)
+        y_pred = rng.random(100)
 
         ci_lower, ci_upper = stratified_bootstrap_ci(
             y_true, y_pred, roc_auc_score, n_boot=100, seed=42
@@ -173,10 +173,10 @@ class TestStratifiedBootstrapDiffCI:
     @pytest.fixture
     def two_model_data(self):
         """Dataset with predictions from two models."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         y_true = np.array([0] * 50 + [1] * 50)
-        p1 = np.random.rand(100)
-        p2 = np.random.rand(100)
+        p1 = rng.random(100)
+        p2 = rng.random(100)
         return y_true, p1, p2
 
     def test_basic_diff_ci(self, two_model_data):
@@ -264,9 +264,9 @@ class TestStratifiedBootstrapDiffCI:
     def test_diff_imbalanced_data(self):
         """Should handle imbalanced datasets."""
         y_true = np.array([0] * 90 + [1] * 10)
-        np.random.seed(42)
-        p1 = np.random.rand(100)
-        p2 = np.random.rand(100)
+        rng = np.random.default_rng(42)
+        p1 = rng.random(100)
+        p2 = rng.random(100)
 
         diff, ci_lower, ci_upper = stratified_bootstrap_diff_ci(
             y_true, p1, p2, roc_auc_score, n_boot=100, seed=42
@@ -331,8 +331,8 @@ class TestEdgeCases:
     def test_large_n_boot(self):
         """Should handle large n_boot."""
         y_true = np.array([0] * 50 + [1] * 50)
-        np.random.seed(42)
-        y_pred = np.random.rand(100)
+        rng = np.random.default_rng(42)
+        y_pred = rng.random(100)
 
         ci_lower, ci_upper = stratified_bootstrap_ci(
             y_true, y_pred, roc_auc_score, n_boot=5000, seed=42

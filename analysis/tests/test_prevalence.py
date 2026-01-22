@@ -189,9 +189,9 @@ def test_adjust_probabilities_celiac_scenario():
 @pytest.fixture
 def simple_rf_model():
     """Create simple fitted RF model for testing."""
-    np.random.seed(42)
-    X = np.random.randn(100, 5)
-    y = np.random.randint(0, 2, 100)
+    rng = np.random.default_rng(42)
+    X = rng.standard_normal((100, 5))
+    y = rng.integers(0, 2, 100)
 
     rf = RandomForestClassifier(n_estimators=10, random_state=42)
     rf.fit(X, y)
@@ -201,9 +201,9 @@ def simple_rf_model():
 @pytest.fixture
 def simple_lr_model():
     """Create simple fitted LR model for testing."""
-    np.random.seed(42)
-    X = np.random.randn(100, 5)
-    y = np.random.randint(0, 2, 100)
+    rng = np.random.default_rng(42)
+    X = rng.standard_normal((100, 5))
+    y = rng.integers(0, 2, 100)
 
     lr = LogisticRegression(random_state=42)
     lr.fit(X, y)
@@ -224,8 +224,8 @@ def test_prevalence_model_initialization(simple_rf_model):
 
 def test_prevalence_model_predict_proba(simple_rf_model):
     """Test predict_proba with prevalence adjustment."""
-    np.random.seed(42)
-    X_test = np.random.randn(20, 5)
+    rng = np.random.default_rng(42)
+    X_test = rng.standard_normal((20, 5))
 
     wrapper = PrevalenceAdjustedModel(
         base_model=simple_rf_model, sample_prevalence=0.5, target_prevalence=0.1
@@ -245,13 +245,15 @@ def test_prevalence_model_predict_proba(simple_rf_model):
     np.testing.assert_allclose(adjusted_probs.sum(axis=1), 1.0, rtol=1e-6)
 
     # Positive class probabilities should be lower (target < sample)
-    assert np.all(adjusted_probs[:, 1] < base_probs[:, 1])
+    # Exclude boundary predictions (exactly 0 or 1) where adjustment is clamped
+    interior = (base_probs[:, 1] > 1e-6) & (base_probs[:, 1] < 1 - 1e-6)
+    assert np.all(adjusted_probs[interior, 1] < base_probs[interior, 1])
 
 
 def test_prevalence_model_predict(simple_rf_model):
     """Test predict method uses adjusted probabilities."""
-    np.random.seed(42)
-    X_test = np.random.randn(20, 5)
+    rng = np.random.default_rng(42)
+    X_test = rng.standard_normal((20, 5))
 
     wrapper = PrevalenceAdjustedModel(
         base_model=simple_rf_model, sample_prevalence=0.5, target_prevalence=0.1
@@ -272,8 +274,8 @@ def test_prevalence_model_predict(simple_rf_model):
 
 def test_prevalence_model_no_adjustment_when_invalid(simple_rf_model):
     """Test no adjustment applied when prevalences invalid."""
-    np.random.seed(42)
-    X_test = np.random.randn(20, 5)
+    rng = np.random.default_rng(42)
+    X_test = rng.standard_normal((20, 5))
 
     # Invalid target prevalence
     wrapper = PrevalenceAdjustedModel(
@@ -311,8 +313,8 @@ def test_prevalence_model_attribute_delegation(simple_rf_model):
 
 def test_prevalence_model_with_lr(simple_lr_model):
     """Test wrapper works with LogisticRegression."""
-    np.random.seed(42)
-    X_test = np.random.randn(20, 5)
+    rng = np.random.default_rng(42)
+    X_test = rng.standard_normal((20, 5))
 
     wrapper = PrevalenceAdjustedModel(
         base_model=simple_lr_model, sample_prevalence=0.5, target_prevalence=0.05
@@ -332,8 +334,8 @@ def test_prevalence_model_with_lr(simple_lr_model):
 
 def test_prevalence_model_extreme_adjustment(simple_rf_model):
     """Test wrapper handles extreme prevalence adjustments."""
-    np.random.seed(42)
-    X_test = np.random.randn(20, 5)
+    rng = np.random.default_rng(42)
+    X_test = rng.standard_normal((20, 5))
 
     # Extreme downward adjustment (training 50%, target 0.1%)
     wrapper = PrevalenceAdjustedModel(
@@ -347,8 +349,10 @@ def test_prevalence_model_extreme_adjustment(simple_rf_model):
     assert np.all((adjusted_probs >= 0) & (adjusted_probs <= 1))
     np.testing.assert_allclose(adjusted_probs.sum(axis=1), 1.0, rtol=1e-6)
 
-    # All adjusted probabilities should be lower than base (downward adjustment)
-    assert np.all(adjusted_probs[:, 1] <= base_probs[:, 1])
+    # Adjusted probabilities should be lower than base (downward adjustment)
+    # Exclude boundary predictions (exactly 0 or 1) where adjustment is clamped
+    interior = (base_probs[:, 1] > 1e-6) & (base_probs[:, 1] < 1 - 1e-6)
+    assert np.all(adjusted_probs[interior, 1] <= base_probs[interior, 1])
 
     # Median probability should be much lower (more robust than mean to outliers)
     assert np.median(adjusted_probs[:, 1]) < np.median(base_probs[:, 1]) * 0.05
@@ -374,8 +378,8 @@ def test_prevalence_model_serialization(simple_rf_model, tmp_path):
     assert loaded.target_prevalence == 0.01
 
     # Check predictions match
-    np.random.seed(42)
-    X_test = np.random.randn(10, 5)
+    rng = np.random.default_rng(42)
+    X_test = rng.standard_normal((10, 5))
 
     probs_original = wrapper.predict_proba(X_test)
     probs_loaded = loaded.predict_proba(X_test)
@@ -385,8 +389,8 @@ def test_prevalence_model_serialization(simple_rf_model, tmp_path):
 
 def test_prevalence_model_preserves_ordering(simple_rf_model):
     """Test prevalence adjustment preserves probability ordering."""
-    np.random.seed(42)
-    X_test = np.random.randn(50, 5)
+    rng = np.random.default_rng(42)
+    X_test = rng.standard_normal((50, 5))
 
     wrapper = PrevalenceAdjustedModel(
         base_model=simple_rf_model, sample_prevalence=0.5, target_prevalence=0.05

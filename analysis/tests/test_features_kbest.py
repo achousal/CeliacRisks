@@ -18,7 +18,7 @@ from sklearn.preprocessing import StandardScaler
 @pytest.fixture
 def simple_protein_data():
     """Create simple protein dataset for testing."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
 
     # 3 proteins: P1 (strong signal), P2 (weak), P3 (noise)
     n_samples = 100
@@ -28,17 +28,17 @@ def simple_protein_data():
         {
             "P1": np.concatenate(
                 [
-                    np.random.normal(0, 1, n_samples - n_case),  # controls
-                    np.random.normal(2, 1, n_case),  # cases (shifted)
+                    rng.normal(0, 1, n_samples - n_case),  # controls
+                    rng.normal(2, 1, n_case),  # cases (shifted)
                 ]
             ),
             "P2": np.concatenate(
                 [
-                    np.random.normal(0, 1, n_samples - n_case),
-                    np.random.normal(0.5, 1, n_case),  # weak signal
+                    rng.normal(0, 1, n_samples - n_case),
+                    rng.normal(0.5, 1, n_case),  # weak signal
                 ]
             ),
-            "P3": np.random.normal(0, 1, n_samples),  # pure noise
+            "P3": rng.normal(0, 1, n_samples),  # pure noise
         }
     )
 
@@ -391,20 +391,20 @@ class TestIntegration:
 
     def test_selection_reproducibility_across_seeds(self):
         # Same data should give same selection
-        np.random.seed(123)
+        rng = np.random.default_rng(123)
         X1 = pd.DataFrame(
             {
-                "P1": np.random.normal(0, 1, 50),
-                "P2": np.random.normal(0, 1, 50),
+                "P1": rng.normal(0, 1, 50),
+                "P2": rng.normal(0, 1, 50),
             }
         )
         y1 = np.array([0] * 25 + [1] * 25)
 
-        np.random.seed(123)
+        rng = np.random.default_rng(123)
         X2 = pd.DataFrame(
             {
-                "P1": np.random.normal(0, 1, 50),
-                "P2": np.random.normal(0, 1, 50),
+                "P1": rng.normal(0, 1, 50),
+                "P2": rng.normal(0, 1, 50),
             }
         )
         y2 = np.array([0] * 25 + [1] * 25)

@@ -52,45 +52,53 @@ def age_bins(age: pd.Series, scheme: str) -> pd.Series:
         raise ValueError(f"Unknown age scheme: {scheme}")
 
 
-def make_strata(df: pd.DataFrame, scheme: str) -> pd.Series:
+def make_strata(
+    df: pd.DataFrame,
+    scheme: str,
+    sex_col: str = "sex",
+    age_col: str = "age",
+) -> pd.Series:
     """
     Create stratification labels combining outcome, sex, and age.
 
     Schemes (ordered by granularity):
-    - "outcome+sex+age3": Outcome × Sex × Age3 bins
-    - "outcome+sex+age2": Outcome × Sex × Age2 bins
-    - "outcome+age3": Outcome × Age3 bins
-    - "outcome+sex": Outcome × Sex
+    - "outcome+sex+age3": Outcome x Sex x Age3 bins
+    - "outcome+sex+age2": Outcome x Sex x Age2 bins
+    - "outcome+age3": Outcome x Age3 bins
+    - "outcome+sex": Outcome x Sex
     - "outcome": Outcome only
 
     Args:
-        df: DataFrame with TARGET_COL, and optionally "sex" and "age" columns
+        df: DataFrame with TARGET_COL, and optionally sex and age columns
         scheme: Stratification scheme
+        sex_col: Column name for sex variable (default "sex")
+        age_col: Column name for age variable (default "age")
 
     Returns:
         Series of stratification labels (strings)
 
     Raises:
-        ValueError: If scheme is unknown or required columns are missing
+        KeyError: If required columns are missing for the scheme
+        ValueError: If scheme is unknown
     """
     outcome = df[TARGET_COL].astype(str).fillna("UnknownOutcome")
 
     if scheme == "outcome+sex+age3":
-        sex = df["sex"].astype(str).fillna("UnknownSex")
-        ageb = age_bins(df["age"], "age3")
+        sex = df[sex_col].astype(str).fillna("UnknownSex")
+        ageb = age_bins(df[age_col], "age3")
         return (outcome + "_" + sex + "_" + ageb).astype(str)
 
     if scheme == "outcome+sex+age2":
-        sex = df["sex"].astype(str).fillna("UnknownSex")
-        ageb = age_bins(df["age"], "age2")
+        sex = df[sex_col].astype(str).fillna("UnknownSex")
+        ageb = age_bins(df[age_col], "age2")
         return (outcome + "_" + sex + "_" + ageb).astype(str)
 
     if scheme == "outcome+age3":
-        ageb = age_bins(df["age"], "age3")
+        ageb = age_bins(df[age_col], "age3")
         return (outcome + "_" + ageb).astype(str)
 
     if scheme == "outcome+sex":
-        sex = df["sex"].astype(str).fillna("UnknownSex")
+        sex = df[sex_col].astype(str).fillna("UnknownSex")
         return (outcome + "_" + sex).astype(str)
 
     if scheme == "outcome":
@@ -140,7 +148,12 @@ def validate_strata(strata: pd.Series) -> tuple[bool, str]:
     return True, "ok"
 
 
-def build_working_strata(df: pd.DataFrame, min_count: int = 2) -> tuple[pd.Series, str]:
+def build_working_strata(
+    df: pd.DataFrame,
+    min_count: int = 2,
+    sex_col: str = "sex",
+    age_col: str = "age",
+) -> tuple[pd.Series, str]:
     """
     Build robust stratification labels by trying schemes from most to least granular.
 
@@ -154,6 +167,8 @@ def build_working_strata(df: pd.DataFrame, min_count: int = 2) -> tuple[pd.Serie
     Args:
         df: DataFrame with outcome, sex, age columns
         min_count: Minimum samples per stratum
+        sex_col: Column name for sex variable (default "sex")
+        age_col: Column name for age variable (default "age")
 
     Returns:
         (strata_series, scheme_name)
@@ -169,7 +184,7 @@ def build_working_strata(df: pd.DataFrame, min_count: int = 2) -> tuple[pd.Serie
 
     for sch in schemes:
         try:
-            strata = make_strata(df, sch)
+            strata = make_strata(df, sch, sex_col=sex_col, age_col=age_col)
             strata = collapse_rare_strata(df, strata, min_count=min_count)
             ok, reason = validate_strata(strata)
             if ok:
@@ -181,7 +196,7 @@ def build_working_strata(df: pd.DataFrame, min_count: int = 2) -> tuple[pd.Serie
             continue
 
     # Fallback to outcome-only
-    strata = make_strata(df, "outcome")
+    strata = make_strata(df, "outcome", sex_col=sex_col, age_col=age_col)
     strata = collapse_rare_strata(df, strata, min_count=min_count)
     return strata, f"outcome (fallback; last failure: {last_reason})"
 
@@ -247,7 +262,7 @@ def downsample_controls(
 
     keep_controls = rng.choice(idx_controls, size=target_controls, replace=False)
     kept = np.sort(np.concatenate([idx_cases, keep_controls]).astype(int))
-    logger.info(f"Downsample controls: {n_controls} → {target_controls} (cases={n_cases})")
+    logger.info(f"Downsample controls: {n_controls} -> {target_controls} (cases={n_cases})")
     return kept
 
 
@@ -273,7 +288,7 @@ def temporal_order_indices(df: pd.DataFrame, col: str) -> np.ndarray:
         Array of row indices in temporal order
 
     Raises:
-        ValueError: If column not found in dataframe
+        ValueError: If column not found in dataframe or has no valid sortable values
     """
     if col not in df.columns:
         raise ValueError(f"Temporal column '{col}' not found in dataframe.")
@@ -291,9 +306,12 @@ def temporal_order_indices(df: pd.DataFrame, col: str) -> np.ndarray:
     if order_vals is None or order_vals.isna().all():
         order_vals = pd.to_numeric(ser, errors="coerce")
 
-    # Fallback to row order if all parsing failed
+    # Validate: at least some values must be parseable
     if isinstance(order_vals, pd.Series) and order_vals.isna().all():
-        order_vals = pd.Series(np.arange(len(df)), index=df.index)
+        raise ValueError(
+            f"Temporal column '{col}' has no valid sortable values. "
+            "Column must contain datetime or numeric values."
+        )
 
     # Fill missing values with min - 1 (or -inf for numeric)
     if isinstance(order_vals, pd.Series):
@@ -394,6 +412,9 @@ def stratified_train_val_test_split(
     Returns:
         (idx_train, idx_val, idx_test, y_train, y_val, y_test)
 
+    Raises:
+        ValueError: If val_size + test_size >= 1.0 (must leave room for training)
+
     Example:
         >>> indices = np.arange(100)
         >>> y = np.random.randint(0, 2, 100)
@@ -402,6 +423,14 @@ def stratified_train_val_test_split(
         ...     indices, y, strata, val_size=0.25, test_size=0.25, random_state=42
         ... )
     """
+    # Validate split sizes leave room for training data
+    effective_val = val_size if val_size and val_size > 0 else 0.0
+    if effective_val + test_size >= 1.0:
+        raise ValueError(
+            f"val_size ({effective_val}) + test_size ({test_size}) = {effective_val + test_size} >= 1.0. "
+            "Must leave room for training data (sum must be < 1.0)."
+        )
+
     if val_size and val_size > 0:
         # Two-step split: TRAIN vs (VAL+TEST), then VAL vs TEST
         temp_size = float(val_size + test_size)
@@ -417,11 +446,14 @@ def stratified_train_val_test_split(
         strata_temp = strata.loc[idx_temp]
         rel_test = float(test_size) / temp_size
 
+        # Use a derived seed to ensure different randomness from first split
+        second_seed = random_state ^ 0x5678
+
         idx_val, idx_test, y_val, y_test = train_test_split(
             idx_temp,
             y_temp,
             test_size=rel_test,
-            random_state=random_state,
+            random_state=second_seed,
             stratify=strata_temp,
         )
     else:
@@ -486,7 +518,7 @@ def temporal_train_val_test_split(
         (idx_train, idx_val, idx_test, y_train, y_val, y_test)
 
     Raises:
-        ValueError: If split produces empty TRAIN set
+        ValueError: If split produces empty TRAIN set or val_size + test_size >= 1.0
 
     Example:
         >>> indices = np.arange(100)  # Pre-sorted by date
@@ -495,6 +527,14 @@ def temporal_train_val_test_split(
         ...     indices, y, val_size=0.25, test_size=0.25
         ... )
     """
+    # Validate split sizes leave room for training data
+    effective_val = val_size if val_size and val_size > 0 else 0.0
+    if effective_val + test_size >= 1.0:
+        raise ValueError(
+            f"val_size ({effective_val}) + test_size ({test_size}) = {effective_val + test_size} >= 1.0. "
+            "Must leave room for training data (sum must be < 1.0)."
+        )
+
     if len(indices) < 2:
         raise ValueError("Temporal split requires at least 2 samples.")
 

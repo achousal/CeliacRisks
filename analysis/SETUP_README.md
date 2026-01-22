@@ -97,7 +97,33 @@ ced --version
 
 **Best for**: HPC production runs, reproducible deployments
 
-This is what `scripts/hpc_setup.sh` does automatically:
+**Automated setup**:
+
+```bash
+cd analysis/
+bash scripts/hpc_setup.sh
+```
+
+This script will:
+1. Check Python version (requires 3.10+)
+2. Create virtual environment in `venv/`
+3. Install package and dependencies
+4. Run optional test suite
+5. Create output directories
+6. Record package versions and git state
+
+**Virtual environment activation**:
+
+The setup script **cannot** activate the venv in your shell (bash subprocess limitation).
+
+- **For pipeline runs**: No action needed - `run_hpc.sh` and `run_local.sh` activate the venv automatically
+- **For interactive CLI usage**: Manually activate after setup:
+  ```bash
+  source venv/bin/activate
+  ced --help  # Verify installation
+  ```
+
+**Manual setup** (if needed):
 
 ```bash
 cd analysis/
@@ -114,31 +140,14 @@ pip install --upgrade pip setuptools wheel
 # Install package
 pip install -e .
 
-# Verify installation
-ced --help
-
 # Record environment (for reproducibility)
 pip freeze > requirements_frozen_$(date +%Y%m%d).txt
 ```
 
-**Or run the automated script**:
-
-```bash
-bash scripts/hpc_setup.sh
-```
-
-This script will:
-1. Check Python version (requires 3.10+)
-2. Create virtual environment in `venv/`
-3. Install package and dependencies
-4. Run optional test suite
-5. Create output directories
-6. Record package versions and git state
-
 **Advantages**:
 - Explicit dependency pinning
 - Matches HPC production environment exactly
-- Works with `run_hpc.sh` out of the box
+- Pipeline runners handle activation automatically
 
 ---
 
@@ -189,8 +198,8 @@ RUN_MODELS="LR_EN,RF,XGBoost" ./run_local.sh
 # Regenerate splits
 OVERWRITE_SPLITS=1 ./run_local.sh
 
-# Postprocess existing results only
-POSTPROCESS_ONLY=1 ./run_local.sh
+# Re-aggregate existing results (manual aggregation per model)
+ced aggregate-splits --results-dir results/LR_EN/run_20250120_143022 --n-boot 100
 ```
 
 **Environment variables** (override config):
@@ -198,7 +207,6 @@ POSTPROCESS_ONLY=1 ./run_local.sh
 - `RUN_MODELS`: Comma-separated list (overrides config)
 - `DRY_RUN`: Preview without execution (1 or 0)
 - `OVERWRITE_SPLITS`: Regenerate splits (1 or 0)
-- `POSTPROCESS_ONLY`: Skip training, run aggregation only (1 or 0)
 
 ### HPC Pipeline (`run_hpc.sh`)
 

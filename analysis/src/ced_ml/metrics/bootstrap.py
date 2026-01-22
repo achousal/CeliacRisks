@@ -6,9 +6,12 @@ using stratified resampling to maintain case/control ratios. The percentile
 method is used for CI construction.
 """
 
+import logging
 from collections.abc import Callable
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_metric(metric_fn: Callable, y: np.ndarray, p: np.ndarray) -> float:
@@ -70,6 +73,7 @@ def stratified_bootstrap_ci(
         True
     """
     rng = np.random.RandomState(seed)
+    logger.info("Bootstrap CI: seed=%d, n_boot=%d, n_samples=%d", seed, n_boot, len(y_true))
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
 
@@ -158,6 +162,7 @@ def stratified_bootstrap_diff_ci(
         True
     """
     rng = np.random.RandomState(seed)
+    logger.debug("Bootstrap diff CI using seed=%d, n_boot=%d", seed, n_boot)
     y_true = np.asarray(y_true).astype(int)
     p1 = np.asarray(p1).astype(float)
     p2 = np.asarray(p2).astype(float)

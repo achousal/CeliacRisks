@@ -61,6 +61,12 @@ def net_benefit(
     return (tp / n) - (fp / n) * odds
 
 
+def _validate_prevalence(prevalence: float, param_name: str = "prevalence") -> None:
+    """Validate that prevalence is in [0, 1] range."""
+    if prevalence < 0.0 or prevalence > 1.0:
+        raise ValueError(f"{param_name} must be in [0, 1] range, got {prevalence}")
+
+
 def net_benefit_treat_all(
     prevalence: float,
     threshold: float,
@@ -77,6 +83,8 @@ def net_benefit_treat_all(
     Returns:
         Net benefit of treating all patients
     """
+    _validate_prevalence(prevalence)
+
     if threshold <= 0.0 or threshold >= 1.0:
         return np.nan
 
@@ -103,27 +111,18 @@ def decision_curve_analysis(
         thresholds: Array of threshold probabilities. If None and prevalence
             is provided, auto-configures range based on prevalence. Otherwise
             defaults to 0.001 to 0.10.
-        prevalence_adjustment: Optional prevalence for calibration adjustment
-            (affects treat-all net benefit calculation)
-        prevalence: Optional prevalence for auto-configuring threshold range.
-            When provided and thresholds is None, computes:
-            - min_thr = max(0.0001, prevalence / 10)
-            - max_thr = min(0.5, prevalence * 10)
-            This ensures the threshold range captures clinically relevant
-            decision points for low-prevalence scenarios.
+        prevalence_adjustment: Optional prevalence for calibration adjustment (affects treat-all NB)
+        prevalence: Optional prevalence for auto-threshold range (computes min/max from prevalence)
 
     Returns:
-        DataFrame with columns:
-            - threshold: Classification threshold
-            - threshold_pct: Threshold as percentage
-            - net_benefit_model: Model net benefit
-            - net_benefit_all: Treat-all net benefit
-            - net_benefit_none: Treat-none net benefit (always 0)
-            - relative_utility: NB_model / max(NB_all, 0)
-            - tp, fp, tn, fn: Confusion matrix counts
-            - n_treat: Number treated (TP + FP)
-            - sensitivity, specificity: Performance metrics
+        DataFrame with DCA metrics
     """
+    # Validate prevalence parameters at function entry (fail fast)
+    if prevalence_adjustment is not None:
+        _validate_prevalence(prevalence_adjustment, "prevalence_adjustment")
+    if prevalence is not None:
+        _validate_prevalence(prevalence, "prevalence")
+
     y = np.asarray(y_true).astype(int)
     p = np.asarray(y_pred_prob).astype(float)
     n = len(y)
@@ -208,14 +207,17 @@ def threshold_dca_zero_crossing(
             is provided, auto-configures range based on prevalence. Otherwise
             defaults to 0.001 to 0.10.
         prevalence_adjustment: Optional prevalence for calibration adjustment
-        prevalence: Optional prevalence for auto-configuring threshold range.
-            When provided and thresholds is None, computes:
-            - min_thr = max(0.0001, prevalence / 10)
-            - max_thr = min(0.5, prevalence * 10)
+        prevalence: Optional prevalence for auto-threshold range
 
     Returns:
         Threshold where net benefit crosses zero, or None if no crossing found
     """
+    # Validate prevalence parameters at function entry (fail fast)
+    if prevalence_adjustment is not None:
+        _validate_prevalence(prevalence_adjustment, "prevalence_adjustment")
+    if prevalence is not None:
+        _validate_prevalence(prevalence, "prevalence")
+
     if thresholds is None:
         thresholds = generate_dca_thresholds(
             min_thr=0.001, max_thr=0.10, step=0.001, prevalence=prevalence
@@ -516,8 +518,9 @@ def save_dca_results(
             auto-configures range based on prevalence. Otherwise defaults
             to 0.0005 to 0.20, step 0.001.
         report_points: Key thresholds for summary (default: [0.005, 0.01, 0.02, 0.05])
-        prevalence_adjustment: Optional prevalence for calibration
-        prevalence: Optional prevalence for auto-configuring threshold range.
+        prevalence_adjustment: Optional prevalence for calibration, must be in [0, 1]
+        prevalence: Optional prevalence for auto-configuring threshold range,
+            must be in [0, 1].
             When provided and thresholds is None, computes:
             - min_thr = max(0.0001, prevalence / 10)
             - max_thr = min(0.5, prevalence * 10)
@@ -527,6 +530,9 @@ def save_dca_results(
             - dca_csv_path: Path to saved curve CSV
             - dca_json_path: Path to saved summary JSON
             - error: Error message if computation failed
+
+    Raises:
+        ValueError: If prevalence_adjustment or prevalence is outside [0, 1] range
 
     Example:
         >>> summary = save_dca_results(
@@ -538,6 +544,12 @@ def save_dca_results(
         >>> print(summary["model_beats_all_range"])
         '0.003-0.156'
     """
+    # Validate prevalence parameters at function entry (fail fast)
+    if prevalence_adjustment is not None:
+        _validate_prevalence(prevalence_adjustment, "prevalence_adjustment")
+    if prevalence is not None:
+        _validate_prevalence(prevalence, "prevalence")
+
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
@@ -601,7 +613,8 @@ def generate_dca_thresholds(
         min_thr: Minimum threshold (clamped to 0.0001, default: 0.001)
         max_thr: Maximum threshold (clamped to 0.999, default: 0.10)
         step: Step size between thresholds (minimum 0.0001, default: 0.001)
-        prevalence: Optional disease prevalence for auto-configuring threshold range.
+        prevalence: Optional disease prevalence for auto-configuring threshold range,
+            must be in [0, 1].
             When provided, min_thr and max_thr are computed as:
             - min_thr = max(0.0001, prevalence / 10)
             - max_thr = min(0.5, prevalence * 10)
@@ -611,14 +624,18 @@ def generate_dca_thresholds(
     Returns:
         Array of threshold values for DCA computation
 
+    Raises:
+        ValueError: If prevalence is outside [0, 1] range
+
     Note:
         Default range 0.1% to 10% covers clinically relevant thresholds
         for most prediction tasks while maintaining computational efficiency.
         For low-prevalence conditions (e.g., 0.34%), the auto-range feature
         ensures thresholds are not missed.
     """
-    # Auto-configure range based on prevalence if provided
+    # Validate and auto-configure range based on prevalence if provided
     if prevalence is not None:
+        _validate_prevalence(prevalence, "prevalence")
         prevalence = float(prevalence)
         if prevalence > 0 and prevalence < 1:
             min_thr = max(0.0001, prevalence / 10)

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -33,29 +33,23 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class BaseModelBundle:
-    """Container for base model information needed for stacking.
+class CalibrationInfo:
+    """Container for calibration information from a base model.
 
     Attributes:
-        model_name: Identifier (e.g., 'LR_EN', 'RF')
-        model_path: Path to saved model bundle
-        oof_predictions: OOF predictions array (n_repeats x n_samples)
-        val_predictions: Validation set predictions
-        test_predictions: Test set predictions
-        train_indices: Training sample indices
-        val_indices: Validation sample indices
-        test_indices: Test sample indices
+        strategy: Calibration strategy ('none', 'per_fold', 'oof_posthoc')
+        method: Calibration method ('isotonic', 'sigmoid', or None)
+        oof_calibrator: Optional fitted OOF calibrator object
     """
 
-    model_name: str
-    model_path: Path | None = None
-    oof_predictions: np.ndarray | None = None
-    val_predictions: np.ndarray | None = None
-    test_predictions: np.ndarray | None = None
-    train_indices: np.ndarray | None = None
-    val_indices: np.ndarray | None = None
-    test_indices: np.ndarray | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    strategy: str
+    method: str | None = None
+    oof_calibrator: Any = None
+
+    @property
+    def needs_posthoc_calibration(self) -> bool:
+        """Return True if this model needs posthoc calibration."""
+        return self.strategy == "oof_posthoc" and self.oof_calibrator is not None
 
 
 class StackingEnsemble(BaseEstimator, ClassifierMixin):
@@ -442,11 +436,205 @@ class StackingEnsemble(BaseEstimator, ClassifierMixin):
         return ensemble
 
 
+def _find_model_split_dir(
+    results_dir: Path,
+    model_name: str,
+    split_seed: int,
+    run_id: str | None = None,
+) -> Path:
+    """Find the split directory for a model, handling multiple layout conventions.
+
+    Searches for model outputs in order of preference:
+    1. results_dir / model_name / run_{run_id} / split_seed{split_seed} (new layout with run_id)
+    2. results_dir / model_name / run_* / split_seed{split_seed} (new layout, auto-discover run_id)
+    3. results_dir / model_name / split_{split_seed} (legacy layout)
+
+    Args:
+        results_dir: Root results directory
+        model_name: Model name (e.g., 'LR_EN')
+        split_seed: Split seed number
+        run_id: Optional run_id to target specific run
+
+    Returns:
+        Path to the split directory containing model outputs
+
+    Raises:
+        FileNotFoundError: If no matching directory found
+    """
+    model_root = results_dir / model_name
+
+    # Pattern 1: Explicit run_id provided
+    if run_id is not None:
+        candidate = model_root / f"run_{run_id}" / f"split_seed{split_seed}"
+        if candidate.exists():
+            return candidate
+
+    # Pattern 2: Auto-discover run directories (prefer most recent)
+    run_dirs = sorted(model_root.glob("run_*"), reverse=True)
+    for run_dir in run_dirs:
+        candidate = run_dir / f"split_seed{split_seed}"
+        if candidate.exists():
+            logger.debug(f"Auto-discovered run directory: {run_dir.name}")
+            return candidate
+
+    # Pattern 3: Legacy layout (no run subdirectory)
+    legacy_candidate = model_root / f"split_{split_seed}"
+    if legacy_candidate.exists():
+        return legacy_candidate
+
+    # Not found - provide helpful error
+    searched = [
+        f"{model_root}/run_*/split_seed{split_seed}",
+        f"{model_root}/split_{split_seed}",
+    ]
+    raise FileNotFoundError(
+        f"Could not find split directory for {model_name} seed {split_seed}. "
+        f"Searched: {searched}"
+    )
+
+
+def load_base_model_calibration_info(
+    results_dir: Path,
+    model_name: str,
+    split_seed: int,
+    run_id: str | None = None,
+) -> CalibrationInfo:
+    """Load calibration info from a saved model bundle.
+
+    Args:
+        results_dir: Root results directory
+        model_name: Model name
+        split_seed: Split seed
+        run_id: Optional run_id
+
+    Returns:
+        CalibrationInfo with strategy and optional OOF calibrator
+    """
+    model_dir = _find_model_split_dir(results_dir, model_name, split_seed, run_id)
+    model_path = model_dir / "core" / f"{model_name}__final_model.joblib"
+
+    if not model_path.exists():
+        logger.warning(f"Model bundle not found: {model_path}, assuming no calibration")
+        return CalibrationInfo(strategy="none")
+
+    bundle = joblib.load(model_path)
+    calib_info = bundle.get("calibration", {})
+
+    strategy = calib_info.get("strategy", "none")
+    method = calib_info.get("method")
+    oof_calibrator = calib_info.get("oof_calibrator")
+
+    logger.debug(
+        f"Loaded calibration info for {model_name}: strategy={strategy}, "
+        f"method={method}, has_oof_calibrator={oof_calibrator is not None}"
+    )
+
+    return CalibrationInfo(
+        strategy=strategy,
+        method=method,
+        oof_calibrator=oof_calibrator,
+    )
+
+
+def apply_calibration_to_predictions(
+    predictions: np.ndarray,
+    calib_info: CalibrationInfo,
+    model_name: str,
+) -> np.ndarray:
+    """Apply calibration to predictions based on calibration strategy.
+
+    For 'per_fold': predictions are already calibrated, return as-is
+    For 'oof_posthoc': apply the OOF calibrator
+    For 'none': return as-is
+
+    Args:
+        predictions: Raw predictions array
+        calib_info: CalibrationInfo from the base model
+        model_name: Model name (for logging)
+
+    Returns:
+        Calibrated predictions
+    """
+    if calib_info.needs_posthoc_calibration:
+        logger.debug(f"Applying OOF calibrator to {model_name} predictions")
+        return calib_info.oof_calibrator.transform(predictions)
+
+    # per_fold or none: predictions are already in correct form
+    return predictions
+
+
+def load_calibration_info_for_models(
+    results_dir: Path,
+    base_models: list[str],
+    split_seed: int,
+    run_id: str | None = None,
+) -> dict[str, CalibrationInfo]:
+    """Load calibration info for multiple base models.
+
+    Args:
+        results_dir: Root results directory
+        base_models: List of model names
+        split_seed: Split seed
+        run_id: Optional run_id
+
+    Returns:
+        Dict mapping model name to CalibrationInfo
+    """
+    calib_dict = {}
+    for model_name in base_models:
+        calib_dict[model_name] = load_base_model_calibration_info(
+            results_dir, model_name, split_seed, run_id
+        )
+    return calib_dict
+
+
+def _validate_indices_match(
+    reference_idx: np.ndarray,
+    reference_model: str,
+    current_idx: np.ndarray,
+    current_model: str,
+    context: str,
+) -> None:
+    """Validate that indices from two models match exactly.
+
+    Args:
+        reference_idx: Indices from the reference (first) model
+        reference_model: Name of the reference model
+        current_idx: Indices from the current model being checked
+        current_model: Name of the current model
+        context: Description of the context (e.g., "OOF predictions", "test predictions")
+
+    Raises:
+        ValueError: If indices do not match (different length or different values)
+    """
+    if len(reference_idx) != len(current_idx):
+        raise ValueError(
+            f"Index length mismatch in {context}: "
+            f"{reference_model} has {len(reference_idx)} samples, "
+            f"{current_model} has {len(current_idx)} samples. "
+            f"Base models must be trained on the same data split."
+        )
+
+    if not np.array_equal(reference_idx, current_idx):
+        # Find first mismatching position for helpful error message
+        mismatch_mask = reference_idx != current_idx
+        first_mismatch_pos = np.argmax(mismatch_mask)
+        raise ValueError(
+            f"Index mismatch in {context}: "
+            f"{reference_model} and {current_model} have different sample indices. "
+            f"First mismatch at position {first_mismatch_pos}: "
+            f"{reference_model}={reference_idx[first_mismatch_pos]}, "
+            f"{current_model}={current_idx[first_mismatch_pos]}. "
+            f"Base models must be trained on the same data split."
+        )
+
+
 def collect_oof_predictions(
     results_dir: Path,
     base_models: list[str],
     split_seed: int,
     scenario: str = "IncidentOnly",
+    run_id: str | None = None,
 ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
     """Collect OOF predictions from trained base models.
 
@@ -455,6 +643,7 @@ def collect_oof_predictions(
         base_models: List of base model names to collect
         split_seed: Split seed to identify correct subdirectory
         scenario: Scenario name (for filtering)
+        run_id: Optional run_id to target specific run
 
     Returns:
         oof_dict: Dict mapping model name to OOF predictions
@@ -463,14 +652,16 @@ def collect_oof_predictions(
 
     Raises:
         FileNotFoundError: If OOF predictions file not found for any model
+        ValueError: If base models have mismatched indices (trained on different splits)
     """
     oof_dict = {}
     y_train = None
     train_idx = None
+    reference_model = None
 
     for model_name in base_models:
-        # Look for OOF predictions file
-        model_dir = results_dir / model_name / f"split_{split_seed}"
+        # Look for OOF predictions file using flexible path discovery
+        model_dir = _find_model_split_dir(results_dir, model_name, split_seed, run_id)
         oof_path = model_dir / "preds" / "train_oof" / f"train_oof__{model_name}.csv"
 
         if not oof_path.exists():
@@ -488,10 +679,18 @@ def collect_oof_predictions(
         preds = oof_df[prob_cols].values.T  # (n_repeats x n_samples)
         oof_dict[model_name] = preds
 
-        # Get labels and indices from first model
+        current_idx = oof_df["idx"].values
+
+        # Get labels and indices from first model, validate subsequent models match
         if y_train is None:
             y_train = oof_df["y_true"].values
-            train_idx = oof_df["idx"].values
+            train_idx = current_idx
+            reference_model = model_name
+        else:
+            # Validate that this model's indices match the reference model
+            _validate_indices_match(
+                train_idx, reference_model, current_idx, model_name, "OOF predictions"
+            )
 
         logger.info(f"Loaded OOF predictions for {model_name}: shape {preds.shape}")
 
@@ -503,6 +702,8 @@ def collect_split_predictions(
     base_models: list[str],
     split_seed: int,
     split_name: str = "test",
+    run_id: str | None = None,
+    calibration_info: dict[str, CalibrationInfo] | None = None,
 ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
     """Collect validation or test predictions from trained base models.
 
@@ -511,18 +712,26 @@ def collect_split_predictions(
         base_models: List of base model names
         split_seed: Split seed to identify correct subdirectory
         split_name: 'val' or 'test'
+        run_id: Optional run_id to target specific run
+        calibration_info: Optional dict mapping model name to CalibrationInfo.
+                          If provided, applies calibration based on each model's strategy.
 
     Returns:
-        preds_dict: Dict mapping model name to predictions
+        preds_dict: Dict mapping model name to predictions (calibrated if applicable)
         y_true: True labels
         indices: Sample indices
+
+    Raises:
+        FileNotFoundError: If predictions file not found for any model
+        ValueError: If base models have mismatched indices (trained on different splits)
     """
     preds_dict = {}
     y_true = None
     indices = None
+    reference_model = None
 
     for model_name in base_models:
-        model_dir = results_dir / model_name / f"split_{split_seed}"
+        model_dir = _find_model_split_dir(results_dir, model_name, split_seed, run_id)
 
         if split_name == "val":
             pred_path = model_dir / "preds" / "val_preds" / f"val_preds__{model_name}.csv"
@@ -533,11 +742,28 @@ def collect_split_predictions(
             raise FileNotFoundError(f"Predictions not found: {pred_path}")
 
         pred_df = pd.read_csv(pred_path)
-        preds_dict[model_name] = pred_df["y_prob"].values
+        raw_preds = pred_df["y_prob"].values
+        current_idx = pred_df["idx"].values
 
+        # Apply calibration if info provided and model has oof_posthoc strategy
+        if calibration_info and model_name in calibration_info:
+            calib_info = calibration_info[model_name]
+            preds_dict[model_name] = apply_calibration_to_predictions(
+                raw_preds, calib_info, model_name
+            )
+        else:
+            preds_dict[model_name] = raw_preds
+
+        # Get labels and indices from first model, validate subsequent models match
         if y_true is None:
             y_true = pred_df["y_true"].values
-            indices = pred_df["idx"].values
+            indices = current_idx
+            reference_model = model_name
+        else:
+            # Validate that this model's indices match the reference model
+            _validate_indices_match(
+                indices, reference_model, current_idx, model_name, f"{split_name} predictions"
+            )
 
         logger.info(f"Loaded {split_name} predictions for {model_name}")
 
@@ -552,14 +778,17 @@ def train_stacking_ensemble(
     meta_C: float = 1.0,
     calibrate_meta: bool = True,
     random_state: int = 42,
+    run_id: str | None = None,
+    apply_base_calibration: bool = True,
 ) -> tuple[StackingEnsemble, dict[str, Any]]:
     """Train a stacking ensemble from pre-computed base model outputs.
 
     This is the main entry point for ensemble training. It:
-    1. Collects OOF predictions from base models
-    2. Trains the meta-learner
-    3. Generates ensemble predictions on val/test sets
-    4. Computes ensemble metrics
+    1. Collects OOF predictions from base models (already calibrated by strategy)
+    2. Loads calibration info for base models
+    3. Trains the meta-learner on calibrated OOF predictions
+    4. Generates ensemble predictions on val/test sets (applying calibration)
+    5. Computes ensemble metrics
 
     Args:
         results_dir: Root results directory containing base model outputs
@@ -569,6 +798,10 @@ def train_stacking_ensemble(
         meta_C: Inverse regularization strength
         calibrate_meta: Whether to calibrate meta-learner
         random_state: Random seed
+        run_id: Optional run_id to target specific run (auto-discovered if None)
+        apply_base_calibration: Whether to apply base model calibrators to val/test predictions.
+                                For oof_posthoc strategy, this applies the OOF calibrator.
+                                For per_fold strategy, predictions are already calibrated.
 
     Returns:
         ensemble: Fitted StackingEnsemble
@@ -576,8 +809,23 @@ def train_stacking_ensemble(
     """
     logger.info(f"Training stacking ensemble with base models: {base_models}")
 
-    # Collect OOF predictions
-    oof_dict, y_train, train_idx = collect_oof_predictions(results_dir, base_models, split_seed)
+    # Collect OOF predictions (already calibrated by respective strategies)
+    oof_dict, y_train, train_idx = collect_oof_predictions(
+        results_dir, base_models, split_seed, run_id=run_id
+    )
+
+    # Load calibration info for base models (needed for val/test predictions)
+    calibration_info = None
+    if apply_base_calibration:
+        calibration_info = load_calibration_info_for_models(
+            results_dir, base_models, split_seed, run_id
+        )
+        # Log calibration strategies
+        for model_name, calib_info in calibration_info.items():
+            logger.info(
+                f"Base model {model_name}: calibration strategy={calib_info.strategy}, "
+                f"needs_posthoc={calib_info.needs_posthoc_calibration}"
+            )
 
     # Create and fit ensemble
     ensemble = StackingEnsemble(
@@ -595,12 +843,20 @@ def train_stacking_ensemble(
         "split_seed": split_seed,
         "meta_penalty": meta_penalty,
         "meta_C": meta_C,
+        "calibration_strategies": {
+            name: info.strategy for name, info in (calibration_info or {}).items()
+        },
     }
 
     # Validation set
     try:
         val_preds_dict, y_val, val_idx = collect_split_predictions(
-            results_dir, base_models, split_seed, "val"
+            results_dir,
+            base_models,
+            split_seed,
+            "val",
+            run_id=run_id,
+            calibration_info=calibration_info,
         )
         val_proba = ensemble.predict_proba_from_base_preds(val_preds_dict)
         results["val_proba"] = val_proba[:, 1]
@@ -612,7 +868,12 @@ def train_stacking_ensemble(
     # Test set
     try:
         test_preds_dict, y_test, test_idx = collect_split_predictions(
-            results_dir, base_models, split_seed, "test"
+            results_dir,
+            base_models,
+            split_seed,
+            "test",
+            run_id=run_id,
+            calibration_info=calibration_info,
         )
         test_proba = ensemble.predict_proba_from_base_preds(test_preds_dict)
         results["test_proba"] = test_proba[:, 1]

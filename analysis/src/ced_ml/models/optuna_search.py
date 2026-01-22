@@ -23,6 +23,10 @@ from sklearn.model_selection import StratifiedKFold, cross_val_score
 
 logger = logging.getLogger(__name__)
 
+# Default seed used when neither sampler_seed nor random_state is provided.
+# Named constant to avoid magic number and make the behavior explicit.
+_DEFAULT_SEED_FALLBACK = 0
+
 # Attempt optuna import with graceful fallback
 _OPTUNA_AVAILABLE = False
 try:
@@ -189,15 +193,18 @@ class OptunaSearchCV(BaseEstimator):
 
     def _create_sampler(self) -> optuna.samplers.BaseSampler:
         """Create Optuna sampler based on configuration."""
-        # Ensure deterministic behavior: default to 0 if both seeds are None
+        # Determine seed with explicit precedence
         if self.sampler_seed is not None:
             seed = self.sampler_seed
         elif self.random_state is not None:
             seed = self.random_state
         else:
-            seed = 0
+            seed = _DEFAULT_SEED_FALLBACK
             logger.warning(
-                "Both sampler_seed and random_state are None. Defaulting to seed=0 for determinism."
+                "Both sampler_seed and random_state are None. "
+                "Defaulting to seed=%d for determinism. "
+                "Consider setting random_state explicitly for reproducibility.",
+                _DEFAULT_SEED_FALLBACK,
             )
 
         if self.sampler == "tpe":

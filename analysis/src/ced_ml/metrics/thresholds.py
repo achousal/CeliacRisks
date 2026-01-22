@@ -407,7 +407,7 @@ def top_risk_capture(y_true: np.ndarray, p: np.ndarray, frac: float = 0.01) -> d
 def choose_threshold_objective(
     y_true: np.ndarray,
     p: np.ndarray,
-    objective: str,
+    objective: str | None,
     fbeta: float = 1.0,
     fixed_spec: float = 0.90,
     fixed_ppv: float = 0.5,
@@ -417,7 +417,8 @@ def choose_threshold_objective(
     Args:
         y_true: True binary labels (0/1)
         p: Predicted probabilities [0, 1]
-        objective: One of ['max_f1', 'max_fbeta', 'youden', 'fixed_spec', 'fixed_ppv']
+        objective: One of ['max_f1', 'max_fbeta', 'youden', 'fixed_spec', 'fixed_ppv'].
+            If None, defaults to 'youden' with a warning.
         fbeta: Beta parameter for F-beta score (default 1.0)
         fixed_spec: Target specificity for 'fixed_spec' objective (default 0.90)
         fixed_ppv: Target precision for 'fixed_ppv' objective (default 0.5)
@@ -437,7 +438,15 @@ def choose_threshold_objective(
         >>> name
         'max_f1'
     """
-    obj = (objective or "max_f1").strip().lower()
+    if objective is None:
+        logger.warning(
+            "choose_threshold_objective received objective=None. "
+            "Defaulting to 'youden'. Specify an explicit objective "
+            "(max_f1, max_fbeta, youden, fixed_spec, fixed_ppv) to suppress this warning."
+        )
+        objective = "youden"
+
+    obj = objective.strip().lower()
     if obj == "max_f1":
         return ("max_f1", threshold_max_f1(y_true, p))
     if obj == "max_fbeta":

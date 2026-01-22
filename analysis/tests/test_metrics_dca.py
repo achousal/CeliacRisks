@@ -36,7 +36,7 @@ from ced_ml.metrics.dca import (
 @pytest.fixture
 def binary_classification_data():
     """Create reproducible binary classification data."""
-    np.random.seed(42)
+    _rng = np.random.default_rng(42)
 
     # Controls (80%)
     y_ctrl = np.zeros(160)
@@ -63,9 +63,9 @@ def perfect_classification():
 @pytest.fixture
 def random_classification():
     """Random model: uniform probabilities."""
-    np.random.seed(123)
+    rng = np.random.default_rng(123)
     y_true = np.array([0] * 80 + [1] * 20)
-    y_pred = np.random.uniform(0, 1, size=100)
+    y_pred = rng.uniform(0, 1, size=100)
     return y_true, y_pred
 
 
@@ -831,3 +831,92 @@ def test_threshold_dca_zero_crossing_with_prevalence():
     # Both should return valid results (or None if no crossing)
     assert crossing_default is None or isinstance(crossing_default, float)
     assert crossing_auto is None or isinstance(crossing_auto, float)
+
+
+# =============================================================================
+# Test: Prevalence Validation
+# =============================================================================
+
+
+def test_net_benefit_treat_all_invalid_prevalence_negative():
+    """Test net_benefit_treat_all raises ValueError for negative prevalence."""
+    with pytest.raises(ValueError, match="prevalence must be in \\[0, 1\\] range"):
+        net_benefit_treat_all(prevalence=-0.1, threshold=0.5)
+
+
+def test_net_benefit_treat_all_invalid_prevalence_above_one():
+    """Test net_benefit_treat_all raises ValueError for prevalence > 1."""
+    with pytest.raises(ValueError, match="prevalence must be in \\[0, 1\\] range"):
+        net_benefit_treat_all(prevalence=1.5, threshold=0.5)
+
+
+def test_net_benefit_treat_all_valid_prevalence_boundary():
+    """Test net_benefit_treat_all accepts valid boundary values."""
+    # prevalence=0 and prevalence=1 are valid boundary values
+    nb_zero = net_benefit_treat_all(prevalence=0.0, threshold=0.5)
+    nb_one = net_benefit_treat_all(prevalence=1.0, threshold=0.5)
+
+    # prevalence=0: NB = 0 - 1 * (0.5/0.5) = -1.0
+    assert nb_zero == pytest.approx(-1.0, abs=1e-6)
+    # prevalence=1: NB = 1 - 0 * (0.5/0.5) = 1.0
+    assert nb_one == pytest.approx(1.0, abs=1e-6)
+
+
+def test_generate_dca_thresholds_invalid_prevalence_negative():
+    """Test generate_dca_thresholds raises ValueError for negative prevalence."""
+    with pytest.raises(ValueError, match="prevalence must be in \\[0, 1\\] range"):
+        generate_dca_thresholds(prevalence=-0.5)
+
+
+def test_generate_dca_thresholds_invalid_prevalence_above_one():
+    """Test generate_dca_thresholds raises ValueError for prevalence > 1."""
+    with pytest.raises(ValueError, match="prevalence must be in \\[0, 1\\] range"):
+        generate_dca_thresholds(prevalence=2.0)
+
+
+def test_decision_curve_analysis_invalid_prevalence_adjustment():
+    """Test decision_curve_analysis raises ValueError for invalid prevalence_adjustment."""
+    y_true = np.array([0] * 80 + [1] * 20)
+    y_pred = np.random.RandomState(42).uniform(0, 1, size=100)
+
+    with pytest.raises(ValueError, match="prevalence_adjustment must be in \\[0, 1\\] range"):
+        decision_curve_analysis(y_true, y_pred, prevalence_adjustment=-0.1)
+
+    with pytest.raises(ValueError, match="prevalence_adjustment must be in \\[0, 1\\] range"):
+        decision_curve_analysis(y_true, y_pred, prevalence_adjustment=1.5)
+
+
+def test_decision_curve_analysis_invalid_prevalence():
+    """Test decision_curve_analysis raises ValueError for invalid prevalence."""
+    y_true = np.array([0] * 80 + [1] * 20)
+    y_pred = np.random.RandomState(42).uniform(0, 1, size=100)
+
+    with pytest.raises(ValueError, match="prevalence must be in \\[0, 1\\] range"):
+        decision_curve_analysis(y_true, y_pred, prevalence=-0.01)
+
+    with pytest.raises(ValueError, match="prevalence must be in \\[0, 1\\] range"):
+        decision_curve_analysis(y_true, y_pred, prevalence=1.001)
+
+
+def test_threshold_dca_zero_crossing_invalid_prevalence():
+    """Test threshold_dca_zero_crossing raises ValueError for invalid prevalence."""
+    y_true = np.array([0] * 80 + [1] * 20)
+    y_pred = np.random.RandomState(42).uniform(0, 1, size=100)
+
+    with pytest.raises(ValueError, match="prevalence must be in \\[0, 1\\] range"):
+        threshold_dca_zero_crossing(y_true, y_pred, prevalence=-0.5)
+
+    with pytest.raises(ValueError, match="prevalence_adjustment must be in \\[0, 1\\] range"):
+        threshold_dca_zero_crossing(y_true, y_pred, prevalence_adjustment=10.0)
+
+
+def test_save_dca_results_invalid_prevalence(tmp_path):
+    """Test save_dca_results raises ValueError for invalid prevalence."""
+    y_true = np.array([0] * 80 + [1] * 20)
+    y_pred = np.random.RandomState(42).uniform(0, 1, size=100)
+
+    with pytest.raises(ValueError, match="prevalence must be in \\[0, 1\\] range"):
+        save_dca_results(y_true, y_pred, out_dir=str(tmp_path), prevalence=-0.1)
+
+    with pytest.raises(ValueError, match="prevalence_adjustment must be in \\[0, 1\\] range"):
+        save_dca_results(y_true, y_pred, out_dir=str(tmp_path), prevalence_adjustment=5.0)

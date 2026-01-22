@@ -24,8 +24,10 @@ from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_s
 from ced_ml.config.loader import load_training_config
 from ced_ml.models.stacking import (
     StackingEnsemble,
+    _find_model_split_dir,
     collect_oof_predictions,
     collect_split_predictions,
+    load_calibration_info_for_models,
 )
 from ced_ml.utils.logging import log_section, setup_logger
 
@@ -62,6 +64,54 @@ def compute_ensemble_metrics(
     metrics["prevalence"] = float(y_true.mean())
 
     return metrics
+
+
+def validate_probabilities(
+    y_prob: np.ndarray,
+    split_name: str,
+    logger: logging.Logger,
+) -> None:
+    """Validate predicted probabilities are in [0, 1] and contain no NaN/Inf.
+
+    Args:
+        y_prob: Array of predicted probabilities
+        split_name: Name of the split (for error messages)
+        logger: Logger instance
+
+    Raises:
+        ValueError: If probabilities are invalid (NaN, Inf, or out of bounds)
+    """
+    if not isinstance(y_prob, np.ndarray):
+        y_prob = np.asarray(y_prob)
+
+    # Check for NaN
+    n_nan = np.isnan(y_prob).sum()
+    if n_nan > 0:
+        raise ValueError(
+            f"Ensemble predictions on {split_name} contain {n_nan} NaN values. "
+            "This indicates a meta-learner or calibration error."
+        )
+
+    # Check for Inf
+    n_inf = np.isinf(y_prob).sum()
+    if n_inf > 0:
+        raise ValueError(
+            f"Ensemble predictions on {split_name} contain {n_inf} Inf values. "
+            "This indicates a meta-learner or calibration error."
+        )
+
+    # Check bounds [0, 1]
+    if y_prob.min() < 0 or y_prob.max() > 1:
+        raise ValueError(
+            f"Ensemble predictions on {split_name} are out of bounds [0, 1]. "
+            f"min={y_prob.min():.6f}, max={y_prob.max():.6f}. "
+            "This indicates a calibration error."
+        )
+
+    logger.debug(
+        f"Ensemble {split_name} probabilities validated: n={len(y_prob)}, "
+        f"min={y_prob.min():.4f}, max={y_prob.max():.4f}, mean={y_prob.mean():.4f}"
+    )
 
 
 def run_train_ensemble(
@@ -136,15 +186,20 @@ def run_train_ensemble(
 
     logger.info(f"Meta-learner: LogisticRegression(penalty={meta_penalty}, C={meta_C})")
 
-    # Check which base models have results
+    # Check which base models have results (using flexible path discovery)
     available_models = []
     missing_models = []
     for model in base_models:
-        model_dir = results_path / model / f"split_{split_seed}"
-        oof_path = model_dir / "preds" / "train_oof" / f"train_oof__{model}.csv"
-        if oof_path.exists():
-            available_models.append(model)
-        else:
+        try:
+            # Use _find_model_split_dir for flexible path resolution (H1 fix)
+            # This handles both legacy (split_{seed}) and new (run_{id}/split_seed{seed}) layouts
+            model_dir = _find_model_split_dir(results_path, model, split_seed)
+            oof_path = model_dir / "preds" / "train_oof" / f"train_oof__{model}.csv"
+            if oof_path.exists():
+                available_models.append(model)
+            else:
+                missing_models.append(model)
+        except FileNotFoundError:
             missing_models.append(model)
 
     if missing_models:
@@ -157,6 +212,20 @@ def run_train_ensemble(
         )
 
     logger.info(f"Using {len(available_models)} base models: {available_models}")
+
+    # Load calibration info for base models
+    log_section(logger, "Loading Calibration Info")
+    calibration_info = load_calibration_info_for_models(results_path, available_models, split_seed)
+
+    # Log calibration strategies
+    for model_name, calib_info in calibration_info.items():
+        strategy = calib_info.strategy
+        has_oof_calib = calib_info.oof_calibrator is not None
+        logger.info(
+            f"  {model_name}: strategy={strategy}, "
+            f"needs_posthoc={calib_info.needs_posthoc_calibration}, "
+            f"has_oof_calibrator={has_oof_calib}"
+        )
 
     # Collect OOF predictions
     log_section(logger, "Collecting OOF Predictions")
@@ -199,14 +268,21 @@ def run_train_ensemble(
         "meta_C": meta_C,
         "meta_coef": coef,
         "random_state": random_state,
+        "calibration_strategies": {name: info.strategy for name, info in calibration_info.items()},
     }
 
-    # Validation set
+    # Validation set (apply calibration to base model predictions)
     try:
         val_preds_dict, y_val, val_idx = collect_split_predictions(
-            results_path, available_models, split_seed, "val"
+            results_path,
+            available_models,
+            split_seed,
+            "val",
+            calibration_info=calibration_info,
         )
         val_proba = ensemble.predict_proba_from_base_preds(val_preds_dict)[:, 1]
+        # Validate ensemble val predictions (H4 fix)
+        validate_probabilities(val_proba, "val", logger)
         results["val_proba"] = val_proba
         results["y_val"] = y_val
         results["val_idx"] = val_idx
@@ -218,12 +294,18 @@ def run_train_ensemble(
     except FileNotFoundError as e:
         logger.warning(f"Could not load validation predictions: {e}")
 
-    # Test set
+    # Test set (apply calibration to base model predictions)
     try:
         test_preds_dict, y_test, test_idx = collect_split_predictions(
-            results_path, available_models, split_seed, "test"
+            results_path,
+            available_models,
+            split_seed,
+            "test",
+            calibration_info=calibration_info,
         )
         test_proba = ensemble.predict_proba_from_base_preds(test_preds_dict)[:, 1]
+        # Validate ensemble test predictions (H4 fix)
+        validate_probabilities(test_proba, "test", logger)
         results["test_proba"] = test_proba
         results["y_test"] = y_test
         results["test_idx"] = test_idx
@@ -271,6 +353,7 @@ def run_train_ensemble(
         "meta_coef": coef,
         "split_seed": split_seed,
         "random_state": random_state,
+        "base_calibration_strategies": results.get("calibration_strategies", {}),
         "versions": {
             "sklearn": sklearn.__version__,
             "pandas": pd.__version__,

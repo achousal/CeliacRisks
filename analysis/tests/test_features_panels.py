@@ -22,21 +22,21 @@ class TestComputeUnivariateStrength:
 
     def test_basic_univariate_computation(self):
         """Compute Mann-Whitney p-values and effect sizes."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n_samples = 100
 
         df = pd.DataFrame(
             {
                 "PROT_A": np.concatenate(
                     [
-                        np.random.normal(0, 1, n_samples // 2),
-                        np.random.normal(2, 1, n_samples // 2),  # Strong effect
+                        rng.normal(0, 1, n_samples // 2),
+                        rng.normal(2, 1, n_samples // 2),  # Strong effect
                     ]
                 ),
                 "PROT_B": np.concatenate(
                     [
-                        np.random.normal(0, 1, n_samples // 2),
-                        np.random.normal(0.2, 1, n_samples // 2),  # Weak effect
+                        rng.normal(0, 1, n_samples // 2),
+                        rng.normal(0.2, 1, n_samples // 2),  # Weak effect
                     ]
                 ),
             }
@@ -98,12 +98,12 @@ class TestPruneCorrelatedProteins:
 
     def test_no_correlation_all_kept(self):
         """Independent proteins should all be kept."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         df = pd.DataFrame(
             {
-                "A": np.random.normal(0, 1, 100),
-                "B": np.random.normal(0, 1, 100),
-                "C": np.random.normal(0, 1, 100),
+                "A": rng.normal(0, 1, 100),
+                "B": rng.normal(0, 1, 100),
+                "C": rng.normal(0, 1, 100),
             }
         )
         freqs = {"A": 0.9, "B": 0.8, "C": 0.7}
@@ -166,19 +166,19 @@ class TestPruneCorrelatedProteins:
 
     def test_tiebreak_by_univariate(self):
         """Tie-breaking by univariate strength when frequencies equal."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         df = pd.DataFrame(
             {
                 "A": np.concatenate(
                     [
-                        np.random.normal(0, 1, 20),
-                        np.random.normal(0.5, 1, 20),
+                        rng.normal(0, 1, 20),
+                        rng.normal(0.5, 1, 20),
                     ]  # Weak effect
                 ),
                 "B": np.concatenate(
                     [
-                        np.random.normal(0, 1, 20),
-                        np.random.normal(2.0, 1, 20),
+                        rng.normal(0, 1, 20),
+                        rng.normal(2.0, 1, 20),
                     ]  # Strong effect
                 ),
             }
@@ -241,14 +241,14 @@ class TestPruneAndRefillPanel:
 
     def test_basic_prune_and_refill(self):
         """Prune correlated proteins and backfill to target size."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         df = pd.DataFrame(
             {
                 "A": [1, 2, 3, 4, 5],
                 "B": [1.1, 2.1, 3.1, 4.1, 5.1],  # Positively correlated with A
-                "C": np.random.normal(0, 1, 5),  # Independent
-                "D": np.random.normal(10, 1, 5),  # Independent
-                "E": np.random.normal(20, 1, 5),  # Independent
+                "C": rng.normal(0, 1, 5),  # Independent
+                "D": rng.normal(10, 1, 5),  # Independent
+                "E": rng.normal(20, 1, 5),  # Independent
             }
         )
         ranked = ["A", "B", "C", "D", "E"]  # Pre-ranked by frequency
@@ -267,12 +267,12 @@ class TestPruneAndRefillPanel:
 
     def test_no_backfill_needed(self):
         """When pruning doesn't reduce size below target."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         df = pd.DataFrame(
             {
-                "A": np.random.normal(0, 1, 20),
-                "B": np.random.normal(10, 1, 20),  # Independent
-                "C": np.random.normal(20, 1, 20),  # Independent
+                "A": rng.normal(0, 1, 20),
+                "B": rng.normal(10, 1, 20),  # Independent
+                "C": rng.normal(20, 1, 20),  # Independent
             }
         )
         ranked = ["A", "B", "C"]
@@ -287,13 +287,13 @@ class TestPruneAndRefillPanel:
 
     def test_backfill_skips_correlated(self):
         """Backfill should skip candidates correlated with existing panel."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         df = pd.DataFrame(
             {
                 "A": [1, 2, 3, 4, 5, 6, 7, 8],
                 "B": [1.1, 2.1, 3.1, 4.1, 5.1, 6.1, 7.1, 8.1],  # Correlated with A
                 "C": [1.2, 2.2, 3.2, 4.2, 5.2, 6.2, 7.2, 8.2],  # Also correlated with A
-                "D": np.random.normal(100, 10, 8),  # Independent
+                "D": rng.normal(100, 10, 8),  # Independent
             }
         )
         ranked = ["A", "B", "C", "D"]
@@ -312,7 +312,8 @@ class TestPruneAndRefillPanel:
 
     def test_pool_limit_respected(self):
         """Should not consider candidates beyond pool_limit."""
-        df = pd.DataFrame({f"P{i}": np.random.normal(0, 1, 50) for i in range(20)})
+        rng = np.random.default_rng(42)
+        df = pd.DataFrame({f"P{i}": rng.normal(0, 1, 50) for i in range(20)})
         ranked = [f"P{i}" for i in range(20)]
         freqs = {f"P{i}": 1.0 - i * 0.01 for i in range(20)}
 
@@ -331,12 +332,12 @@ class TestPruneAndRefillPanel:
 
     def test_component_map_includes_backfilled(self):
         """Component map should document backfilled proteins."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         df = pd.DataFrame(
             {
                 "A": [1, 2, 3, 4, 5],
                 "B": [1.1, 2.1, 3.1, 4.1, 5.1],  # Correlated
-                "C": np.random.normal(100, 10, 5),  # Independent
+                "C": rng.normal(100, 10, 5),  # Independent
             }
         )
         ranked = ["A", "B", "C"]
@@ -362,9 +363,9 @@ class TestBuildMultiSizePanels:
 
     def test_multiple_panel_sizes(self):
         """Build panels of different sizes."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n_proteins = 50
-        df = pd.DataFrame({f"P{i}": np.random.normal(0, 1, 100) for i in range(n_proteins)})
+        df = pd.DataFrame({f"P{i}": rng.normal(0, 1, 100) for i in range(n_proteins)})
         freqs = {f"P{i}": 1.0 - i * 0.01 for i in range(n_proteins)}
 
         panels = build_multi_size_panels(
@@ -388,8 +389,8 @@ class TestBuildMultiSizePanels:
 
     def test_nested_panels(self):
         """Smaller panels should be subsets of larger panels (in ranked order)."""
-        np.random.seed(42)
-        df = pd.DataFrame({f"P{i}": np.random.normal(0, 1, 100) for i in range(30)})
+        rng = np.random.default_rng(42)
+        df = pd.DataFrame({f"P{i}": rng.normal(0, 1, 100) for i in range(30)})
         freqs = {f"P{i}": 1.0 - i * 0.01 for i in range(30)}
 
         panels = build_multi_size_panels(
@@ -443,7 +444,8 @@ class TestBuildMultiSizePanels:
 
     def test_panel_sizes_sorted(self):
         """Panel sizes should be processed in sorted order."""
-        df = pd.DataFrame({f"P{i}": np.random.normal(0, 1, 50) for i in range(20)})
+        rng = np.random.default_rng(42)
+        df = pd.DataFrame({f"P{i}": rng.normal(0, 1, 50) for i in range(20)})
         freqs = {f"P{i}": 1.0 - i * 0.01 for i in range(20)}
 
         panels = build_multi_size_panels(
@@ -465,22 +467,22 @@ class TestIntegration:
 
     def test_full_workflow(self):
         """Complete workflow: frequencies -> multi-size panels."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
 
         # Simulate TRAIN data
         df = pd.DataFrame(
             {
-                "PROT_A": np.random.normal(0, 1, 100),
-                "PROT_B": np.random.normal(0, 1, 100),
-                "PROT_C": np.random.normal(0, 1, 100),
-                "PROT_D": np.random.normal(0, 1, 100),
-                "PROT_E": np.random.normal(0, 1, 100),
+                "PROT_A": rng.normal(0, 1, 100),
+                "PROT_B": rng.normal(0, 1, 100),
+                "PROT_C": rng.normal(0, 1, 100),
+                "PROT_D": rng.normal(0, 1, 100),
+                "PROT_E": rng.normal(0, 1, 100),
             }
         )
         # Add correlation between A and B
-        df["PROT_B"] = df["PROT_A"] + np.random.normal(0, 0.1, 100)
+        df["PROT_B"] = df["PROT_A"] + rng.normal(0, 0.1, 100)
 
-        y = np.random.binomial(1, 0.3, 100)
+        y = rng.binomial(1, 0.3, 100)
 
         # Simulate selection frequencies from CV
         freqs = {
@@ -520,10 +522,10 @@ class TestIntegration:
 
     def test_realistic_sizes(self):
         """Test with realistic panel sizes (10, 25, 50, 100, 200)."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n_proteins = 500
 
-        df = pd.DataFrame({f"PROT_{i:03d}": np.random.normal(0, 1, 200) for i in range(n_proteins)})
+        df = pd.DataFrame({f"PROT_{i:03d}": rng.normal(0, 1, 200) for i in range(n_proteins)})
         freqs = {f"PROT_{i:03d}": 1.0 - i * 0.001 for i in range(n_proteins)}
 
         panels = build_multi_size_panels(

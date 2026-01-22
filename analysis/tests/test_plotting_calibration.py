@@ -29,37 +29,37 @@ from ced_ml.plotting.calibration import (
 @pytest.fixture
 def simple_predictions():
     """Create simple well-calibrated predictions for testing."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n = 500
     # Well-calibrated: probabilities match true outcomes
     probs = np.random.beta(2, 5, n)
-    y_true = (np.random.rand(n) < probs).astype(int)
+    y_true = (rng.random(n) < probs).astype(int)
     return y_true, probs
 
 
 @pytest.fixture
 def miscalibrated_predictions():
     """Create miscalibrated predictions (overconfident)."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n = 500
     true_probs = np.random.beta(2, 5, n)
     # Overconfident: predicted probs more extreme than true
     pred_probs = np.clip(true_probs * 1.5, 0, 1)
-    y_true = (np.random.rand(n) < true_probs).astype(int)
+    y_true = (rng.random(n) < true_probs).astype(int)
     return y_true, pred_probs
 
 
 @pytest.fixture
 def multi_split_predictions():
     """Create multi-split predictions for aggregation testing."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n_per_split = 200
     n_splits = 5
 
     y_list, p_list, split_ids = [], [], []
     for i in range(n_splits):
         probs = np.random.beta(2, 5, n_per_split)
-        y = (np.random.rand(n_per_split) < probs).astype(int)
+        y = (rng.random(n_per_split) < probs).astype(int)
         y_list.append(y)
         p_list.append(probs)
         split_ids.extend([i] * n_per_split)
@@ -120,8 +120,9 @@ class TestBinnedLogits:
 
     def test_all_one_class(self):
         """Test handling when all predictions are one class."""
+        rng = np.random.default_rng(42)
         y = np.ones(100)
-        p = np.random.rand(100) * 0.5 + 0.5  # All high probabilities
+        p = rng.random(100) * 0.5 + 0.5  # All high probabilities
         result = _binned_logits(y, p, n_bins=10)
 
         # Should still return valid result (with CIs)
@@ -392,8 +393,9 @@ class TestPlotCalibrationCurve:
 
     def test_edge_case_all_same_class(self):
         """Test handling when all predictions are same class."""
+        rng = np.random.default_rng(42)
         y_true = np.ones(100)
-        probs = np.random.rand(100) * 0.5 + 0.5
+        probs = rng.random(100) * 0.5 + 0.5
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "calibration_one_class.png"
@@ -429,7 +431,6 @@ class TestPlotCalibrationCurve:
 
     def test_small_sample(self):
         """Test with very small sample size."""
-        np.random.seed(42)
         y_true = np.array([0, 1, 0, 1, 1])
         probs = np.array([0.2, 0.8, 0.3, 0.7, 0.9])
 

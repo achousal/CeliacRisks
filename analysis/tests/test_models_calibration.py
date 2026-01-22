@@ -40,12 +40,12 @@ from sklearn.svm import LinearSVC
 
 def test_calibration_intercept_slope_perfect():
     """Perfect calibration should have intercept ~0 and slope ~1."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n = 1000
     # Create reasonable predicted probabilities
-    y_pred = np.random.uniform(0.1, 0.5, size=n)
+    y_pred = rng.uniform(0.1, 0.5, size=n)
     # Generate outcomes consistent with predictions
-    y_true = np.random.binomial(1, y_pred)
+    y_true = rng.binomial(1, y_pred)
 
     intercept, slope = calibration_intercept_slope(y_true, y_pred)
     # With logit-scale calibration, slope ~1 indicates good calibration
@@ -57,9 +57,9 @@ def test_calibration_intercept_slope_perfect():
 
 def test_calibration_intercept_slope_underconfident():
     """Underconfident predictions should have specific calibration characteristics."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n = 500
-    y_true = np.random.binomial(1, 0.5, size=n)
+    y_true = rng.binomial(1, 0.5, size=n)
     # Shrink predictions toward 0.5 (underconfident)
     y_pred = y_true * 0.3 + 0.35
 
@@ -72,8 +72,9 @@ def test_calibration_intercept_slope_underconfident():
 
 def test_calibration_intercept_slope_single_class():
     """Single class should return NaN."""
+    rng = np.random.default_rng(42)
     y_true = np.ones(100)
-    y_pred = np.random.uniform(0.3, 0.7, size=100)
+    y_pred = rng.uniform(0.3, 0.7, size=100)
 
     intercept, slope = calibration_intercept_slope(y_true, y_pred)
     assert np.isnan(intercept)
@@ -82,7 +83,6 @@ def test_calibration_intercept_slope_single_class():
 
 def test_calibration_intercept_slope_with_nans():
     """Should filter out NaN values."""
-    np.random.seed(42)
     y_true = np.array([0, 1, 0, 1, 0, 1, np.nan, 0, 1])
     y_pred = np.array([0.1, 0.9, 0.2, np.nan, 0.15, 0.85, 0.5, 0.1, 0.95])
 
@@ -93,9 +93,9 @@ def test_calibration_intercept_slope_with_nans():
 
 def test_calib_intercept_metric():
     """Test calibration intercept metric wrapper."""
-    np.random.seed(42)
-    y_true = np.random.binomial(1, 0.3, size=100)
-    y_pred = np.random.uniform(0.1, 0.5, size=100)
+    rng = np.random.default_rng(42)
+    y_true = rng.binomial(1, 0.3, size=100)
+    y_pred = rng.uniform(0.1, 0.5, size=100)
 
     metric = calib_intercept_metric(y_true, y_pred)
     intercept, _ = calibration_intercept_slope(y_true, y_pred)
@@ -105,9 +105,9 @@ def test_calib_intercept_metric():
 
 def test_calib_slope_metric():
     """Test calibration slope metric wrapper."""
-    np.random.seed(42)
-    y_true = np.random.binomial(1, 0.3, size=100)
-    y_pred = np.random.uniform(0.1, 0.5, size=100)
+    rng = np.random.default_rng(42)
+    y_true = rng.binomial(1, 0.3, size=100)
+    y_pred = rng.uniform(0.1, 0.5, size=100)
 
     metric = calib_slope_metric(y_true, y_pred)
     _, slope = calibration_intercept_slope(y_true, y_pred)
@@ -122,10 +122,10 @@ def test_calib_slope_metric():
 
 def test_expected_calibration_error_perfect():
     """Perfect calibration should have ECE near 0."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n = 1000
-    y_pred = np.random.uniform(0, 1, size=n)
-    y_true = np.random.binomial(1, y_pred)
+    y_pred = rng.uniform(0, 1, size=n)
+    y_true = rng.binomial(1, y_pred)
 
     ece = expected_calibration_error(y_true, y_pred, n_bins=10)
     assert 0.0 <= ece <= 0.15, f"Perfect calibration should have low ECE, got {ece}"
@@ -133,9 +133,9 @@ def test_expected_calibration_error_perfect():
 
 def test_expected_calibration_error_poor():
     """Poor calibration should have high ECE."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n = 500
-    y_true = np.random.binomial(1, 0.5, size=n)
+    y_true = rng.binomial(1, 0.5, size=n)
     # Completely miscalibrated: predict opposite
     y_pred = 1.0 - y_true.astype(float)
     y_pred = np.clip(y_pred, 0.01, 0.99)
@@ -170,8 +170,8 @@ def test_expected_calibration_error_empty():
 
 def test_adjust_probabilities_for_prevalence_shift_up():
     """Shifting to higher prevalence should increase probabilities."""
-    np.random.seed(42)
-    probs = np.random.uniform(0.1, 0.3, size=100)
+    rng = np.random.default_rng(42)
+    probs = rng.uniform(0.1, 0.3, size=100)
     sample_prev = 0.1
     target_prev = 0.3
 
@@ -183,8 +183,8 @@ def test_adjust_probabilities_for_prevalence_shift_up():
 
 def test_adjust_probabilities_for_prevalence_shift_down():
     """Shifting to lower prevalence should decrease probabilities."""
-    np.random.seed(42)
-    probs = np.random.uniform(0.3, 0.5, size=100)
+    rng = np.random.default_rng(42)
+    probs = rng.uniform(0.3, 0.5, size=100)
     sample_prev = 0.3
     target_prev = 0.1
 
@@ -196,8 +196,8 @@ def test_adjust_probabilities_for_prevalence_shift_down():
 
 def test_adjust_probabilities_for_prevalence_no_change():
     """Same prevalence should return nearly identical probabilities."""
-    np.random.seed(42)
-    probs = np.random.uniform(0.1, 0.5, size=100)
+    rng = np.random.default_rng(42)
+    probs = rng.uniform(0.1, 0.5, size=100)
     sample_prev = 0.2
     target_prev = 0.2
 
@@ -227,9 +227,9 @@ def test_adjust_probabilities_extreme_values():
 
 def test_prevalence_adjusted_model_fit():
     """Test fit method (should be no-op)."""
-    np.random.seed(42)
-    X_train = np.random.randn(100, 10)
-    y_train = np.random.binomial(1, 0.3, size=100)
+    rng = np.random.default_rng(42)
+    X_train = rng.standard_normal((100, 10))
+    y_train = rng.binomial(1, 0.3, size=100)
 
     base_model = LogisticRegression(random_state=42)
     base_model.fit(X_train, y_train)
@@ -242,10 +242,10 @@ def test_prevalence_adjusted_model_fit():
 
 def test_prevalence_adjusted_model_predict_proba():
     """Test adjusted probability predictions."""
-    np.random.seed(42)
-    X_train = np.random.randn(100, 10)
-    y_train = np.random.binomial(1, 0.3, size=100)
-    X_test = np.random.randn(20, 10)
+    rng = np.random.default_rng(42)
+    X_train = rng.standard_normal((100, 10))
+    y_train = rng.binomial(1, 0.3, size=100)
+    X_test = rng.standard_normal((20, 10))
 
     base_model = LogisticRegression(random_state=42)
     base_model.fit(X_train, y_train)
@@ -262,10 +262,10 @@ def test_prevalence_adjusted_model_predict_proba():
 
 def test_prevalence_adjusted_model_predict():
     """Test binary predictions."""
-    np.random.seed(42)
-    X_train = np.random.randn(100, 10)
-    y_train = np.random.binomial(1, 0.3, size=100)
-    X_test = np.random.randn(20, 10)
+    rng = np.random.default_rng(42)
+    X_train = rng.standard_normal((100, 10))
+    y_train = rng.binomial(1, 0.3, size=100)
+    X_test = rng.standard_normal((20, 10))
 
     base_model = LogisticRegression(random_state=42)
     base_model.fit(X_train, y_train)
@@ -361,11 +361,11 @@ def test_maybe_calibrate_estimator_isotonic():
 
 def test_full_calibration_workflow():
     """Test end-to-end calibration workflow."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
 
     # Generate toy data
     n = 200
-    X = np.random.randn(n, 5)
+    X = rng.standard_normal((n, 5))
     y = (X[:, 0] + X[:, 1] > 0).astype(int)
 
     # Split
@@ -404,15 +404,15 @@ def test_full_calibration_workflow():
 
 def test_calibration_with_perfect_separation():
     """Test calibration when classes are perfectly separated."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
 
     # Perfectly separable data
     X_train = np.vstack(
-        [np.random.randn(50, 2) - 3, np.random.randn(50, 2) + 3]  # Class 0  # Class 1
+        [rng.standard_normal((50, 2)) - 3, rng.standard_normal((50, 2)) + 3]  # Class 0  # Class 1
     )
     y_train = np.array([0] * 50 + [1] * 50)
 
-    X_test = np.vstack([np.random.randn(10, 2) - 3, np.random.randn(10, 2) + 3])
+    X_test = np.vstack([rng.standard_normal((10, 2)) - 3, rng.standard_normal((10, 2)) + 3])
     y_test = np.array([0] * 10 + [1] * 10)
 
     # Train model
@@ -460,10 +460,10 @@ class TestOOFCalibrator:
 
     def test_fit_isotonic(self):
         """Test OOFCalibrator fit with isotonic method."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n = 200
-        oof_preds = np.random.uniform(0.1, 0.9, size=n)
-        y_true = np.random.binomial(1, oof_preds)
+        oof_preds = rng.uniform(0.1, 0.9, size=n)
+        y_true = rng.binomial(1, oof_preds)
 
         calibrator = OOFCalibrator(method="isotonic")
         result = calibrator.fit(oof_preds, y_true)
@@ -474,10 +474,10 @@ class TestOOFCalibrator:
 
     def test_fit_sigmoid(self):
         """Test OOFCalibrator fit with sigmoid method."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n = 200
-        oof_preds = np.random.uniform(0.1, 0.9, size=n)
-        y_true = np.random.binomial(1, oof_preds)
+        oof_preds = rng.uniform(0.1, 0.9, size=n)
+        y_true = rng.binomial(1, oof_preds)
 
         calibrator = OOFCalibrator(method="sigmoid")
         result = calibrator.fit(oof_preds, y_true)
@@ -497,8 +497,8 @@ class TestOOFCalibrator:
 
     def test_fit_single_class(self):
         """Test OOFCalibrator raises error for single class."""
-        np.random.seed(42)
-        oof_preds = np.random.uniform(0.1, 0.9, size=100)
+        rng = np.random.default_rng(42)
+        oof_preds = rng.uniform(0.1, 0.9, size=100)
         y_true = np.zeros(100)  # All same class
 
         calibrator = OOFCalibrator(method="isotonic")
@@ -516,10 +516,10 @@ class TestOOFCalibrator:
 
     def test_fit_with_nans(self):
         """Test OOFCalibrator handles NaN values correctly."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n = 200
-        oof_preds = np.random.uniform(0.1, 0.9, size=n)
-        y_true = np.random.binomial(1, oof_preds).astype(float)  # Convert to float for NaN
+        oof_preds = rng.uniform(0.1, 0.9, size=n)
+        y_true = rng.binomial(1, oof_preds).astype(float)  # Convert to float for NaN
 
         # Add some NaN values
         oof_preds[10:15] = np.nan
@@ -532,10 +532,10 @@ class TestOOFCalibrator:
 
     def test_transform_isotonic(self):
         """Test OOFCalibrator transform with isotonic method."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n = 200
-        oof_preds = np.random.uniform(0.1, 0.9, size=n)
-        y_true = np.random.binomial(1, oof_preds)
+        oof_preds = rng.uniform(0.1, 0.9, size=n)
+        y_true = rng.binomial(1, oof_preds)
 
         calibrator = OOFCalibrator(method="isotonic")
         calibrator.fit(oof_preds, y_true)
@@ -549,10 +549,10 @@ class TestOOFCalibrator:
 
     def test_transform_sigmoid(self):
         """Test OOFCalibrator transform with sigmoid method."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n = 200
-        oof_preds = np.random.uniform(0.1, 0.9, size=n)
-        y_true = np.random.binomial(1, oof_preds)
+        oof_preds = rng.uniform(0.1, 0.9, size=n)
+        y_true = rng.binomial(1, oof_preds)
 
         calibrator = OOFCalibrator(method="sigmoid")
         calibrator.fit(oof_preds, y_true)
@@ -579,9 +579,9 @@ class TestOOFCalibrator:
         assert "not fitted" in repr(calibrator)
 
         # After fitting
-        np.random.seed(42)
-        oof_preds = np.random.uniform(0.1, 0.9, size=100)
-        y_true = np.random.binomial(1, oof_preds)
+        rng = np.random.default_rng(42)
+        oof_preds = rng.uniform(0.1, 0.9, size=100)
+        y_true = rng.binomial(1, oof_preds)
         calibrator.fit(oof_preds, y_true)
 
         assert "fitted" in repr(calibrator)
@@ -593,9 +593,9 @@ class TestOOFCalibratedModel:
 
     def test_init(self):
         """Test OOFCalibratedModel initialization."""
-        np.random.seed(42)
-        X = np.random.randn(100, 5)
-        y = np.random.binomial(1, 0.3, size=100)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((100, 5))
+        y = rng.binomial(1, 0.3, size=100)
 
         # Train base model
         base_model = LogisticRegression(random_state=42)
@@ -614,9 +614,9 @@ class TestOOFCalibratedModel:
 
     def test_init_unfitted_calibrator(self):
         """Test OOFCalibratedModel raises error for unfitted calibrator."""
-        np.random.seed(42)
-        X = np.random.randn(100, 5)
-        y = np.random.binomial(1, 0.3, size=100)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((100, 5))
+        y = rng.binomial(1, 0.3, size=100)
 
         base_model = LogisticRegression(random_state=42)
         base_model.fit(X, y)
@@ -630,9 +630,9 @@ class TestOOFCalibratedModel:
         """Test OOFCalibratedModel raises error for model without predict_proba."""
         from sklearn.svm import LinearSVC
 
-        np.random.seed(42)
-        X = np.random.randn(100, 5)
-        y = np.random.binomial(1, 0.3, size=100)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((100, 5))
+        y = rng.binomial(1, 0.3, size=100)
 
         # LinearSVC does not have predict_proba by default
         base_model = LinearSVC(random_state=42)
@@ -640,7 +640,7 @@ class TestOOFCalibratedModel:
 
         # Create fitted calibrator
         calibrator = OOFCalibrator(method="isotonic")
-        oof_preds = np.random.uniform(0.1, 0.9, size=100)
+        oof_preds = rng.uniform(0.1, 0.9, size=100)
         calibrator.fit(oof_preds, y)
 
         with pytest.raises(ValueError, match="predict_proba"):
@@ -648,10 +648,10 @@ class TestOOFCalibratedModel:
 
     def test_predict_proba(self):
         """Test OOFCalibratedModel predict_proba returns calibrated probabilities."""
-        np.random.seed(42)
-        X_train = np.random.randn(200, 5)
-        y_train = np.random.binomial(1, 0.3, size=200)
-        X_test = np.random.randn(50, 5)
+        rng = np.random.default_rng(42)
+        X_train = rng.standard_normal((200, 5))
+        y_train = rng.binomial(1, 0.3, size=200)
+        X_test = rng.standard_normal((50, 5))
 
         # Train base model
         base_model = LogisticRegression(random_state=42)
@@ -676,10 +676,10 @@ class TestOOFCalibratedModel:
 
     def test_predict(self):
         """Test OOFCalibratedModel predict returns binary predictions."""
-        np.random.seed(42)
-        X_train = np.random.randn(200, 5)
-        y_train = np.random.binomial(1, 0.3, size=200)
-        X_test = np.random.randn(50, 5)
+        rng = np.random.default_rng(42)
+        X_train = rng.standard_normal((200, 5))
+        y_train = rng.binomial(1, 0.3, size=200)
+        X_test = rng.standard_normal((50, 5))
 
         # Train base model
         base_model = LogisticRegression(random_state=42)
@@ -701,9 +701,9 @@ class TestOOFCalibratedModel:
 
     def test_repr(self):
         """Test OOFCalibratedModel string representation."""
-        np.random.seed(42)
-        X = np.random.randn(100, 5)
-        y = np.random.binomial(1, 0.3, size=100)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((100, 5))
+        y = rng.binomial(1, 0.3, size=100)
 
         base_model = LogisticRegression(random_state=42)
         base_model.fit(X, y)
@@ -723,10 +723,10 @@ class TestOOFCalibrationHelpers:
 
     def test_fit_oof_calibrator(self):
         """Test fit_oof_calibrator convenience function."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n = 200
-        oof_preds = np.random.uniform(0.1, 0.9, size=n)
-        y_true = np.random.binomial(1, oof_preds)
+        oof_preds = rng.uniform(0.1, 0.9, size=n)
+        y_true = rng.binomial(1, oof_preds)
 
         calibrator = fit_oof_calibrator(oof_preds, y_true, method="isotonic")
 
@@ -736,10 +736,10 @@ class TestOOFCalibrationHelpers:
 
     def test_apply_oof_calibrator(self):
         """Test apply_oof_calibrator convenience function."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n = 200
-        oof_preds = np.random.uniform(0.1, 0.9, size=n)
-        y_true = np.random.binomial(1, oof_preds)
+        oof_preds = rng.uniform(0.1, 0.9, size=n)
+        y_true = rng.binomial(1, oof_preds)
 
         calibrator = fit_oof_calibrator(oof_preds, y_true, method="isotonic")
 
@@ -756,13 +756,13 @@ class TestOOFCalibrationIntegration:
 
     def test_full_oof_calibration_workflow(self):
         """Test complete OOF calibration workflow with train/test split."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
 
         # Generate data
         n = 300
-        X = np.random.randn(n, 10)
+        X = rng.standard_normal((n, 10))
         # Create outcome with moderate correlation to features
-        y = ((X[:, 0] + X[:, 1] + np.random.randn(n) * 0.5) > 0).astype(int)
+        y = ((X[:, 0] + X[:, 1] + rng.standard_normal(n) * 0.5) > 0).astype(int)
 
         # Split
         train_idx = np.arange(200)
@@ -802,14 +802,14 @@ class TestOOFCalibrationIntegration:
 
     def test_oof_calibration_improves_calibration(self):
         """Test that OOF calibration can improve calibration metrics."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
 
         # Generate data with a bit of miscalibration
         n = 500
-        X = np.random.randn(n, 5)
+        X = rng.standard_normal((n, 5))
         # True probabilities
         true_proba = 1 / (1 + np.exp(-(X[:, 0] + X[:, 1])))
-        y = np.random.binomial(1, true_proba)
+        y = rng.binomial(1, true_proba)
 
         # Split
         train_idx = np.arange(400)
@@ -849,10 +849,10 @@ class TestOOFCalibrationIntegration:
 
     def test_oof_calibration_with_random_forest(self):
         """Test OOF calibration with Random Forest model."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
 
         n = 300
-        X = np.random.randn(n, 10)
+        X = rng.standard_normal((n, 10))
         y = ((X[:, 0] + X[:, 1]) > 0).astype(int)
 
         train_idx = np.arange(200)

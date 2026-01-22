@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 from ced_ml.data.persistence import (
     check_split_files_exist,
+    load_split_metadata,
     save_holdout_indices,
     save_holdout_metadata,
     save_split_indices,
@@ -648,7 +649,7 @@ def test_save_split_metadata_temporal(temp_outdir, valid_split, valid_labels):
 
 
 def test_save_holdout_indices(temp_outdir):
-    """Test saving holdout indices."""
+    """Test saving holdout indices with scenario-specific naming."""
     holdout_idx = np.array([95, 96, 97, 98, 99])
 
     holdout_path = save_holdout_indices(
@@ -658,7 +659,8 @@ def test_save_holdout_indices(temp_outdir):
     )
 
     assert os.path.exists(holdout_path)
-    assert holdout_path.endswith("HOLDOUT_idx.csv")
+    # Now includes scenario in filename to prevent overwrites
+    assert holdout_path.endswith("HOLDOUT_idx_IncidentOnly.csv")
 
     # Check content
     holdout_df = np.loadtxt(holdout_path, delimiter=",", skiprows=1, dtype=int)
@@ -685,7 +687,7 @@ def test_save_holdout_indices_raises_on_existing(temp_outdir):
 
 
 def test_save_holdout_metadata(temp_outdir):
-    """Test saving holdout metadata."""
+    """Test saving holdout metadata with scenario-specific naming."""
     holdout_idx = np.array([95, 96, 97, 98, 99])
     y_holdout = np.array([0, 0, 1, 1, 0])
 
@@ -699,7 +701,8 @@ def test_save_holdout_metadata(temp_outdir):
     )
 
     assert os.path.exists(meta_path)
-    assert meta_path.endswith("HOLDOUT_meta.json")
+    # Now includes scenario in filename to prevent overwrites
+    assert meta_path.endswith("HOLDOUT_meta_IncidentOnly.json")
 
     with open(meta_path) as f:
         meta = json.load(f)
@@ -739,6 +742,186 @@ def test_save_holdout_metadata_temporal(temp_outdir):
     assert meta["temporal_col"] == "CeD_date"
     assert meta["temporal_start_value"] == "2021-01-01"
     assert meta["temporal_end_value"] == "2021-12-31"
+
+
+def test_save_holdout_indices_with_model_and_seed(temp_outdir):
+    """Test holdout indices with model name and split seed in filename."""
+    holdout_idx = np.array([95, 96, 97, 98, 99])
+
+    holdout_path = save_holdout_indices(
+        outdir=temp_outdir,
+        scenario="IncidentOnly",
+        holdout_idx=holdout_idx,
+        model_name="LR_EN",
+        split_seed=42,
+    )
+
+    assert os.path.exists(holdout_path)
+    # Filename includes scenario, model, and seed
+    assert holdout_path.endswith("HOLDOUT_idx_IncidentOnly_LR_EN_seed42.csv")
+
+    # Check content
+    holdout_df = np.loadtxt(holdout_path, delimiter=",", skiprows=1, dtype=int)
+    np.testing.assert_array_equal(holdout_df, np.sort(holdout_idx))
+
+
+def test_save_holdout_indices_with_run_id(temp_outdir):
+    """Test holdout indices with run_id for unique timestamped files."""
+    holdout_idx = np.array([95, 96, 97, 98, 99])
+
+    holdout_path = save_holdout_indices(
+        outdir=temp_outdir,
+        scenario="IncidentOnly",
+        holdout_idx=holdout_idx,
+        run_id="20260122_143022",
+    )
+
+    assert os.path.exists(holdout_path)
+    # Filename includes scenario and run_id
+    assert holdout_path.endswith("HOLDOUT_idx_IncidentOnly_20260122_143022.csv")
+
+
+def test_save_holdout_indices_full_naming(temp_outdir):
+    """Test holdout indices with all optional naming parameters."""
+    holdout_idx = np.array([95, 96, 97, 98, 99])
+
+    holdout_path = save_holdout_indices(
+        outdir=temp_outdir,
+        scenario="IncidentPlusPrevalent",
+        holdout_idx=holdout_idx,
+        model_name="XGBoost",
+        split_seed=0,
+        run_id="run001",
+    )
+
+    assert os.path.exists(holdout_path)
+    # Filename includes all parts
+    assert holdout_path.endswith("HOLDOUT_idx_IncidentPlusPrevalent_XGBoost_seed0_run001.csv")
+
+
+def test_save_holdout_indices_no_overwrite_different_scenarios(temp_outdir):
+    """Test that different scenarios do not overwrite each other."""
+    holdout_idx = np.array([95, 96, 97, 98, 99])
+
+    # Save for scenario 1
+    path1 = save_holdout_indices(
+        outdir=temp_outdir,
+        scenario="IncidentOnly",
+        holdout_idx=holdout_idx,
+    )
+
+    # Save for scenario 2 (should not overwrite)
+    path2 = save_holdout_indices(
+        outdir=temp_outdir,
+        scenario="IncidentPlusPrevalent",
+        holdout_idx=holdout_idx,
+    )
+
+    assert path1 != path2
+    assert os.path.exists(path1)
+    assert os.path.exists(path2)
+
+
+def test_save_holdout_metadata_with_model_and_seed(temp_outdir):
+    """Test holdout metadata with model name and split seed in filename."""
+    holdout_idx = np.array([95, 96, 97, 98, 99])
+    y_holdout = np.array([0, 0, 1, 1, 0])
+
+    meta_path = save_holdout_metadata(
+        outdir=temp_outdir,
+        scenario="IncidentOnly",
+        holdout_idx=holdout_idx,
+        y_holdout=y_holdout,
+        model_name="LR_EN",
+        split_seed=42,
+    )
+
+    assert os.path.exists(meta_path)
+    # Filename includes scenario, model, and seed
+    assert meta_path.endswith("HOLDOUT_meta_IncidentOnly_LR_EN_seed42.json")
+
+    with open(meta_path) as f:
+        meta = json.load(f)
+
+    # Check that identifiers are stored in metadata for traceability
+    assert meta["model_name"] == "LR_EN"
+    assert meta["split_seed"] == 42
+
+
+def test_save_holdout_metadata_with_run_id(temp_outdir):
+    """Test holdout metadata with run_id for unique timestamped files."""
+    holdout_idx = np.array([95, 96, 97, 98, 99])
+    y_holdout = np.array([0, 0, 1, 1, 0])
+
+    meta_path = save_holdout_metadata(
+        outdir=temp_outdir,
+        scenario="IncidentOnly",
+        holdout_idx=holdout_idx,
+        y_holdout=y_holdout,
+        run_id="20260122_143022",
+    )
+
+    assert os.path.exists(meta_path)
+    # Filename includes scenario and run_id
+    assert meta_path.endswith("HOLDOUT_meta_IncidentOnly_20260122_143022.json")
+
+    with open(meta_path) as f:
+        meta = json.load(f)
+
+    assert meta["run_id"] == "20260122_143022"
+
+
+def test_save_holdout_metadata_full_naming(temp_outdir):
+    """Test holdout metadata with all optional naming parameters."""
+    holdout_idx = np.array([95, 96, 97, 98, 99])
+    y_holdout = np.array([0, 0, 1, 1, 0])
+
+    meta_path = save_holdout_metadata(
+        outdir=temp_outdir,
+        scenario="IncidentPlusPrevalent",
+        holdout_idx=holdout_idx,
+        y_holdout=y_holdout,
+        model_name="XGBoost",
+        split_seed=0,
+        run_id="run001",
+    )
+
+    assert os.path.exists(meta_path)
+    # Filename includes all parts
+    assert meta_path.endswith("HOLDOUT_meta_IncidentPlusPrevalent_XGBoost_seed0_run001.json")
+
+    with open(meta_path) as f:
+        meta = json.load(f)
+
+    assert meta["model_name"] == "XGBoost"
+    assert meta["split_seed"] == 0
+    assert meta["run_id"] == "run001"
+
+
+def test_save_holdout_metadata_no_overwrite_different_scenarios(temp_outdir):
+    """Test that different scenarios do not overwrite each other."""
+    holdout_idx = np.array([95, 96, 97, 98, 99])
+    y_holdout = np.array([0, 0, 1, 1, 0])
+
+    # Save for scenario 1
+    path1 = save_holdout_metadata(
+        outdir=temp_outdir,
+        scenario="IncidentOnly",
+        holdout_idx=holdout_idx,
+        y_holdout=y_holdout,
+    )
+
+    # Save for scenario 2 (should not overwrite)
+    path2 = save_holdout_metadata(
+        outdir=temp_outdir,
+        scenario="IncidentPlusPrevalent",
+        holdout_idx=holdout_idx,
+        y_holdout=y_holdout,
+    )
+
+    assert path1 != path2
+    assert os.path.exists(path1)
+    assert os.path.exists(path2)
 
 
 # ============================================================================
@@ -789,3 +972,61 @@ def test_full_split_persistence_workflow(temp_outdir, valid_split, valid_labels)
     )
     assert exists
     assert len(existing) == 4  # train, val, test, metadata
+
+
+# ============================================================================
+# Load Split Metadata Tests
+# ============================================================================
+
+
+def test_load_split_metadata_returns_dict(temp_outdir, valid_split, valid_labels):
+    """Test loading split metadata returns correct dict."""
+    # Save metadata first
+    save_split_metadata(
+        outdir=temp_outdir,
+        scenario="IncidentOnly",
+        seed=42,
+        train_idx=valid_split["train"],
+        test_idx=valid_split["test"],
+        y_train=valid_labels["y_train"],
+        y_test=valid_labels["y_test"],
+        row_filter_stats={"meta_num_cols_used": ["age", "BMI"]},
+    )
+
+    # Load and verify
+    meta = load_split_metadata(temp_outdir, "IncidentOnly", 42)
+    assert meta is not None
+    assert meta["scenario"] == "IncidentOnly"
+    assert meta["seed"] == 42
+    assert meta["row_filters"]["meta_num_cols_used"] == ["age", "BMI"]
+
+
+def test_load_split_metadata_missing_file(temp_outdir):
+    """Test loading missing metadata returns None."""
+    meta = load_split_metadata(temp_outdir, "NonExistent", 99)
+    assert meta is None
+
+
+def test_load_split_metadata_preserves_row_filter_cols(temp_outdir, valid_split, valid_labels):
+    """Test row filter columns are preserved in round-trip."""
+    row_filters = {
+        "meta_num_cols_used": ["age", "BMI", "custom_col"],
+        "n_removed_uncertain_controls": 5,
+        "n_removed_dropna_meta_num": 10,
+    }
+
+    save_split_metadata(
+        outdir=temp_outdir,
+        scenario="TestScenario",
+        seed=0,
+        train_idx=valid_split["train"],
+        test_idx=valid_split["test"],
+        y_train=valid_labels["y_train"],
+        y_test=valid_labels["y_test"],
+        row_filter_stats=row_filters,
+    )
+
+    meta = load_split_metadata(temp_outdir, "TestScenario", 0)
+    assert meta["row_filters"]["meta_num_cols_used"] == ["age", "BMI", "custom_col"]
+    assert meta["row_filters"]["n_removed_uncertain_controls"] == 5
+    assert meta["row_filters"]["n_removed_dropna_meta_num"] == 10

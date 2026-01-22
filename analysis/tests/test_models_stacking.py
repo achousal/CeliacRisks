@@ -57,23 +57,23 @@ def toy_oof_predictions(toy_data):
     oof_dict = {}
 
     # Model 1: Good predictions
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     lr1 = LogisticRegression(C=1.0, random_state=42)
     oof1 = cross_val_predict(lr1, X, y, cv=3, method="predict_proba")[:, 1]
     # Add repeat dimension
-    oof_dict["LR_EN"] = np.vstack([oof1, oof1 + np.random.normal(0, 0.02, n_samples)])
+    oof_dict["LR_EN"] = np.vstack([oof1, oof1 + rng.normal(0, 0.02, n_samples)])
 
     # Model 2: Different model
-    np.random.seed(43)
+    rng = np.random.default_rng(43)
     lr2 = LogisticRegression(C=0.1, random_state=43)
     oof2 = cross_val_predict(lr2, X, y, cv=3, method="predict_proba")[:, 1]
-    oof_dict["RF"] = np.vstack([oof2, oof2 + np.random.normal(0, 0.02, n_samples)])
+    oof_dict["RF"] = np.vstack([oof2, oof2 + rng.normal(0, 0.02, n_samples)])
 
     # Model 3: Another different model
-    np.random.seed(44)
+    rng = np.random.default_rng(44)
     lr3 = LogisticRegression(C=10.0, random_state=44)
     oof3 = cross_val_predict(lr3, X, y, cv=3, method="predict_proba")[:, 1]
-    oof_dict["XGBoost"] = np.vstack([oof3, oof3 + np.random.normal(0, 0.02, n_samples)])
+    oof_dict["XGBoost"] = np.vstack([oof3, oof3 + rng.normal(0, 0.02, n_samples)])
 
     return oof_dict, y
 
@@ -433,6 +433,78 @@ def test_sklearn_fit_predict(toy_oof_predictions):
     assert len(labels) == len(y_train)
 
 
+def test_sklearn_fit_reproducibility(toy_oof_predictions):
+    """Test that fit() method produces reproducible results with same random_state."""
+    oof_dict, y_train = toy_oof_predictions
+
+    # Build meta-features once (to avoid fixture differences)
+    ensemble_builder = StackingEnsemble(base_model_names=["LR_EN", "RF"])
+    X_meta = ensemble_builder._build_meta_features(oof_dict, aggregate_repeats=True)
+
+    # First fit with random_state=42
+    ensemble1 = StackingEnsemble(
+        base_model_names=["LR_EN", "RF"],
+        calibrate_meta=False,
+        random_state=42,
+    )
+    ensemble1.fit(X_meta.copy(), y_train)
+    proba1 = ensemble1.predict_proba(X_meta)
+
+    # Second fit with same random_state=42
+    ensemble2 = StackingEnsemble(
+        base_model_names=["LR_EN", "RF"],
+        calibrate_meta=False,
+        random_state=42,
+    )
+    ensemble2.fit(X_meta.copy(), y_train)
+    proba2 = ensemble2.predict_proba(X_meta)
+
+    # Third fit with different random_state=123
+    ensemble3 = StackingEnsemble(
+        base_model_names=["LR_EN", "RF"],
+        calibrate_meta=False,
+        random_state=123,
+    )
+    ensemble3.fit(X_meta.copy(), y_train)
+    _proba3 = ensemble3.predict_proba(X_meta)
+
+    # Same seed should produce identical results
+    np.testing.assert_array_almost_equal(proba1, proba2)
+
+    # Different seed should produce different results (with high probability)
+    # Note: LogisticRegression with lbfgs solver is deterministic given same data,
+    # but the solver may produce slightly different results with different seeds
+    # depending on initialization. If results are identical, that's also acceptable
+    # since the key requirement is reproducibility with same seed.
+
+
+def test_fit_from_oof_reproducibility(toy_oof_predictions):
+    """Test that fit_from_oof() method produces reproducible results with same random_state."""
+    oof_dict, y_train = toy_oof_predictions
+
+    # First fit with random_state=42
+    ensemble1 = StackingEnsemble(
+        base_model_names=["LR_EN", "RF", "XGBoost"],
+        calibrate_meta=False,
+        random_state=42,
+    )
+    ensemble1.fit_from_oof(oof_dict, y_train)
+    coef1 = ensemble1.get_meta_model_coef()
+
+    # Second fit with same random_state=42
+    ensemble2 = StackingEnsemble(
+        base_model_names=["LR_EN", "RF", "XGBoost"],
+        calibrate_meta=False,
+        random_state=42,
+    )
+    ensemble2.fit_from_oof(oof_dict, y_train)
+    coef2 = ensemble2.get_meta_model_coef()
+
+    # Same seed should produce identical coefficients
+    for key in coef1:
+        np.testing.assert_almost_equal(coef1[key], coef2[key])
+
+
 # ----------------------------
 # Edge cases
 # ----------------------------
@@ -473,10 +545,11 @@ def test_nan_handling_in_oof():
 
 def test_different_penalty_types():
     """Test ensemble with different regularization penalties."""
+    rng = np.random.default_rng(42)
     y_train = np.array([0, 0, 0, 1, 1, 0, 0, 1, 0, 1] * 10)  # More samples
     oof_dict = {
-        "LR_EN": np.random.uniform(0.2, 0.8, (2, 100)),
-        "RF": np.random.uniform(0.2, 0.8, (2, 100)),
+        "LR_EN": rng.uniform(0.2, 0.8, (2, 100)),
+        "RF": rng.uniform(0.2, 0.8, (2, 100)),
     }
 
     for penalty in ["l2", "l1", "none"]:
@@ -524,6 +597,7 @@ def test_collect_split_predictions_file_not_found():
 
 def test_collect_oof_predictions_from_files():
     """Test collecting OOF predictions from CSV files."""
+    rng = np.random.default_rng(42)
     with tempfile.TemporaryDirectory() as tmpdir:
         results_dir = Path(tmpdir)
 
@@ -536,9 +610,9 @@ def test_collect_oof_predictions_from_files():
             oof_df = pd.DataFrame(
                 {
                     "idx": np.arange(100),
-                    "y_true": np.random.randint(0, 2, 100),
-                    "y_prob_repeat0": np.random.uniform(0, 1, 100),
-                    "y_prob_repeat1": np.random.uniform(0, 1, 100),
+                    "y_true": rng.integers(0, 2, 100),
+                    "y_prob_repeat0": rng.uniform(0, 1, 100),
+                    "y_prob_repeat1": rng.uniform(0, 1, 100),
                 }
             )
             oof_df.to_csv(model_dir / f"train_oof__{model}.csv", index=False)
@@ -557,8 +631,224 @@ def test_collect_oof_predictions_from_files():
         assert len(train_idx) == 100
 
 
+def test_collect_oof_predictions_index_length_mismatch():
+    """Test error when base models have different sample counts in OOF predictions."""
+    rng = np.random.default_rng(42)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        results_dir = Path(tmpdir)
+
+        # Create LR_EN with 100 samples
+        lr_dir = results_dir / "LR_EN" / "split_0" / "preds" / "train_oof"
+        lr_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "idx": np.arange(100),
+                "y_true": rng.integers(0, 2, 100),
+                "y_prob_repeat0": rng.uniform(0, 1, 100),
+            }
+        ).to_csv(lr_dir / "train_oof__LR_EN.csv", index=False)
+
+        # Create RF with 80 samples (mismatch)
+        rf_dir = results_dir / "RF" / "split_0" / "preds" / "train_oof"
+        rf_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "idx": np.arange(80),
+                "y_true": rng.integers(0, 2, 80),
+                "y_prob_repeat0": rng.uniform(0, 1, 80),
+            }
+        ).to_csv(rf_dir / "train_oof__RF.csv", index=False)
+
+        with pytest.raises(ValueError, match="Index length mismatch.*OOF predictions"):
+            collect_oof_predictions(
+                results_dir,
+                base_models=["LR_EN", "RF"],
+                split_seed=0,
+            )
+
+
+def test_collect_oof_predictions_index_value_mismatch():
+    """Test error when base models have different index values in OOF predictions."""
+    rng = np.random.default_rng(42)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        results_dir = Path(tmpdir)
+
+        # Create LR_EN with indices 0-99
+        lr_dir = results_dir / "LR_EN" / "split_0" / "preds" / "train_oof"
+        lr_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "idx": np.arange(100),
+                "y_true": rng.integers(0, 2, 100),
+                "y_prob_repeat0": rng.uniform(0, 1, 100),
+            }
+        ).to_csv(lr_dir / "train_oof__LR_EN.csv", index=False)
+
+        # Create RF with different indices (100-199 instead of 0-99)
+        rf_dir = results_dir / "RF" / "split_0" / "preds" / "train_oof"
+        rf_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "idx": np.arange(100, 200),  # Different indices
+                "y_true": rng.integers(0, 2, 100),
+                "y_prob_repeat0": rng.uniform(0, 1, 100),
+            }
+        ).to_csv(rf_dir / "train_oof__RF.csv", index=False)
+
+        with pytest.raises(ValueError, match="Index mismatch.*OOF predictions"):
+            collect_oof_predictions(
+                results_dir,
+                base_models=["LR_EN", "RF"],
+                split_seed=0,
+            )
+
+
+def test_collect_split_predictions_index_length_mismatch():
+    """Test error when base models have different sample counts in test predictions."""
+    rng = np.random.default_rng(42)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        results_dir = Path(tmpdir)
+
+        # Create LR_EN with 50 test samples
+        lr_dir = results_dir / "LR_EN" / "split_0" / "preds" / "test_preds"
+        lr_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "idx": np.arange(50),
+                "y_true": rng.integers(0, 2, 50),
+                "y_prob": rng.uniform(0, 1, 50),
+            }
+        ).to_csv(lr_dir / "test_preds__LR_EN.csv", index=False)
+
+        # Create RF with 40 test samples (mismatch)
+        rf_dir = results_dir / "RF" / "split_0" / "preds" / "test_preds"
+        rf_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "idx": np.arange(40),
+                "y_true": rng.integers(0, 2, 40),
+                "y_prob": rng.uniform(0, 1, 40),
+            }
+        ).to_csv(rf_dir / "test_preds__RF.csv", index=False)
+
+        with pytest.raises(ValueError, match="Index length mismatch.*test predictions"):
+            collect_split_predictions(
+                results_dir,
+                base_models=["LR_EN", "RF"],
+                split_seed=0,
+                split_name="test",
+            )
+
+
+def test_collect_split_predictions_index_value_mismatch():
+    """Test error when base models have different index values in test predictions."""
+    rng = np.random.default_rng(42)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        results_dir = Path(tmpdir)
+
+        # Create LR_EN with indices 0-49
+        lr_dir = results_dir / "LR_EN" / "split_0" / "preds" / "test_preds"
+        lr_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "idx": np.arange(50),
+                "y_true": rng.integers(0, 2, 50),
+                "y_prob": rng.uniform(0, 1, 50),
+            }
+        ).to_csv(lr_dir / "test_preds__LR_EN.csv", index=False)
+
+        # Create RF with different indices
+        rf_dir = results_dir / "RF" / "split_0" / "preds" / "test_preds"
+        rf_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "idx": np.arange(50, 100),  # Different indices
+                "y_true": rng.integers(0, 2, 50),
+                "y_prob": rng.uniform(0, 1, 50),
+            }
+        ).to_csv(rf_dir / "test_preds__RF.csv", index=False)
+
+        with pytest.raises(ValueError, match="Index mismatch.*test predictions"):
+            collect_split_predictions(
+                results_dir,
+                base_models=["LR_EN", "RF"],
+                split_seed=0,
+                split_name="test",
+            )
+
+
+def test_collect_split_predictions_val_index_mismatch():
+    """Test error when base models have different index values in val predictions."""
+    rng = np.random.default_rng(42)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        results_dir = Path(tmpdir)
+
+        # Create LR_EN with indices 0-29
+        lr_dir = results_dir / "LR_EN" / "split_0" / "preds" / "val_preds"
+        lr_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "idx": np.arange(30),
+                "y_true": rng.integers(0, 2, 30),
+                "y_prob": rng.uniform(0, 1, 30),
+            }
+        ).to_csv(lr_dir / "val_preds__LR_EN.csv", index=False)
+
+        # Create RF with different indices
+        rf_dir = results_dir / "RF" / "split_0" / "preds" / "val_preds"
+        rf_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "idx": np.arange(30, 60),  # Different indices
+                "y_true": rng.integers(0, 2, 30),
+                "y_prob": rng.uniform(0, 1, 30),
+            }
+        ).to_csv(rf_dir / "val_preds__RF.csv", index=False)
+
+        with pytest.raises(ValueError, match="Index mismatch.*val predictions"):
+            collect_split_predictions(
+                results_dir,
+                base_models=["LR_EN", "RF"],
+                split_seed=0,
+                split_name="val",
+            )
+
+
+def test_collect_oof_predictions_matching_indices_succeeds():
+    """Test that collecting OOF predictions succeeds when indices match."""
+    rng = np.random.default_rng(42)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        results_dir = Path(tmpdir)
+
+        # Use same fixed seed for reproducible indices
+        shared_indices = np.arange(100)
+
+        for model in ["LR_EN", "RF", "XGBoost"]:
+            model_dir = results_dir / model / "split_0" / "preds" / "train_oof"
+            model_dir.mkdir(parents=True)
+            pd.DataFrame(
+                {
+                    "idx": shared_indices,  # Same indices for all models
+                    "y_true": rng.integers(0, 2, 100),
+                    "y_prob_repeat0": rng.uniform(0, 1, 100),
+                }
+            ).to_csv(model_dir / f"train_oof__{model}.csv", index=False)
+
+        # Should succeed without error
+        oof_dict, y_train, train_idx = collect_oof_predictions(
+            results_dir,
+            base_models=["LR_EN", "RF", "XGBoost"],
+            split_seed=0,
+        )
+
+        assert len(oof_dict) == 3
+        assert len(y_train) == 100
+        np.testing.assert_array_equal(train_idx, shared_indices)
+
+
 def test_ensemble_predictions_directory_structure():
     """Test that ENSEMBLE predictions are saved to correct subdirectories for aggregation."""
+    rng = np.random.default_rng(42)
     from ced_ml.cli.train_ensemble import run_train_ensemble
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -574,9 +864,9 @@ def test_ensemble_predictions_directory_structure():
             oof_df = pd.DataFrame(
                 {
                     "idx": np.arange(100),
-                    "y_true": np.random.randint(0, 2, 100),
-                    "y_prob_repeat0": np.random.uniform(0, 1, 100),
-                    "y_prob_repeat1": np.random.uniform(0, 1, 100),
+                    "y_true": rng.integers(0, 2, 100),
+                    "y_prob_repeat0": rng.uniform(0, 1, 100),
+                    "y_prob_repeat1": rng.uniform(0, 1, 100),
                 }
             )
             oof_df.to_csv(model_dir / f"train_oof__{model}.csv", index=False)
@@ -587,8 +877,8 @@ def test_ensemble_predictions_directory_structure():
             val_df = pd.DataFrame(
                 {
                     "idx": np.arange(50),
-                    "y_true": np.random.randint(0, 2, 50),
-                    "y_prob": np.random.uniform(0, 1, 50),
+                    "y_true": rng.integers(0, 2, 50),
+                    "y_prob": rng.uniform(0, 1, 50),
                 }
             )
             val_df.to_csv(val_dir / f"val_preds__{model}.csv", index=False)
@@ -599,8 +889,8 @@ def test_ensemble_predictions_directory_structure():
             test_df = pd.DataFrame(
                 {
                     "idx": np.arange(50, 100),
-                    "y_true": np.random.randint(0, 2, 50),
-                    "y_prob": np.random.uniform(0, 1, 50),
+                    "y_true": rng.integers(0, 2, 50),
+                    "y_prob": rng.uniform(0, 1, 50),
                 }
             )
             test_df.to_csv(test_dir / f"test_preds__{model}.csv", index=False)

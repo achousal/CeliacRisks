@@ -122,24 +122,23 @@ def oof_predictions_with_nested_cv(
     best_params_rows: list[dict[str, Any]] = []
     selected_proteins_rows: list[dict[str, Any]] = []
 
-    total_outer_folds = n_repeats if n_splits < 2 else n_splits * n_repeats
+    # Validate outer CV folds
+    if n_splits < 2:
+        raise ValueError(
+            f"cv.folds must be >= 2 for cross-validation, got {n_splits}. "
+            "In-sample predictions defeat the purpose of CV and lead to overfitting."
+        )
+
+    total_outer_folds = n_splits * n_repeats
     split_idx = 0
     t0 = time.perf_counter()
 
     # Setup outer CV splitter
-    if n_splits < 2:
-        logger.warning(
-            f"[cv] WARNING: folds={n_splits} < 2; skipping outer CV, using in-sample predictions."
-        )
-        all_indices = np.arange(n_samples, dtype=int)
-        split_iterator = ((all_indices, all_indices) for _ in range(n_repeats))
-        split_divisor = 1
-    else:
-        rskf = RepeatedStratifiedKFold(
-            n_splits=n_splits, n_repeats=n_repeats, random_state=random_state
-        )
-        split_iterator = rskf.split(X, y)
-        split_divisor = n_splits
+    rskf = RepeatedStratifiedKFold(
+        n_splits=n_splits, n_repeats=n_repeats, random_state=random_state
+    )
+    split_iterator = rskf.split(X, y)
+    split_divisor = n_splits
 
     # Outer CV loop
     for train_idx, test_idx in split_iterator:

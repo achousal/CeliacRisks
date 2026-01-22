@@ -329,6 +329,9 @@ def save_holdout_indices(
     scenario: str,
     holdout_idx: np.ndarray,
     overwrite: bool = False,
+    model_name: str | None = None,
+    split_seed: int | None = None,
+    run_id: str | None = None,
 ) -> str:
     """Save holdout set indices to CSV.
 
@@ -337,14 +340,33 @@ def save_holdout_indices(
         scenario: Scenario name
         holdout_idx: Holdout set indices (sorted ascending)
         overwrite: Whether to overwrite existing file
+        model_name: Optional model name for scenario-specific naming
+        split_seed: Optional split seed for scenario-specific naming
+        run_id: Optional run identifier (e.g., timestamp) for uniqueness
 
     Returns:
         Path to saved CSV file
 
     Raises:
         FileExistsError: If file exists and overwrite=False
+
+    Notes:
+        File naming strategy (scenario-specific to prevent overwrites):
+        - If model_name, split_seed, or run_id provided:
+          HOLDOUT_idx_{scenario}[_{model}][_seed{N}][_{runid}].csv
+        - Otherwise: HOLDOUT_idx_{scenario}.csv (backward compatible with scenario)
     """
-    holdout_path = os.path.join(outdir, "HOLDOUT_idx.csv")
+    # Build scenario-specific filename to prevent overwrites
+    suffix_parts = [scenario]
+    if model_name is not None:
+        suffix_parts.append(model_name)
+    if split_seed is not None:
+        suffix_parts.append(f"seed{split_seed}")
+    if run_id is not None:
+        suffix_parts.append(run_id)
+
+    suffix = "_".join(suffix_parts)
+    holdout_path = os.path.join(outdir, f"HOLDOUT_idx_{suffix}.csv")
 
     if os.path.exists(holdout_path) and not overwrite:
         raise FileExistsError(
@@ -494,6 +516,39 @@ def save_split_metadata(
     return meta_path
 
 
+def load_split_metadata(
+    split_dir: str,
+    scenario: str,
+    seed: int,
+) -> dict[str, Any] | None:
+    """Load split metadata from JSON file.
+
+    Args:
+        split_dir: Directory containing split metadata files
+        scenario: Scenario name (e.g., IncidentOnly)
+        seed: Random seed used for splits
+
+    Returns:
+        Metadata dict if found, None otherwise
+
+    Notes:
+        Metadata includes row_filters.meta_num_cols_used which is critical
+        for validating alignment between split generation and training.
+    """
+    meta_path = os.path.join(split_dir, f"split_meta_{scenario}_seed{seed}.json")
+
+    if not os.path.exists(meta_path):
+        # Try fallback without scenario (legacy format)
+        meta_path_legacy = os.path.join(split_dir, f"split_meta_seed{seed}.json")
+        if os.path.exists(meta_path_legacy):
+            meta_path = meta_path_legacy
+        else:
+            return None
+
+    with open(meta_path) as f:
+        return json.load(f)
+
+
 def save_holdout_metadata(
     outdir: str,
     scenario: str,
@@ -506,6 +561,9 @@ def save_holdout_metadata(
     temporal_col: str | None = None,
     temporal_start: str | None = None,
     temporal_end: str | None = None,
+    model_name: str | None = None,
+    split_seed: int | None = None,
+    run_id: str | None = None,
 ) -> str:
     """Save holdout set metadata to JSON file.
 
@@ -521,9 +579,18 @@ def save_holdout_metadata(
         temporal_col: Column used for temporal ordering
         temporal_start: First temporal value in HOLDOUT
         temporal_end: Last temporal value in HOLDOUT
+        model_name: Optional model name for scenario-specific naming
+        split_seed: Optional split seed for scenario-specific naming
+        run_id: Optional run identifier (e.g., timestamp) for uniqueness
 
     Returns:
         Path to saved JSON metadata file
+
+    Notes:
+        File naming strategy (scenario-specific to prevent overwrites):
+        - If model_name, split_seed, or run_id provided:
+          HOLDOUT_meta_{scenario}[_{model}][_seed{N}][_{runid}].json
+        - Otherwise: HOLDOUT_meta_{scenario}.json (backward compatible with scenario)
     """
     meta: dict[str, Any] = {
         "scenario": scenario,
@@ -555,7 +622,25 @@ def save_holdout_metadata(
         if temporal_end is not None:
             meta["temporal_end_value"] = temporal_end
 
-    meta_path = os.path.join(outdir, "HOLDOUT_meta.json")
+    # Include optional identifiers in metadata for traceability
+    if model_name is not None:
+        meta["model_name"] = model_name
+    if split_seed is not None:
+        meta["split_seed"] = split_seed
+    if run_id is not None:
+        meta["run_id"] = run_id
+
+    # Build scenario-specific filename to prevent overwrites
+    suffix_parts = [scenario]
+    if model_name is not None:
+        suffix_parts.append(model_name)
+    if split_seed is not None:
+        suffix_parts.append(f"seed{split_seed}")
+    if run_id is not None:
+        suffix_parts.append(run_id)
+
+    suffix = "_".join(suffix_parts)
+    meta_path = os.path.join(outdir, f"HOLDOUT_meta_{suffix}.json")
     os.makedirs(outdir, exist_ok=True)
 
     with open(meta_path, "w") as f:

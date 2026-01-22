@@ -399,7 +399,7 @@ class TestIntegrationScenarios:
 
     def test_realistic_cv_scenario(self):
         """Realistic scenario: 5-fold × 10 repeats."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
 
         # Simulate protein pool
         all_proteins = [f"PROT_{i:03d}" for i in range(50)]
@@ -412,7 +412,7 @@ class TestIntegrationScenarios:
                 # Top 10 always selected
                 selected = all_proteins[:10].copy()
                 # Add 5 random proteins
-                selected.extend(np.random.choice(all_proteins[10:], size=5, replace=False).tolist())
+                selected.extend(rng.choice(all_proteins[10:], size=5, replace=False).tolist())
                 rows.append(
                     {
                         "repeat": repeat,

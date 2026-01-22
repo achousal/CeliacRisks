@@ -402,11 +402,42 @@ def evaluate_holdout(
     df_filtered["y"] = df_filtered[TARGET_COL].isin(positive_labels).astype(int)
     y_all = df_filtered["y"].to_numpy()
 
-    # Identify protein columns
-    prot_cols = identify_protein_columns(df_filtered)
+    # Extract resolved columns from bundle (preferred) or fallback to config
+    # The model was trained with: protein_cols + numeric_metadata + categorical_metadata
+    resolved_cols = bundle.get("resolved_columns", {})
+    if resolved_cols:
+        # Use resolved columns from training (C6 fix + protein validation)
+        prot_cols = resolved_cols.get("protein_cols", [])
+        numeric_metadata = resolved_cols.get("numeric_metadata", [])
+        categorical_metadata = resolved_cols.get("categorical_metadata", [])
+    else:
+        # Fallback to config (legacy bundles) - discover protein cols from data
+        prot_cols = identify_protein_columns(df_filtered)
+        bundle_config = bundle.get("config", {})
+        columns_config = bundle_config.get("columns", {})
+        numeric_metadata = columns_config.get("numeric_metadata", [])
+        categorical_metadata = columns_config.get("categorical_metadata", [])
 
-    # Create feature matrix (proteins only for now)
-    X_all = df_filtered[prot_cols]
+    # Validate that holdout data contains all required protein columns
+    holdout_prot_cols = set(identify_protein_columns(df_filtered))
+    missing_proteins = set(prot_cols) - holdout_prot_cols
+    if missing_proteins:
+        raise ValueError(
+            f"Holdout data missing {len(missing_proteins)} protein columns required by model. "
+            f"First 5 missing: {sorted(missing_proteins)[:5]}. "
+            "Ensure holdout data was processed with same protein panel as training data."
+        )
+
+    # Build feature matrix matching training columns
+    feature_cols = list(prot_cols)
+    for col in numeric_metadata:
+        if col in df_filtered.columns and col not in feature_cols:
+            feature_cols.append(col)
+    for col in categorical_metadata:
+        if col in df_filtered.columns and col not in feature_cols:
+            feature_cols.append(col)
+
+    X_all = df_filtered[feature_cols]
 
     # Extract holdout subset
     df_holdout, X_holdout, y_holdout = extract_holdout_data(df_filtered, X_all, y_all, holdout_idx)

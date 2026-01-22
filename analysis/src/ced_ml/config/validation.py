@@ -124,6 +124,11 @@ def validate_training_config(config: TrainingConfig):
                 "This may be slow. Consider larger step size."
             )
 
+    # Check for unwired feature selection config options (H2 fix)
+    # These config options exist in the schema but are not connected to the
+    # training pipeline. Warn users when they set non-default values.
+    _validate_unwired_feature_selection_config(config, issues)
+
     # Report issues
     _handle_issues(issues, strictness, "Training configuration")
 
@@ -226,6 +231,72 @@ def validate_config(config):
         warnings_list.append(str(w))
 
     return errors, warnings_list
+
+
+def _validate_unwired_feature_selection_config(config: TrainingConfig, issues: list[str]) -> None:
+    """
+    Check for feature selection config options that are set but not wired into the pipeline.
+
+    These config knobs exist in the schema but the training pipeline only uses
+    a simple SelectKBest with kbest_max. When users set non-default values for
+    advanced feature selection options, we should warn them that these settings
+    will be ignored.
+
+    Args:
+        config: TrainingConfig instance
+        issues: List to append warning messages to
+    """
+    # Default values from schema.py
+    DEFAULT_SCREEN_TOP_N = 0
+    DEFAULT_STABILITY_THRESH = 0.70
+    DEFAULT_STABLE_CORR_THRESH = 0.80
+    DEFAULT_KBEST_SCOPE = "protein"
+
+    unwired_settings = []
+
+    # screen_top_n: Only used for logging/reporting, not in pipeline
+    if config.features.screen_top_n != DEFAULT_SCREEN_TOP_N:
+        unwired_settings.append(
+            f"screen_top_n={config.features.screen_top_n} (screening runs for reporting "
+            "but does not filter features in the training pipeline)"
+        )
+
+    # stability_thresh: Not wired into pipeline feature selection
+    if config.features.stability_thresh != DEFAULT_STABILITY_THRESH:
+        unwired_settings.append(
+            f"stability_thresh={config.features.stability_thresh} (not used during training, "
+            "only in post-hoc panel extraction)"
+        )
+
+    # stable_corr_thresh: Not wired into pipeline feature selection
+    if config.features.stable_corr_thresh != DEFAULT_STABLE_CORR_THRESH:
+        unwired_settings.append(
+            f"stable_corr_thresh={config.features.stable_corr_thresh} (not used during training, "
+            "only in post-hoc panel building)"
+        )
+
+    # kbest_scope: Only affects extraction/logging, not selection
+    if config.features.kbest_scope != DEFAULT_KBEST_SCOPE:
+        unwired_settings.append(
+            f"kbest_scope={config.features.kbest_scope} (affects feature extraction logging "
+            "but pipeline always uses transformed-space SelectKBest)"
+        )
+
+    # feature_select modes other than "none" or "kbest" are not fully implemented
+    advanced_modes = {"l1_stability", "hybrid"}
+    if config.features.feature_select in advanced_modes:
+        unwired_settings.append(
+            f"feature_select={config.features.feature_select} (advanced mode; the pipeline "
+            "uses basic SelectKBest, advanced selection logic is partially implemented)"
+        )
+
+    if unwired_settings:
+        issues.append(
+            "Feature selection config options set but not wired into training pipeline: "
+            + "; ".join(unwired_settings)
+            + ". These settings will be logged but not used for actual feature filtering. "
+            "See docs/adr/ADR-004-hybrid-feature-selection.md for planned implementation."
+        )
 
 
 def _handle_issues(issues: list[str], strictness: str, context: str):

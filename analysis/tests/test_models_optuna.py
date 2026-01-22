@@ -10,8 +10,14 @@ Note: Comprehensive Optuna tests should be added in future iterations.
 This provides basic smoke testing to prevent regressions.
 """
 
+import logging
+
 import pytest
-from ced_ml.models.optuna_search import OptunaSearchCV, optuna_available
+from ced_ml.models.optuna_search import (
+    _DEFAULT_SEED_FALLBACK,
+    OptunaSearchCV,
+    optuna_available,
+)
 from sklearn.datasets import make_classification
 from sklearn.linear_model import LogisticRegression
 
@@ -120,3 +126,83 @@ class TestOptunaSearchCVBasic:
         )
         search.fit(X, y)
         assert search.best_score_ >= 0.0
+
+    def test_seed_fallback_logs_warning(self, caplog):
+        """OptunaSearchCV logs warning when no seed is provided."""
+        X, y = make_classification(n_samples=50, n_features=5, random_state=42)
+        estimator = LogisticRegression(max_iter=100)
+        param_distributions = {
+            "C": {"type": "float", "low": 0.1, "high": 1.0},
+        }
+
+        # Create search without random_state or sampler_seed
+        search = OptunaSearchCV(
+            estimator=estimator,
+            param_distributions=param_distributions,
+            n_trials=2,
+            cv=2,
+            # No random_state or sampler_seed provided
+        )
+
+        with caplog.at_level(logging.WARNING):
+            search.fit(X, y)
+
+        # Verify warning was logged about seed fallback
+        assert any(
+            "sampler_seed and random_state are None" in record.message
+            and f"seed={_DEFAULT_SEED_FALLBACK}" in record.message
+            for record in caplog.records
+        ), "Expected warning about seed fallback not found in logs"
+
+        # Search should still complete successfully
+        assert search.best_score_ >= 0.0
+
+    def test_no_seed_warning_with_random_state(self, caplog):
+        """OptunaSearchCV does not warn when random_state is provided."""
+        X, y = make_classification(n_samples=50, n_features=5, random_state=42)
+        estimator = LogisticRegression(max_iter=100)
+        param_distributions = {
+            "C": {"type": "float", "low": 0.1, "high": 1.0},
+        }
+
+        search = OptunaSearchCV(
+            estimator=estimator,
+            param_distributions=param_distributions,
+            n_trials=2,
+            cv=2,
+            random_state=42,  # Explicit random_state
+        )
+
+        with caplog.at_level(logging.WARNING):
+            search.fit(X, y)
+
+        # Verify no warning about seed fallback
+        seed_warnings = [
+            r for r in caplog.records if "sampler_seed and random_state are None" in r.message
+        ]
+        assert len(seed_warnings) == 0, "Unexpected seed fallback warning"
+
+    def test_no_seed_warning_with_sampler_seed(self, caplog):
+        """OptunaSearchCV does not warn when sampler_seed is provided."""
+        X, y = make_classification(n_samples=50, n_features=5, random_state=42)
+        estimator = LogisticRegression(max_iter=100)
+        param_distributions = {
+            "C": {"type": "float", "low": 0.1, "high": 1.0},
+        }
+
+        search = OptunaSearchCV(
+            estimator=estimator,
+            param_distributions=param_distributions,
+            n_trials=2,
+            cv=2,
+            sampler_seed=123,  # Explicit sampler_seed
+        )
+
+        with caplog.at_level(logging.WARNING):
+            search.fit(X, y)
+
+        # Verify no warning about seed fallback
+        seed_warnings = [
+            r for r in caplog.records if "sampler_seed and random_state are None" in r.message
+        ]
+        assert len(seed_warnings) == 0, "Unexpected seed fallback warning"

@@ -13,6 +13,7 @@ from ced_ml.data.io import (
     load_data,
     read_proteomics_csv,
     usecols_for_proteomics,
+    validate_binary_outcome,
     validate_required_columns,
 )
 from ced_ml.data.schema import CED_DATE_COL, ID_COL, TARGET_COL
@@ -348,6 +349,16 @@ class TestIdentifyProteinColumns:
             "ZZZ_resid",
         ]
 
+    def test_warns_on_low_protein_count(self, caplog):
+        """Should warn when protein count is below 10."""
+        import logging
+
+        df = pd.DataFrame({f"P{i}_resid": [0.1] for i in range(5)})
+        with caplog.at_level(logging.WARNING):
+            proteins = identify_protein_columns(df)
+        assert len(proteins) == 5
+        assert "only 5 protein" in caplog.text.lower()
+
 
 class TestGetDataStats:
     """Test data summary statistics."""
@@ -443,3 +454,51 @@ class TestLoadData:
         assert len(result) == 2
         assert "eid" in result.columns
         assert "IL6_resid" in result.columns
+
+
+class TestValidateBinaryOutcome:
+    """Test binary outcome validation."""
+
+    def test_valid_binary_array(self):
+        """Should pass for valid 0/1 array."""
+        y = np.array([0, 1, 0, 1, 1, 0])
+        validate_binary_outcome(y)  # Should not raise
+
+    def test_valid_binary_series(self):
+        """Should pass for valid 0/1 Series."""
+        y = pd.Series([0, 1, 0, 1])
+        validate_binary_outcome(y)  # Should not raise
+
+    def test_invalid_values_raises_error(self):
+        """Should raise for non-binary values."""
+        y = np.array([0, 1, 2, 1, 0])
+        with pytest.raises(ValueError, match="Outcome labels must be binary"):
+            validate_binary_outcome(y)
+
+    def test_negative_values_raises_error(self):
+        """Should raise for negative values."""
+        y = np.array([0, 1, -1, 1, 0])
+        with pytest.raises(ValueError, match="Outcome labels must be binary"):
+            validate_binary_outcome(y)
+
+    def test_float_labels_raises_error(self):
+        """Should raise for float labels like 0.5."""
+        y = np.array([0.0, 1.0, 0.5, 1.0])
+        with pytest.raises(ValueError, match="Outcome labels must be binary"):
+            validate_binary_outcome(y)
+
+    def test_all_zeros_valid(self):
+        """Should pass for all zeros."""
+        y = np.array([0, 0, 0, 0])
+        validate_binary_outcome(y)  # Should not raise
+
+    def test_all_ones_valid(self):
+        """Should pass for all ones."""
+        y = np.array([1, 1, 1, 1])
+        validate_binary_outcome(y)  # Should not raise
+
+    def test_error_message_shows_invalid_values(self):
+        """Error message should show invalid values."""
+        y = np.array([0, 1, 3, 5])
+        with pytest.raises(ValueError, match="Found invalid values: \\[3, 5\\]"):
+            validate_binary_outcome(y)

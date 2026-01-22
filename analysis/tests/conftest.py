@@ -4,6 +4,66 @@ Shared pytest fixtures for CeD-ML tests.
 
 from types import SimpleNamespace
 
+import numpy as np
+import pytest
+
+
+@pytest.fixture
+def rng():
+    """
+    Provide a numpy random Generator for deterministic tests.
+
+    Use this fixture instead of np.random.seed(42) to avoid global state pollution.
+    The Generator API provides better statistical properties and isolation.
+
+    Usage:
+        def test_something(rng):
+            data = rng.standard_normal(100)
+            choice = rng.choice([0, 1], size=10)
+    """
+    return np.random.default_rng(42)
+
+
+@pytest.fixture
+def rng_factory():
+    """
+    Factory fixture to create RNGs with custom seeds.
+
+    Usage:
+        def test_multiple_rngs(rng_factory):
+            rng1 = rng_factory(123)
+            rng2 = rng_factory(456)
+    """
+
+    def _make_rng(seed: int = 42):
+        return np.random.default_rng(seed)
+
+    return _make_rng
+
+
+def make_rng(seed: int = 42) -> np.random.Generator:
+    """
+    Create a numpy random Generator for deterministic tests.
+
+    Use this instead of np.random.seed(seed) to avoid polluting global state.
+    Import this function directly for use in test functions that cannot
+    easily use fixtures (e.g., pytest parametrize, module-level helpers).
+
+    Args:
+        seed: Random seed for reproducibility (default: 42)
+
+    Returns:
+        numpy Generator object
+
+    Usage:
+        from conftest import make_rng
+
+        def test_something():
+            rng = make_rng(42)
+            data = rng.standard_normal(100)
+    """
+    return np.random.default_rng(seed)
+
 
 class MockCalibrationConfig:
     """Mock calibration config for tests."""

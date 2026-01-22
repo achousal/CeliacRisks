@@ -3,9 +3,6 @@
 
 scenario: IncidentPlusPrevalent  # Options: IncidentOnly, PrevalentOnly, IncidentPlusPrevalent
 
-# Model Selection
-model: LR_EN  # Options: LR_EN, LR_L1, LinSVM_cal, RF, XGBoost
-
 # Cross-validation
 cv:
   folds: 2
@@ -44,7 +41,7 @@ optuna:
   pruner: hyperband  # Options: median, percentile, hyperband, none
   pruner_n_startup_trials: 5  # Number of trials before pruning starts
   pruner_percentile: 25.0  # Percentile for percentile pruner (0-100)
-  n_jobs: 1  # Number of parallel jobs for Optuna
+  n_jobs: -1  # Number of parallel jobs for Optuna
   save_study: true  # Save Optuna study object
   save_trials_csv: true  # Save trials as CSV
 
@@ -84,7 +81,7 @@ lr:
   C_min: 0.0001             # Min regularization strength (log-spaced)
   C_max: 100.0              # Max regularization strength
   C_points: 7               # Number of C values in search grid
-  l1_ratio: [0.1, 0.5, 0.9] # ElasticNet mixing (0=L2, 1=L1) - tuned for LR_EN only
+  l1_ratio: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0] # ElasticNet mixing (0=L2, 1=L1) - tuned for LR_EN only
   class_weight_options: "balanced"  # Options: "None", "balanced", "{0:1,1:5}"
 
   # Optuna-specific ranges (optional, override C_min/C_max):

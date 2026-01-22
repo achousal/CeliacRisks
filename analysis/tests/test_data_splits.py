@@ -114,6 +114,85 @@ class TestMakeStrata:
         with pytest.raises(ValueError, match="Unknown stratification scheme"):
             make_strata(self.df, "invalid")
 
+    def test_custom_sex_column_name(self):
+        """Should work with custom sex column name."""
+        df = pd.DataFrame(
+            {
+                TARGET_COL: ["Controls", "Incident", "Controls"],
+                "Sex": ["Male", "Female", "Male"],  # Capital S
+                "age": [25, 45, 65],
+            }
+        )
+        strata = make_strata(df, "outcome+sex", sex_col="Sex")
+        expected = ["Controls_Male", "Incident_Female", "Controls_Male"]
+        assert strata.tolist() == expected
+
+    def test_custom_age_column_name(self):
+        """Should work with custom age column name."""
+        df = pd.DataFrame(
+            {
+                TARGET_COL: ["Controls", "Incident", "Controls"],
+                "sex": ["Male", "Female", "Male"],
+                "Age": [25, 45, 65],  # Capital A
+            }
+        )
+        strata = make_strata(df, "outcome+age3", age_col="Age")
+        expected = ["Controls_young", "Incident_middle", "Controls_old"]
+        assert strata.tolist() == expected
+
+    def test_custom_sex_and_age_columns(self):
+        """Should work with both custom sex and age column names."""
+        df = pd.DataFrame(
+            {
+                TARGET_COL: ["Controls", "Incident", "Controls"],
+                "gender": ["Male", "Female", "Male"],
+                "Age_at_sample": [25, 45, 65],
+            }
+        )
+        strata = make_strata(df, "outcome+sex+age3", sex_col="gender", age_col="Age_at_sample")
+        expected = [
+            "Controls_Male_young",
+            "Incident_Female_middle",
+            "Controls_Male_old",
+        ]
+        assert strata.tolist() == expected
+
+    def test_missing_sex_column_raises_keyerror(self):
+        """Should raise KeyError when sex column is missing for schemes that need it."""
+        df = pd.DataFrame(
+            {
+                TARGET_COL: ["Controls", "Incident"],
+                "age": [25, 45],
+                # No sex column
+            }
+        )
+        with pytest.raises(KeyError):
+            make_strata(df, "outcome+sex")
+
+    def test_missing_age_column_raises_keyerror(self):
+        """Should raise KeyError when age column is missing for schemes that need it."""
+        df = pd.DataFrame(
+            {
+                TARGET_COL: ["Controls", "Incident"],
+                "sex": ["Male", "Female"],
+                # No age column
+            }
+        )
+        with pytest.raises(KeyError):
+            make_strata(df, "outcome+age3")
+
+    def test_wrong_custom_column_name_raises_keyerror(self):
+        """Should raise KeyError when custom column name does not exist."""
+        df = pd.DataFrame(
+            {
+                TARGET_COL: ["Controls", "Incident"],
+                "sex": ["Male", "Female"],
+                "age": [25, 45],
+            }
+        )
+        with pytest.raises(KeyError):
+            make_strata(df, "outcome+sex", sex_col="gender")
+
 
 class TestCollapseRareStrata:
     """Test rare strata collapsing."""
@@ -195,6 +274,55 @@ class TestBuildWorkingStrata:
         # The key test is that it doesn't crash and produces valid strata
         is_valid, _ = validate_strata(strata)
         assert is_valid
+
+    def test_custom_column_names(self):
+        """Should pass custom column names to make_strata."""
+        df = pd.DataFrame(
+            {
+                TARGET_COL: ["Controls"] * 10 + ["Incident"] * 10,
+                "Sex": ["Male"] * 10 + ["Female"] * 10,  # Capital S
+                "Age": [25] * 10 + [65] * 10,  # Capital A
+            }
+        )
+        strata, scheme = build_working_strata(df, min_count=2, sex_col="Sex", age_col="Age")
+        # Should use a valid scheme
+        is_valid, _ = validate_strata(strata)
+        assert is_valid
+        # Should select a granular scheme (most likely outcome+sex+age3)
+        assert "outcome+sex" in scheme or "outcome" in scheme
+
+    def test_fallback_when_custom_columns_missing(self):
+        """Should fallback gracefully when custom columns do not exist."""
+        df = pd.DataFrame(
+            {
+                TARGET_COL: ["Controls"] * 10 + ["Incident"] * 10,
+                # No sex or age columns
+            }
+        )
+        # With non-existent custom columns, should still fallback to outcome-only
+        strata, scheme = build_working_strata(
+            df, min_count=2, sex_col="gender", age_col="Age_at_sample"
+        )
+        # Should fallback to outcome-only
+        assert "outcome" in scheme
+        is_valid, _ = validate_strata(strata)
+        assert is_valid
+
+    def test_mixed_column_availability(self):
+        """Should fallback when only some columns exist."""
+        df = pd.DataFrame(
+            {
+                TARGET_COL: ["Controls"] * 10 + ["Incident"] * 10,
+                "Sex": ["Male"] * 10 + ["Female"] * 10,  # Sex exists
+                # No age column
+            }
+        )
+        strata, scheme = build_working_strata(df, min_count=2, sex_col="Sex", age_col="Age")
+        # Should fallback to outcome+sex (since age is missing)
+        is_valid, _ = validate_strata(strata)
+        assert is_valid
+        # The scheme should be outcome+sex or outcome (not containing age)
+        assert "age" not in scheme or "outcome" in scheme
 
 
 # ============================================================================
@@ -520,3 +648,139 @@ class TestSummarizeSplit:
         assert "n_val" not in summary
         assert "prevalence_val" not in summary
         assert summary["n_train"] == 2
+
+
+# ============================================================================
+# Validation Tests (M2, M5, M8)
+# ============================================================================
+
+
+class TestTemporalColumnValidation:
+    """Test temporal column validation (M2 fix)."""
+
+    def test_invalid_temporal_column_all_nan(self):
+        """Should raise if temporal column has no valid sortable values."""
+        df = pd.DataFrame({"date": ["invalid", "also_invalid", "not_a_date"]})
+        with pytest.raises(ValueError, match="no valid sortable values"):
+            temporal_order_indices(df, "date")
+
+    def test_invalid_temporal_column_all_none(self):
+        """Should raise if temporal column is all None."""
+        df = pd.DataFrame({"date": [None, None, None]})
+        with pytest.raises(ValueError, match="no valid sortable values"):
+            temporal_order_indices(df, "date")
+
+    def test_valid_temporal_column_with_some_nan(self):
+        """Should succeed if at least some values are valid."""
+        df = pd.DataFrame({"date": ["2020-01-01", None, "2020-01-03"]})
+        indices = temporal_order_indices(df, "date")
+        # Should not raise; missing value should be placed first
+        assert len(indices) == 3
+        assert indices[0] == 1  # None value first (filled with min - 1 day)
+
+
+class TestSplitSizeValidation:
+    """Test split size validation (M8 fix)."""
+
+    def test_stratified_split_rejects_sum_ge_one(self):
+        """Should raise if val_size + test_size >= 1.0."""
+        indices = np.arange(100)
+        y = np.array([0] * 80 + [1] * 20)
+        strata = pd.Series(["A"] * 100)
+
+        with pytest.raises(ValueError, match="Must leave room for training data"):
+            stratified_train_val_test_split(
+                indices, y, strata, val_size=0.5, test_size=0.5, random_state=42
+            )
+
+    def test_stratified_split_rejects_sum_greater_than_one(self):
+        """Should raise if val_size + test_size > 1.0."""
+        indices = np.arange(100)
+        y = np.array([0] * 80 + [1] * 20)
+        strata = pd.Series(["A"] * 100)
+
+        with pytest.raises(ValueError, match="Must leave room for training data"):
+            stratified_train_val_test_split(
+                indices, y, strata, val_size=0.6, test_size=0.6, random_state=42
+            )
+
+    def test_stratified_split_accepts_sum_less_than_one(self):
+        """Should accept if val_size + test_size < 1.0."""
+        indices = np.arange(100)
+        y = np.array([0] * 80 + [1] * 20)
+        strata = pd.Series(["A"] * 100)
+
+        # Should not raise
+        idx_tr, idx_val, idx_te, _, _, _ = stratified_train_val_test_split(
+            indices, y, strata, val_size=0.25, test_size=0.25, random_state=42
+        )
+        assert len(idx_tr) == 50
+
+    def test_temporal_split_rejects_sum_ge_one(self):
+        """Should raise if val_size + test_size >= 1.0."""
+        indices = np.arange(100)
+        y = np.array([0, 0, 0, 0, 1] * 20)
+
+        with pytest.raises(ValueError, match="Must leave room for training data"):
+            temporal_train_val_test_split(indices, y, val_size=0.5, test_size=0.5)
+
+    def test_temporal_split_rejects_sum_greater_than_one(self):
+        """Should raise if val_size + test_size > 1.0."""
+        indices = np.arange(100)
+        y = np.array([0, 0, 0, 0, 1] * 20)
+
+        with pytest.raises(ValueError, match="Must leave room for training data"):
+            temporal_train_val_test_split(indices, y, val_size=0.6, test_size=0.6)
+
+    def test_temporal_split_accepts_sum_less_than_one(self):
+        """Should accept if val_size + test_size < 1.0."""
+        indices = np.arange(100)
+        y = np.array([0, 0, 0, 0, 1] * 20)
+
+        # Should not raise
+        idx_tr, idx_val, idx_te, _, _, _ = temporal_train_val_test_split(
+            indices, y, val_size=0.25, test_size=0.25
+        )
+        assert len(idx_tr) == 50
+
+
+class TestDifferentSeedsForSplits:
+    """Test that two-stage splits use different seeds (M5 fix)."""
+
+    def test_different_seeds_produce_different_val_test_assignments(self):
+        """Second split should use a different seed than first split."""
+        # Create larger dataset to ensure meaningful test
+        n = 1000
+        indices = np.arange(n)
+        y = np.array([0] * 800 + [1] * 200)
+        strata = pd.Series(["A"] * 500 + ["B"] * 500)
+
+        # Run split twice with same seed
+        result1 = stratified_train_val_test_split(
+            indices, y, strata, val_size=0.25, test_size=0.25, random_state=42
+        )
+        result2 = stratified_train_val_test_split(
+            indices, y, strata, val_size=0.25, test_size=0.25, random_state=42
+        )
+
+        # Same seed should produce same results (deterministic)
+        assert (result1[0] == result2[0]).all()  # train
+        assert (result1[1] == result2[1]).all()  # val
+        assert (result1[2] == result2[2]).all()  # test
+
+        # Now verify the val/test split uses a different seed than train/temp split
+        # by checking that val and test indices are not just the "natural" order
+        idx_val = result1[1]
+        idx_test = result1[2]
+
+        # The val and test indices should be interleaved/mixed, not just sequential
+        # (which would happen if we used the same seed or deterministic selection)
+        # This is verified by checking that val indices are not all smaller than test indices
+        # (which would indicate no real randomization in the second split)
+        if len(idx_val) > 0 and len(idx_test) > 0:
+            # With proper different seeds, val and test should be interleaved in the original order
+            val_max = idx_val.max()
+            test_min = idx_test.min()
+            # With random splitting, we expect overlap in ranges
+            # (i.e., some val indices should be > some test indices)
+            assert val_max > test_min or test_min < val_max

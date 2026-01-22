@@ -16,7 +16,7 @@ from ced_ml.features.screening import (
 @pytest.fixture
 def sample_data():
     """Create sample proteomics data for testing."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n_controls = 100
     n_cases = 20
     n_proteins = 50
@@ -30,8 +30,8 @@ def sample_data():
         # High in cases
         X_data[f"protein_{i}_resid"] = np.concatenate(
             [
-                np.random.normal(0, 1, n_controls),
-                np.random.normal(2, 1, n_cases),
+                rng.normal(0, 1, n_controls),
+                rng.normal(2, 1, n_cases),
             ]  # Higher mean
         )
 
@@ -39,14 +39,14 @@ def sample_data():
         # Low in cases
         X_data[f"protein_{i}_resid"] = np.concatenate(
             [
-                np.random.normal(0, 1, n_controls),
-                np.random.normal(-2, 1, n_cases),
+                rng.normal(0, 1, n_controls),
+                rng.normal(-2, 1, n_cases),
             ]  # Lower mean
         )
 
     for i in range(20, n_proteins):
         # Non-discriminative
-        X_data[f"protein_{i}_resid"] = np.random.normal(0, 1, n_controls + n_cases)
+        X_data[f"protein_{i}_resid"] = rng.normal(0, 1, n_controls + n_cases)
 
     X = pd.DataFrame(X_data)
     y = np.array([0] * n_controls + [1] * n_cases)
@@ -203,15 +203,15 @@ def test_screen_proteins_invalid_method(sample_data):
 
 def test_variance_missingness_prefilter_basic():
     """Test basic variance/missingness prefilter."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
 
     # Create proteins with different characteristics
     X = pd.DataFrame(
         {
-            "good_protein_resid": np.random.normal(0, 1, 100),  # Good: high variance, no missing
+            "good_protein_resid": rng.normal(0, 1, 100),  # Good: high variance, no missing
             "low_var_protein_resid": np.ones(100),  # Bad: zero variance
             "high_missing_protein_resid": [np.nan] * 50 + [1.0] * 50,  # Bad: 50% missing
-            "another_good_resid": np.random.normal(5, 2, 100),  # Good
+            "another_good_resid": rng.normal(5, 2, 100),  # Good
         }
     )
     protein_cols = [col for col in X.columns if col.endswith("_resid")]
@@ -304,10 +304,11 @@ def test_mann_whitney_effect_size_ordering(sample_data):
 
 def test_f_statistic_handles_constant_features():
     """Test F-statistic correctly filters out constant features."""
+    rng = np.random.default_rng(42)
     X = pd.DataFrame(
         {
             "constant_resid": np.ones(100),  # Zero variance
-            "variable_resid": np.random.normal(0, 1, 100),
+            "variable_resid": rng.normal(0, 1, 100),
         }
     )
     y = np.array([0] * 50 + [1] * 50)
@@ -322,13 +323,11 @@ def test_f_statistic_handles_constant_features():
 
 def test_screen_proteins_default_parameters():
     """Test screen_proteins with default parameters."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     X = pd.DataFrame(
         {
-            "protein_1_resid": np.concatenate(
-                [np.random.normal(0, 1, 50), np.random.normal(2, 1, 50)]
-            ),
-            "protein_2_resid": np.random.normal(0, 1, 100),
+            "protein_1_resid": np.concatenate([rng.normal(0, 1, 50), rng.normal(2, 1, 50)]),
+            "protein_2_resid": rng.normal(0, 1, 100),
         }
     )
     y = np.array([0] * 50 + [1] * 50)
@@ -343,14 +342,14 @@ def test_screen_proteins_default_parameters():
 
 def test_mann_whitney_asymmetric_group_sizes():
     """Test Mann-Whitney with very asymmetric group sizes (realistic for CeD)."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n_controls = 1000
     n_cases = 50
 
     X = pd.DataFrame(
         {
             "protein_1_resid": np.concatenate(
-                [np.random.normal(0, 1, n_controls), np.random.normal(1.5, 1, n_cases)]
+                [rng.normal(0, 1, n_controls), rng.normal(1.5, 1, n_cases)]
             )
         }
     )

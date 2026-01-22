@@ -26,7 +26,6 @@ execution:
   n_boot: 500  # Bootstrap iterations for aggregation (HPC: full)
   overwrite_splits: false
   dry_run: false
-  postprocess_only: false  # Skip job submission, only run aggregation
 
 
 # HPC Settings (LSF/Slurm)

@@ -411,7 +411,7 @@ These files control:
 - Input/output paths
 - Models to run
 - Number of bootstrap iterations
-- Execution flags (dry_run, overwrite_splits, postprocess_only)
+- Execution flags (dry_run, overwrite_splits)
 - HPC resources (cores, memory, walltime, queue, project allocation)
 
 ### Core Configs

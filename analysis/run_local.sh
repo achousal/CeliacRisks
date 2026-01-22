@@ -102,12 +102,10 @@ MODELS_STR=$(get_yaml_list "${PIPELINE_CONFIG}" "models")
 N_BOOT=$(get_yaml "${PIPELINE_CONFIG}" "n_boot")
 OVERWRITE_SPLITS_CFG=$(get_yaml "${PIPELINE_CONFIG}" "overwrite_splits")
 DRY_RUN_CFG=$(get_yaml "${PIPELINE_CONFIG}" "dry_run")
-POSTPROCESS_ONLY_CFG=$(get_yaml "${PIPELINE_CONFIG}" "postprocess_only")
 
 # Environment variable overrides
 DRY_RUN="${DRY_RUN:-${DRY_RUN_CFG}}"
 OVERWRITE_SPLITS="${OVERWRITE_SPLITS:-${OVERWRITE_SPLITS_CFG}}"
-POSTPROCESS_ONLY="${POSTPROCESS_ONLY:-${POSTPROCESS_ONLY_CFG}}"
 RUN_MODELS="${RUN_MODELS:-${MODELS_STR}}"
 
 # Convert true/false/1/0 to normalized 1/0
@@ -122,7 +120,6 @@ normalize_bool() {
 }
 DRY_RUN="$(normalize_bool "${DRY_RUN}")"
 OVERWRITE_SPLITS="$(normalize_bool "${OVERWRITE_SPLITS}")"
-POSTPROCESS_ONLY="$(normalize_bool "${POSTPROCESS_ONLY}")"
 
 #==============================================================
 # ENVIRONMENT DETECTION
@@ -174,16 +171,12 @@ log "Models: ${RUN_MODELS}"
 log "Bootstrap: ${N_BOOT}"
 log "Ensemble: ${ENSEMBLE_ENABLED} (base: ${ENSEMBLE_BASE_MODELS:-none})"
 log "Dry run: ${DRY_RUN}"
-log "Postprocess only: ${POSTPROCESS_ONLY}"
 log "============================================"
 
 #==============================================================
 # STEP 1: GENERATE SPLITS
 #==============================================================
-if [[ ${POSTPROCESS_ONLY} -eq 1 ]]; then
-  log "POSTPROCESS_ONLY=1: Skipping split generation and training"
-else
-  log "Step 1/4: Generate splits"
+log "Step 1/4: Generate splits"
 
   SPLITS_EXIST=0
   if ls "${SPLITS_DIR}"/train_idx_seed*.csv 1>/dev/null 2>&1 && \
@@ -319,7 +312,6 @@ log "Step 2/4: Train models (${N_SPLITS} splits)"
   else
     log "Step 2.5/4: Ensemble training disabled (ensemble.enabled: false)"
   fi
-fi
 
 #==============================================================
 # STEP 3: SAVE RUN METADATA

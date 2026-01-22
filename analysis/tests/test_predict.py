@@ -23,9 +23,9 @@ from sklearn.preprocessing import StandardScaler
 @pytest.fixture
 def simple_model():
     """Create a simple trained logistic regression pipeline."""
-    np.random.seed(42)
-    X = pd.DataFrame(np.random.randn(100, 5), columns=[f"feat_{i}" for i in range(5)])
-    y = np.random.randint(0, 2, size=100)
+    rng = np.random.default_rng(42)
+    X = pd.DataFrame(rng.standard_normal((100, 5)), columns=[f"feat_{i}" for i in range(5)])
+    y = rng.integers(0, 2, size=100)
 
     pipe = Pipeline(
         [
@@ -40,9 +40,9 @@ def simple_model():
 @pytest.fixture
 def test_data():
     """Create test data for predictions."""
-    np.random.seed(123)
-    X = pd.DataFrame(np.random.randn(50, 5), columns=[f"feat_{i}" for i in range(5)])
-    y = np.random.randint(0, 2, size=50)
+    rng = np.random.default_rng(123)
+    X = pd.DataFrame(rng.standard_normal((50, 5)), columns=[f"feat_{i}" for i in range(5)])
+    y = rng.integers(0, 2, size=50)
     return X, y
 
 
@@ -226,8 +226,9 @@ def test_export_predictions_percentile(simple_model, test_data):
 
 def test_export_predictions_no_percentile(simple_model, test_data):
     """Test prediction export without percentile columns."""
+    rng = np.random.default_rng(42)
     X, y = test_data
-    preds = {"raw": np.random.rand(len(y))}
+    preds = {"raw": rng.random(len(y))}
 
     with tempfile.TemporaryDirectory() as tmpdir:
         out_path = os.path.join(tmpdir, "preds.csv")
@@ -244,8 +245,9 @@ def test_export_predictions_no_percentile(simple_model, test_data):
 
 def test_export_predictions_length_mismatch(test_data):
     """Test that export raises error on prediction length mismatch."""
+    rng = np.random.default_rng(42)
     _, y = test_data
-    preds = {"raw": np.random.rand(10)}  # Wrong length
+    preds = {"raw": rng.random(10)}  # Wrong length
 
     with tempfile.TemporaryDirectory() as tmpdir:
         out_path = os.path.join(tmpdir, "preds.csv")
@@ -380,12 +382,12 @@ def test_predict_on_holdout_metadata(simple_model, test_data):
 
 def test_end_to_end_prediction_workflow(simple_model):
     """Test complete prediction workflow: train → val → test → export."""
-    np.random.seed(99)
-    X_val = pd.DataFrame(np.random.randn(30, 5), columns=[f"feat_{i}" for i in range(5)])
-    y_val = np.random.randint(0, 2, size=30)
+    rng = np.random.default_rng(99)
+    X_val = pd.DataFrame(rng.standard_normal((30, 5)), columns=[f"feat_{i}" for i in range(5)])
+    y_val = rng.integers(0, 2, size=30)
 
-    X_test = pd.DataFrame(np.random.randn(40, 5), columns=[f"feat_{i}" for i in range(5)])
-    y_test = np.random.randint(0, 2, size=40)
+    X_test = pd.DataFrame(rng.standard_normal((40, 5)), columns=[f"feat_{i}" for i in range(5)])
+    y_test = rng.integers(0, 2, size=40)
 
     # Generate validation predictions
     val_preds = predict_on_validation(

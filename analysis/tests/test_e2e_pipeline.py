@@ -89,7 +89,7 @@ def toy_proteomics_csv(tmp_path):
     1,000 samples: 900 controls, 50 incident, 50 prevalent
     10 protein columns + metadata
     """
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
 
     n_controls = 900
     n_incident = 50
@@ -106,19 +106,19 @@ def toy_proteomics_csv(tmp_path):
     data = {
         ID_COL: [f"S{i:04d}" for i in range(n_total)],
         TARGET_COL: labels,
-        "age": np.random.randint(18, 80, n_total),
-        "BMI": np.random.uniform(18, 35, n_total),
-        "sex": np.random.choice(["M", "F"], n_total),
+        "age": rng.integers(18, 80, n_total),
+        "BMI": rng.uniform(18, 35, n_total),
+        "sex": rng.choice(["M", "F"], n_total),
     }
 
     # Create protein columns (with differential signal)
     # Incident cases have slightly higher values
     for i in range(10):
-        base = np.random.randn(n_total)
+        base = rng.standard_normal(n_total)
         # Add signal for incident cases
         signal = np.zeros(n_total)
-        signal[n_controls : n_controls + n_incident] = np.random.randn(n_incident) * 0.5 + 1.0
-        signal[n_controls + n_incident :] = np.random.randn(n_prevalent) * 0.5 + 1.5
+        signal[n_controls : n_controls + n_incident] = rng.standard_normal(n_incident) * 0.5 + 1.0
+        signal[n_controls + n_incident :] = rng.standard_normal(n_prevalent) * 0.5 + 1.5
 
         data[f"Protein{i}_resid"] = base + signal
 

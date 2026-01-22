@@ -80,7 +80,8 @@ class TestPlotRiskDistribution:
 
     def test_simple_histogram(self, tmp_path):
         """Test simple histogram without labels."""
-        scores = np.random.uniform(0, 1, 100)
+        rng = np.random.default_rng(42)
+        scores = rng.uniform(0, 1, 100)
         out_path = tmp_path / "simple.png"
 
         plot_risk_distribution(
@@ -94,8 +95,9 @@ class TestPlotRiskDistribution:
 
     def test_binary_histogram(self, tmp_path):
         """Test binary histogram (cases vs controls)."""
-        scores = np.random.uniform(0, 1, 100)
-        y_true = np.random.binomial(1, 0.3, 100)
+        rng = np.random.default_rng(42)
+        scores = rng.uniform(0, 1, 100)
+        y_true = rng.binomial(1, 0.3, 100)
         out_path = tmp_path / "binary.png"
 
         plot_risk_distribution(
@@ -110,11 +112,10 @@ class TestPlotRiskDistribution:
 
     def test_three_category_kde(self, tmp_path):
         """Test KDE plot with three categories."""
+        rng = np.random.default_rng(42)
         n = 300
-        scores = np.random.uniform(0, 1, n)
-        category_col = np.random.choice(
-            ["Controls", "Incident", "Prevalent"], size=n, p=[0.7, 0.2, 0.1]
-        )
+        scores = rng.uniform(0, 1, n)
+        category_col = rng.choice(["Controls", "Incident", "Prevalent"], size=n, p=[0.7, 0.2, 0.1])
         out_path = tmp_path / "kde.png"
 
         plot_risk_distribution(
@@ -129,9 +130,10 @@ class TestPlotRiskDistribution:
 
     def test_incident_subplot(self, tmp_path):
         """Test incident subplot rendering."""
+        rng = np.random.default_rng(42)
         n = 300
-        scores = np.random.uniform(0, 1, n)
-        category_col = np.random.choice(["Controls", "Incident"], size=n, p=[0.8, 0.2])
+        scores = rng.uniform(0, 1, n)
+        category_col = rng.choice(["Controls", "Incident"], size=n, p=[0.8, 0.2])
         out_path = tmp_path / "incident_subplot.png"
 
         plot_risk_distribution(
@@ -146,9 +148,10 @@ class TestPlotRiskDistribution:
 
     def test_prevalent_subplot(self, tmp_path):
         """Test prevalent subplot rendering."""
+        rng = np.random.default_rng(42)
         n = 300
-        scores = np.random.uniform(0, 1, n)
-        category_col = np.random.choice(["Controls", "Prevalent"], size=n, p=[0.8, 0.2])
+        scores = rng.uniform(0, 1, n)
+        category_col = rng.choice(["Controls", "Prevalent"], size=n, p=[0.8, 0.2])
         out_path = tmp_path / "prevalent_subplot.png"
 
         plot_risk_distribution(
@@ -163,11 +166,10 @@ class TestPlotRiskDistribution:
 
     def test_all_subplots(self, tmp_path):
         """Test all three subplots (main + incident + prevalent)."""
+        rng = np.random.default_rng(42)
         n = 300
-        scores = np.random.uniform(0, 1, n)
-        category_col = np.random.choice(
-            ["Controls", "Incident", "Prevalent"], size=n, p=[0.7, 0.2, 0.1]
-        )
+        scores = rng.uniform(0, 1, n)
+        category_col = rng.choice(["Controls", "Incident", "Prevalent"], size=n, p=[0.7, 0.2, 0.1])
         out_path = tmp_path / "all_subplots.png"
 
         plot_risk_distribution(
@@ -182,8 +184,9 @@ class TestPlotRiskDistribution:
 
     def test_threshold_lines(self, tmp_path):
         """Test threshold line rendering."""
-        scores = np.random.uniform(0, 1, 100)
-        y_true = np.random.binomial(1, 0.3, 100)
+        rng = np.random.default_rng(42)
+        scores = rng.uniform(0, 1, 100)
+        y_true = rng.binomial(1, 0.3, 100)
         out_path = tmp_path / "thresholds.png"
 
         plot_risk_distribution(
@@ -200,8 +203,9 @@ class TestPlotRiskDistribution:
 
     def test_threshold_metrics(self, tmp_path):
         """Test threshold metrics in legend."""
-        scores = np.random.uniform(0, 1, 100)
-        y_true = np.random.binomial(1, 0.3, 100)
+        rng = np.random.default_rng(42)
+        scores = rng.uniform(0, 1, 100)
+        y_true = rng.binomial(1, 0.3, 100)
         out_path = tmp_path / "threshold_metrics.png"
 
         metrics_at_thresholds = {
@@ -225,7 +229,8 @@ class TestPlotRiskDistribution:
 
     def test_metadata_lines(self, tmp_path):
         """Test metadata rendering at bottom."""
-        scores = np.random.uniform(0, 1, 100)
+        rng = np.random.default_rng(42)
+        scores = rng.uniform(0, 1, 100)
         out_path = tmp_path / "metadata.png"
 
         meta_lines = [
@@ -246,7 +251,8 @@ class TestPlotRiskDistribution:
 
     def test_subtitle(self, tmp_path):
         """Test subtitle rendering."""
-        scores = np.random.uniform(0, 1, 100)
+        rng = np.random.default_rng(42)
+        scores = rng.uniform(0, 1, 100)
         out_path = tmp_path / "subtitle.png"
 
         plot_risk_distribution(
@@ -261,7 +267,8 @@ class TestPlotRiskDistribution:
 
     def test_custom_xlabel(self, tmp_path):
         """Test custom x-axis label."""
-        scores = np.random.uniform(0, 1, 100)
+        rng = np.random.default_rng(42)
+        scores = rng.uniform(0, 1, 100)
         out_path = tmp_path / "xlabel.png"
 
         plot_risk_distribution(
@@ -276,7 +283,8 @@ class TestPlotRiskDistribution:
 
     def test_x_limits(self, tmp_path):
         """Test custom x-axis limits."""
-        scores = np.random.uniform(0, 1, 100)
+        rng = np.random.default_rng(42)
+        scores = rng.uniform(0, 1, 100)
         out_path = tmp_path / "xlimits.png"
 
         plot_risk_distribution(
@@ -291,8 +299,9 @@ class TestPlotRiskDistribution:
 
     def test_target_spec_label(self, tmp_path):
         """Test custom target specificity label."""
-        scores = np.random.uniform(0, 1, 100)
-        y_true = np.random.binomial(1, 0.3, 100)
+        rng = np.random.default_rng(42)
+        scores = rng.uniform(0, 1, 100)
+        y_true = rng.binomial(1, 0.3, 100)
         out_path = tmp_path / "target_spec.png"
 
         plot_risk_distribution(
@@ -337,8 +346,9 @@ class TestPlotRiskDistribution:
 
     def test_invalid_threshold_ignored(self, tmp_path):
         """Test invalid thresholds are ignored."""
-        scores = np.random.uniform(0, 1, 100)
-        y_true = np.random.binomial(1, 0.3, 100)
+        rng = np.random.default_rng(42)
+        scores = rng.uniform(0, 1, 100)
+        y_true = rng.binomial(1, 0.3, 100)
         out_path = tmp_path / "invalid_threshold.png"
 
         # Thresholds outside [0, 1] should be ignored
@@ -356,9 +366,10 @@ class TestPlotRiskDistribution:
 
     def test_kde_fallback_to_histogram(self, tmp_path):
         """Test KDE fallback to histogram with few points."""
+        rng = np.random.default_rng(42)
         # Very few incident points might cause KDE to fail
         n = 50
-        scores = np.random.uniform(0, 1, n)
+        scores = rng.uniform(0, 1, n)
         category_col = np.array(["Controls"] * 48 + ["Incident"] * 2)
         out_path = tmp_path / "kde_fallback.png"
 
@@ -374,10 +385,11 @@ class TestPlotRiskDistribution:
 
     def test_missing_category_filtered(self, tmp_path):
         """Test categories with zero samples are filtered."""
+        rng = np.random.default_rng(42)
         n = 100
-        scores = np.random.uniform(0, 1, n)
+        scores = rng.uniform(0, 1, n)
         # Only Controls and Incident, no Prevalent
-        category_col = np.random.choice(["Controls", "Incident"], size=n, p=[0.8, 0.2])
+        category_col = rng.choice(["Controls", "Incident"], size=n, p=[0.8, 0.2])
         out_path = tmp_path / "missing_category.png"
 
         plot_risk_distribution(
@@ -392,7 +404,8 @@ class TestPlotRiskDistribution:
 
     def test_pathlib_path(self, tmp_path):
         """Test Path object as out_path."""
-        scores = np.random.uniform(0, 1, 100)
+        rng = np.random.default_rng(42)
+        scores = rng.uniform(0, 1, 100)
         out_path = Path(tmp_path) / "pathlib.png"
 
         plot_risk_distribution(y_true=None, scores=scores, out_path=out_path, title="Path Object")
@@ -401,7 +414,8 @@ class TestPlotRiskDistribution:
 
     def test_string_path(self, tmp_path):
         """Test string as out_path."""
-        scores = np.random.uniform(0, 1, 100)
+        rng = np.random.default_rng(42)
+        scores = rng.uniform(0, 1, 100)
         out_path = str(tmp_path / "string.png")
 
         plot_risk_distribution(y_true=None, scores=scores, out_path=out_path, title="String Path")
