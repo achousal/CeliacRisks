@@ -4,9 +4,9 @@ Calibration plotting utilities.
 This module provides calibration curve plotting in both probability and logit space:
 - Probability-space calibration (observed vs predicted frequencies)
 - Logit-space calibration (log-odds)
-- Multi-split aggregation with confidence bands
+- Multi-split aggregation with 95% CI and ±1 SD confidence bands
 - LOESS smoothing for logit calibration
-- Binomial confidence intervals
+- Bootstrap confidence intervals (95% CI and ±1 SD)
 
 References:
     Van Calster et al. (2016). Calibration: the Achilles heel of predictive analytics.
@@ -17,8 +17,8 @@ References:
 """
 
 import logging
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -80,8 +80,8 @@ def _plot_prob_calibration_panel(
     bin_centers: np.ndarray,
     actual_n_bins: int,
     bin_strategy: str,
-    split_ids: Optional[np.ndarray] = None,
-    unique_splits: Optional[list] = None,
+    split_ids: np.ndarray | None = None,
+    unique_splits: list | None = None,
     panel_title: str = "",
     variable_sizes: bool = True,
 ) -> None:
@@ -292,17 +292,19 @@ def _binned_logits(
     y_pred: np.ndarray,
     n_bins: int = 10,
     bin_strategy: str = "quantile",
-    min_bin_size: int = 30,
-    merge_tail: bool = True,
-) -> Tuple[
-    Optional[np.ndarray],
-    Optional[np.ndarray],
-    Optional[np.ndarray],
-    Optional[np.ndarray],
-    Optional[np.ndarray],
+    min_bin_size: int = 1,
+    merge_tail: bool = False,
+    n_boot: int = 500,
+) -> tuple[
+    np.ndarray | None,
+    np.ndarray | None,
+    np.ndarray | None,
+    np.ndarray | None,
+    np.ndarray | None,
+    np.ndarray | None,
 ]:
     """
-    Compute binned logits for calibration plot in logit space with binomial CIs.
+    Compute binned logits for calibration plot in logit space with bootstrap 95% CI and ±1 SD.
 
     Logits are log-odds of probabilities: log(p/(1-p)). Creates calibration curve
     with predicted logits on x-axis and observed logits on y-axis.
@@ -314,25 +316,25 @@ def _binned_logits(
         bin_strategy: 'uniform' (equal width) or 'quantile' (equal size)
         min_bin_size: Minimum number of samples per bin
         merge_tail: If True, merge small bins with adjacent bins
+        n_boot: Number of bootstrap resamples for CI computation
 
     Returns:
-        Tuple of (xs, ys, ys_lo, ys_hi, sizes) where:
+        Tuple of (xs, ys, ys_lo, ys_hi, ys_sd, sizes) where:
         - xs: predicted log-odds (bin centers)
         - ys: observed log-odds (empirical event rates)
-        - ys_lo: lower CI bound (log-odds)
-        - ys_hi: upper CI bound (log-odds)
+        - ys_lo: lower 95% CI bound (log-odds, 2.5th percentile)
+        - ys_hi: upper 95% CI bound (log-odds, 97.5th percentile)
+        - ys_sd: standard deviation in log-odds (for ±1 SD bands)
         - sizes: bin sizes
-        Returns (None, None, None, None, None) if insufficient data
+        Returns (None, None, None, None, None, None) if insufficient data
     """
-    from statsmodels.stats.proportion import proportion_confint
-
     y = np.asarray(y_true).astype(int)
     p = np.asarray(y_pred).astype(float)
     mask = np.isfinite(y) & np.isfinite(p)
     y = y[mask]
     p = p[mask]
     if len(y) == 0:
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
     # Create initial bins
     if bin_strategy == "quantile":
@@ -348,8 +350,8 @@ def _binned_logits(
     bin_idx = np.digitize(p, bins) - 1
     bin_idx = np.clip(bin_idx, 0, len(bins) - 2)
 
-    # Compute per-bin statistics
-    xs_list, ys_list, ys_lo_list, ys_hi_list, sizes_list = [], [], [], [], []
+    # Compute per-bin statistics with bootstrap CI
+    xs_list, ys_list, ys_lo_list, ys_hi_list, ys_sd_list, sizes_list = [], [], [], [], [], []
     eps = 1e-7
 
     for i in range(len(bins) - 1):
@@ -368,35 +370,48 @@ def _binned_logits(
         p_mean_clipped = np.clip(p_mean, eps, 1 - eps)
         logit_pred = np.log(p_mean_clipped / (1 - p_mean_clipped))
 
-        # Observed proportion and Wilson CI
+        # Observed proportion with Jeffreys smoothing and bootstrap 95% CI + SD
         n = len(y_bin)
         k = int(y_bin.sum())
-        ci_lo, ci_hi = proportion_confint(k, n, alpha=0.05, method="wilson")
-
-        # Convert to logits (with clipping for numerical stability)
-        obs_prop = k / n
+        # Apply Jeffreys smoothing to point estimate for consistency with bootstrap
+        obs_prop = (k + 0.5) / (n + 1)
         obs_prop_clipped = np.clip(obs_prop, eps, 1 - eps)
-        ci_lo_clipped = np.clip(ci_lo, eps, 1 - eps)
-        ci_hi_clipped = np.clip(ci_hi, eps, 1 - eps)
-
         logit_obs = np.log(obs_prop_clipped / (1 - obs_prop_clipped))
-        logit_obs_lo = np.log(ci_lo_clipped / (1 - ci_lo_clipped))
-        logit_obs_hi = np.log(ci_hi_clipped / (1 - ci_hi_clipped))
+
+        # Bootstrap resampling for CI and SD
+        boot_logits = []
+        rng = np.random.RandomState(42)  # Fixed seed for reproducibility
+        for _ in range(n_boot):
+            boot_indices = rng.choice(n, size=n, replace=True)
+            y_boot = y_bin[boot_indices]
+            k_boot = y_boot.sum()
+            # Apply Jeffreys smoothing to avoid 0/1 proportions
+            prop_boot = (k_boot + 0.5) / (n + 1)
+            prop_boot_clipped = np.clip(prop_boot, eps, 1 - eps)
+            logit_boot = np.log(prop_boot_clipped / (1 - prop_boot_clipped))
+            boot_logits.append(logit_boot)
+
+        boot_logits = np.array(boot_logits)
+        logit_obs_lo = np.percentile(boot_logits, 2.5)
+        logit_obs_hi = np.percentile(boot_logits, 97.5)
+        logit_obs_sd = np.std(boot_logits)
 
         xs_list.append(logit_pred)
         ys_list.append(logit_obs)
         ys_lo_list.append(logit_obs_lo)
         ys_hi_list.append(logit_obs_hi)
+        ys_sd_list.append(logit_obs_sd)
         sizes_list.append(n)
 
     if len(xs_list) == 0:
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
     return (
         np.array(xs_list),
         np.array(ys_list),
         np.array(ys_lo_list),
         np.array(ys_hi_list),
+        np.array(ys_sd_list),
         np.array(sizes_list),
     )
 
@@ -407,16 +422,18 @@ def _plot_logit_calibration_panel(
     p: np.ndarray,
     n_bins: int,
     bin_strategy: str,
-    split_ids: Optional[np.ndarray],
-    unique_splits: Optional[list],
+    split_ids: np.ndarray | None,
+    unique_splits: list | None,
     panel_title: str,
-    lowess,
-    calib_intercept: Optional[float],
-    calib_slope: Optional[float],
+    calib_intercept: float | None,
+    calib_slope: float | None,
     eps: float = 1e-7,
 ) -> None:
     """
     Plot a single logit-space calibration panel.
+
+    Uses binned observations with bootstrap 95% CI and SD bands (steelblue style)
+    consistently for both single-split and multi-split cases.
 
     Args:
         ax: Matplotlib axis to plot on
@@ -427,7 +444,6 @@ def _plot_logit_calibration_panel(
         split_ids: Optional split identifiers
         unique_splits: List of unique split IDs
         panel_title: Title for this panel
-        lowess: LOESS function from statsmodels (or None)
         calib_intercept: Calibration intercept (alpha) from logistic recalibration
         calib_slope: Calibration slope (beta) from logistic recalibration
         eps: Small epsilon for clipping probabilities
@@ -449,10 +465,6 @@ def _plot_logit_calibration_panel(
 
     # Convert to logit space
     logit_pred = np.log(p_clipped / (1 - p_clipped))
-
-    loess_ok = False
-    loess_x = None
-    loess_logit_y = None
 
     # Initialize axis ranges with default values
     logit_range_x = [-5, 5]
@@ -512,8 +524,8 @@ def _plot_logit_calibration_panel(
         prob_y_hi = np.nanpercentile(prob_y_bins, 97.5, axis=0)
         np.nanstd(prob_y_bins, axis=0)
 
-        # Aggregate bin sizes across splits
-        bin_sizes_mean = np.nanmean(bin_sizes_per_split, axis=0)
+        # Aggregate bin sizes across splits (use sum for consistency with prob-space)
+        bin_sizes_sum = np.nansum(bin_sizes_per_split, axis=0)
 
         # NOW convert aggregated probabilities to logit space
         logit_x_mean = np.log(
@@ -570,7 +582,7 @@ def _plot_logit_calibration_panel(
             if bin_strategy == "quantile":
                 marker_sizes = 6
             else:
-                valid_sizes = bin_sizes_mean[valid_logit]
+                valid_sizes = bin_sizes_sum[valid_logit]
                 if len(valid_sizes) > 0 and valid_sizes.max() > 0:
                     min_size, max_size = 4, 16
                     norm_sizes = (valid_sizes - valid_sizes.min()) / (
@@ -594,8 +606,6 @@ def _plot_logit_calibration_panel(
                 zorder=5,
             )
 
-            loess_ok = True  # Skip LOESS when multi-split aggregation is used
-
         # Determine axis ranges from aggregated data
         if valid_logit.sum() > 0:
             logit_range_x = [
@@ -610,76 +620,12 @@ def _plot_logit_calibration_panel(
             logit_range_x = [-5, 5]
             logit_range_y = [-5, 5]
 
-    try:
-        if lowess is None or len(y) < 20:
-            raise RuntimeError("lowess unavailable or insufficient data")
-
-        # Skip LOESS if multi-split aggregation already computed
-        if unique_splits is not None and len(unique_splits) > 1 and loess_ok:
-            raise RuntimeError("Multi-split aggregation computed, skip LOESS")
-
-        # Sort by predicted probability for LOESS
-        sort_idx = np.argsort(p_clipped)
-        p_sorted = p_clipped[sort_idx].astype(np.float64)
-        y_sorted = y[sort_idx].astype(np.float64)
-
-        # Apply LOESS
-        loess_result = lowess(y_sorted, p_sorted, frac=0.3, return_sorted=True, it=0)
-
-        loess_p = loess_result[:, 0]
-        loess_prob = loess_result[:, 1]
-
-        # LOESS can overshoot [0,1] bounds at boundaries
-        # Truncate the curve where LOESS overshoots
-        clip_lower = 0.001
-        clip_upper = 0.999
-
-        valid_loess_mask = (loess_prob >= clip_lower) & (loess_prob <= clip_upper)
-
-        if valid_loess_mask.sum() < 10:
-            # Fallback to clipping
-            loess_prob = np.clip(loess_prob, clip_lower, clip_upper)
-            loess_p_clipped = np.clip(loess_p, clip_lower, clip_upper)
-            loess_logit_y = np.log(loess_prob / (1 - loess_prob))
-            loess_x = np.log(loess_p_clipped / (1 - loess_p_clipped))
-        else:
-            # Truncate to valid region
-            loess_prob = loess_prob[valid_loess_mask]
-            loess_p = loess_p[valid_loess_mask]
-            loess_p = np.clip(loess_p, clip_lower, clip_upper)
-
-            # Convert to log-odds
-            loess_logit_y = np.log(loess_prob / (1 - loess_prob))
-            loess_x = np.log(loess_p / (1 - loess_p))
-
-        # Validate output
-        valid_mask = np.isfinite(loess_x) & np.isfinite(loess_logit_y)
-
-        if valid_mask.sum() > 5:
-            loess_x = loess_x[valid_mask]
-            loess_logit_y = loess_logit_y[valid_mask]
-            loess_ok = True
-        else:
-            loess_ok = False
-    except Exception:
-        loess_ok = False
-
-    # Determine axis ranges based on actual data
+    # Determine axis ranges based on actual data (for single-split mode)
     if not (unique_splits is not None and len(unique_splits) > 1):
         logit_min = np.percentile(logit_pred, 1)
         logit_max = np.percentile(logit_pred, 99)
         logit_range_x = [logit_min - 0.5, logit_max + 0.5]
-
-        # Y-axis range should accommodate both LOESS and recalibration line
         logit_range_y = list(logit_range_x)
-
-        if loess_ok and loess_logit_y is not None:
-            loess_min = np.percentile(loess_logit_y, 1)
-            loess_max = np.percentile(loess_logit_y, 99)
-            logit_range_y = [
-                min(logit_range_y[0], loess_min - 0.5),
-                max(logit_range_y[1], loess_max + 0.5),
-            ]
 
     # Plot ideal calibration line
     ax.plot(
@@ -721,131 +667,74 @@ def _plot_logit_calibration_panel(
             p,
             n_bins=n_bins,
             bin_strategy=bin_strategy,
-            min_bin_size=30,
-            merge_tail=True,
+            min_bin_size=1,
+            merge_tail=False,
         )
-        bx, by, by_lo, by_hi, bin_sizes = binned_result
+        bx, by, by_lo, by_hi, by_sd, bin_sizes = binned_result
 
-        # Plot observed calibration (LOESS or binned)
-        method_label = ""
-        if loess_ok and loess_x is not None and loess_logit_y is not None:
-            # Plot LOESS curve on top of CI band
-            label = "LOESS (smoothed)"
-            ax.plot(
-                loess_x,
-                loess_logit_y,
-                "steelblue",
-                linewidth=2.5,
-                alpha=0.6,
-                label=label,
-                zorder=5,
+        # Plot binned observations with bootstrap 95% CI and ±1 SD
+        method_label = "Binned"
+        if (
+            bx is not None
+            and by is not None
+            and by_lo is not None
+            and by_hi is not None
+            and by_sd is not None
+        ):
+            # Plot 95% CI band
+            ax.fill_between(
+                bx,
+                by_lo,
+                by_hi,
+                color="steelblue",
+                alpha=0.15,
+                label="95% CI",
+                zorder=3,
             )
-            method_label = "LOESS"
 
-            # Overlay binned observations with binomial CIs
-            if bx is not None and by is not None and by_lo is not None and by_hi is not None:
-                yerr_lo = by - by_lo
-                yerr_hi = by_hi - by
-                yerr = np.vstack([yerr_lo, yerr_hi])
+            # Plot ±1 SD band
+            ax.fill_between(
+                bx,
+                np.clip(by - by_sd, -20, 20),
+                np.clip(by + by_sd, -20, 20),
+                color="steelblue",
+                alpha=0.30,
+                label="±1 SD",
+                zorder=4,
+            )
 
-                # Compute marker sizes scaled by bin sample numbers
-                if bin_sizes is not None and len(bin_sizes) > 0:
-                    min_size, max_size = 4, 16
-                    norm_sizes = (bin_sizes - bin_sizes.min()) / (
-                        bin_sizes.max() - bin_sizes.min() + 1e-7
-                    )
-                    marker_sizes = min_size + norm_sizes * (max_size - min_size)
-                else:
-                    marker_sizes = 7
+            # Plot line connecting bin centers
+            ax.plot(bx, by, "-", color="steelblue", linewidth=2, alpha=0.6, zorder=5)
 
-                # Plot error bars
-                ax.errorbar(
-                    bx,
-                    by,
-                    yerr=yerr,
-                    fmt="none",
-                    capsize=4,
-                    capthick=1.5,
-                    color="darkorange",
-                    ecolor="darkorange",
-                    alpha=0.8,
-                    zorder=9,
+            # Compute marker sizes
+            if bin_sizes is not None and len(bin_sizes) > 0:
+                min_size, max_size = 4, 16
+                norm_sizes = (bin_sizes - bin_sizes.min()) / (
+                    bin_sizes.max() - bin_sizes.min() + 1e-7
                 )
+                marker_sizes = min_size + norm_sizes * (max_size - min_size)
+            else:
+                marker_sizes = 7
 
-                # Plot markers
-                ax.scatter(
-                    bx,
-                    by,
-                    s=marker_sizes**2,
-                    marker="o",
-                    color="darkorange",
-                    alpha=0.7,
-                    edgecolors="darkred",
-                    linewidth=0.5,
-                    label=f"Binned observations (n={len(bx)} bins, Wilson CI)",
-                    zorder=10,
-                )
+            # Plot markers
+            ax.scatter(
+                bx,
+                by,
+                s=marker_sizes**2,
+                marker="o",
+                color="steelblue",
+                alpha=0.7,
+                edgecolors="darkblue",
+                linewidth=0.5,
+                label=f"Binned logits (n={len(bx)} bins)",
+                zorder=6,
+            )
 
-                # Extend y-range for binned CIs
-                logit_range_y = [
-                    min(logit_range_y[0], by_lo.min() - 0.3),
-                    max(logit_range_y[1], by_hi.max() + 0.3),
-                ]
-        else:
-            # Fallback: only binned data available
-            if bx is not None and by is not None and by_lo is not None and by_hi is not None:
-                yerr_lo = by - by_lo
-                yerr_hi = by_hi - by
-                yerr = np.vstack([yerr_lo, yerr_hi])
-
-                # Compute marker sizes
-                if bin_sizes is not None and len(bin_sizes) > 0:
-                    min_size, max_size = 4, 16
-                    norm_sizes = (bin_sizes - bin_sizes.min()) / (
-                        bin_sizes.max() - bin_sizes.min() + 1e-7
-                    )
-                    marker_sizes = min_size + norm_sizes * (max_size - min_size)
-                else:
-                    marker_sizes = 7
-
-                # Plot error bars
-                ax.errorbar(
-                    bx,
-                    by,
-                    yerr=yerr,
-                    fmt="none",
-                    capsize=4,
-                    capthick=1.5,
-                    color="steelblue",
-                    ecolor="steelblue",
-                    alpha=0.8,
-                    linewidth=2,
-                    zorder=4,
-                )
-
-                # Plot line connecting bin centers
-                ax.plot(bx, by, "-", color="steelblue", linewidth=2, alpha=0.6, zorder=4)
-
-                # Plot markers
-                ax.scatter(
-                    bx,
-                    by,
-                    s=marker_sizes**2,
-                    marker="o",
-                    color="steelblue",
-                    alpha=0.7,
-                    edgecolors="darkblue",
-                    linewidth=0.5,
-                    label=f"Binned logits (n={len(bx)} bins, Wilson CI)",
-                    zorder=5,
-                )
-
-                method_label = "Binned"
-                # Extend y-range for binned data
-                logit_range_y = [
-                    min(logit_range_y[0], by_lo.min() - 0.5),
-                    max(logit_range_y[1], by_hi.max() + 0.5),
-                ]
+            # Extend y-range for binned data
+            logit_range_y = [
+                min(logit_range_y[0], by_lo.min() - 0.5),
+                max(logit_range_y[1], by_hi.max() + 0.5),
+            ]
     else:
         # Multi-split mode: aggregated bands already plotted
         method_label = "Multi-split aggregated"
@@ -860,11 +749,11 @@ def _plot_logit_calibration_panel(
         from matplotlib.lines import Line2D
 
         # Determine actual bin sizes from the data
-        # Multi-split case: bin_sizes_mean already computed
+        # Multi-split case: bin_sizes_sum already computed
         # Single-split case: bin_sizes from _binned_logits
         if unique_splits is not None and len(unique_splits) > 1:
-            # Multi-split: use bin_sizes_mean from earlier computation
-            actual_bin_sizes = bin_sizes_mean[bin_sizes_mean > 0]
+            # Multi-split: use bin_sizes_sum from earlier computation
+            actual_bin_sizes = bin_sizes_sum[bin_sizes_sum > 0]
         else:
             # Single-split: use bin_sizes from binned_result
             if bin_sizes is not None and len(bin_sizes) > 0:
@@ -936,7 +825,7 @@ def _plot_logit_calibration_panel(
     ax.set_ylim(logit_range_y)
 
 
-def _apply_plot_metadata(fig, meta_lines: Optional[Sequence[str]] = None) -> float:
+def _apply_plot_metadata(fig, meta_lines: Sequence[str] | None = None) -> float:
     """
     Apply metadata text to bottom of figure, return required bottom margin.
 
@@ -967,11 +856,11 @@ def plot_calibration_curve(
     title: str,
     subtitle: str = "",
     n_bins: int = 10,
-    split_ids: Optional[np.ndarray] = None,
-    meta_lines: Optional[Sequence[str]] = None,
+    split_ids: np.ndarray | None = None,
+    meta_lines: Sequence[str] | None = None,
     bin_strategy: str = "uniform",
-    calib_intercept: Optional[float] = None,
-    calib_slope: Optional[float] = None,
+    calib_intercept: float | None = None,
+    calib_slope: float | None = None,
     four_panel: bool = False,
 ) -> None:
     """
@@ -1005,14 +894,6 @@ def plot_calibration_curve(
     except Exception as e:
         logger.error(f"Calibration plot failed to import matplotlib: {e}")
         return
-
-    lowess = None
-    try:
-        from statsmodels.nonparametric.smoothers_lowess import lowess as _lowess
-
-        lowess = _lowess
-    except Exception:
-        lowess = None
 
     y = np.asarray(y_true).astype(int)
     p = np.asarray(y_pred).astype(float)
@@ -1121,7 +1002,6 @@ def plot_calibration_curve(
         split_ids,
         unique_splits,
         logit_title_q,
-        lowess,
         calib_intercept,
         calib_slope,
         eps=eps,
@@ -1138,7 +1018,6 @@ def plot_calibration_curve(
         split_ids,
         unique_splits,
         logit_title_u,
-        lowess,
         calib_intercept,
         calib_slope,
         eps=eps,

@@ -11,8 +11,11 @@ Features:
 - Graceful fallback when optuna is not installed
 """
 
+from __future__ import annotations
+
 import logging
-from typing import Any, Callable, Dict, List, Literal, Optional, Union
+from collections.abc import Callable
+from typing import Any, Literal
 
 import numpy as np
 from sklearn.base import BaseEstimator, clone
@@ -133,23 +136,23 @@ class OptunaSearchCV(BaseEstimator):
     def __init__(
         self,
         estimator: BaseEstimator,
-        param_distributions: Dict[str, Any],
+        param_distributions: dict[str, Any],
         *,
         n_trials: int = 100,
-        timeout: Optional[float] = None,
-        scoring: Union[str, Callable] = "accuracy",
-        cv: Union[int, Any] = 5,
+        timeout: float | None = None,
+        scoring: str | Callable = "accuracy",
+        cv: int | Any = 5,
         n_jobs: int = 1,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
         refit: bool = True,
         direction: Literal["minimize", "maximize"] = "maximize",
         sampler: Literal["tpe", "random", "cmaes", "grid"] = "tpe",
-        sampler_seed: Optional[int] = None,
+        sampler_seed: int | None = None,
         pruner: Literal["median", "percentile", "hyperband", "none"] = "hyperband",
         pruner_n_startup_trials: int = 5,
         pruner_percentile: float = 25.0,
-        storage: Optional[str] = None,
-        study_name: Optional[str] = None,
+        storage: str | None = None,
+        study_name: str | None = None,
         load_if_exists: bool = False,
         verbose: int = 0,
     ):
@@ -177,16 +180,25 @@ class OptunaSearchCV(BaseEstimator):
         self.verbose = verbose
 
         # Attributes set during fit
-        self.best_params_: Dict[str, Any] = {}
+        self.best_params_: dict[str, Any] = {}
         self.best_score_: float = np.nan
-        self.best_estimator_: Optional[BaseEstimator] = None
-        self.cv_results_: Dict[str, List] = {}
-        self.study_: Optional[optuna.Study] = None
+        self.best_estimator_: BaseEstimator | None = None
+        self.cv_results_: dict[str, list] = {}
+        self.study_: optuna.Study | None = None
         self.n_trials_: int = 0
 
-    def _create_sampler(self) -> "optuna.samplers.BaseSampler":
+    def _create_sampler(self) -> optuna.samplers.BaseSampler:
         """Create Optuna sampler based on configuration."""
-        seed = self.sampler_seed if self.sampler_seed is not None else self.random_state
+        # Ensure deterministic behavior: default to 0 if both seeds are None
+        if self.sampler_seed is not None:
+            seed = self.sampler_seed
+        elif self.random_state is not None:
+            seed = self.random_state
+        else:
+            seed = 0
+            logger.warning(
+                "Both sampler_seed and random_state are None. Defaulting to seed=0 for determinism."
+            )
 
         if self.sampler == "tpe":
             return TPESampler(seed=seed)
@@ -201,7 +213,7 @@ class OptunaSearchCV(BaseEstimator):
         else:
             raise ValueError(f"Unknown sampler: {self.sampler}")
 
-    def _build_grid_search_space(self) -> Dict[str, List]:
+    def _build_grid_search_space(self) -> dict[str, list]:
         """Build search space for GridSampler from param_distributions."""
         search_space = {}
         for name, spec in self.param_distributions.items():
@@ -225,7 +237,7 @@ class OptunaSearchCV(BaseEstimator):
                 raise ValueError(f"Cannot build grid for param {name}: {spec}")
         return search_space
 
-    def _create_pruner(self) -> "optuna.pruners.BasePruner":
+    def _create_pruner(self) -> optuna.pruners.BasePruner:
         """Create Optuna pruner based on configuration."""
         if self.pruner == "median":
             return MedianPruner(n_startup_trials=self.pruner_n_startup_trials)
@@ -241,7 +253,7 @@ class OptunaSearchCV(BaseEstimator):
         else:
             raise ValueError(f"Unknown pruner: {self.pruner}")
 
-    def _suggest_params(self, trial: "optuna.Trial") -> Dict[str, Any]:
+    def _suggest_params(self, trial: optuna.Trial) -> dict[str, Any]:
         """Suggest hyperparameters for a trial based on param_distributions."""
         params = {}
         for name, spec in self.param_distributions.items():
@@ -286,7 +298,7 @@ class OptunaSearchCV(BaseEstimator):
 
         return params
 
-    def fit(self, X, y, **fit_params) -> "OptunaSearchCV":
+    def fit(self, X, y, **fit_params) -> OptunaSearchCV:
         """
         Run Optuna hyperparameter optimization.
 
@@ -304,8 +316,10 @@ class OptunaSearchCV(BaseEstimator):
         self : OptunaSearchCV
             Fitted instance.
         """
-        # Convert to numpy if needed
-        X_arr = np.asarray(X)
+        # Keep X as-is (DataFrame or array) for pipeline compatibility
+        # ColumnTransformer with string column names requires DataFrame input
+        X_arr = X
+        # Convert y to array for safe indexing
         y_arr = np.asarray(y)
 
         # Setup CV splitter
@@ -357,7 +371,7 @@ class OptunaSearchCV(BaseEstimator):
                 )
 
         # Create objective with CV splitter
-        def objective(trial: "optuna.Trial") -> float:
+        def objective(trial: optuna.Trial) -> float:
             params = self._suggest_params(trial)
             estimator = clone(self.estimator)
             try:
@@ -374,7 +388,6 @@ class OptunaSearchCV(BaseEstimator):
                     cv=cv_splitter,
                     scoring=self.scoring,
                     n_jobs=self.n_jobs,
-                    fit_params=fit_params,
                 )
                 return float(np.mean(scores))
             except Exception as e:
@@ -391,6 +404,18 @@ class OptunaSearchCV(BaseEstimator):
 
         # Extract results
         self.n_trials_ = len(self.study_.trials)
+
+        # Check if any trials completed successfully
+        completed_trials = [
+            t for t in self.study_.trials if t.state == optuna.trial.TrialState.COMPLETE
+        ]
+        if not completed_trials:
+            raise RuntimeError(
+                f"All {self.n_trials_} Optuna trials failed. "
+                "Check logs for error messages. This may indicate incompatible "
+                "hyperparameters, insufficient data, or other issues."
+            )
+
         self.best_params_ = self.study_.best_params
         self.best_score_ = self.study_.best_value
 
@@ -409,12 +434,12 @@ class OptunaSearchCV(BaseEstimator):
 
         return self
 
-    def _build_cv_results(self) -> Dict[str, List]:
+    def _build_cv_results(self) -> dict[str, list]:
         """Build sklearn-compatible cv_results_ from Optuna study."""
         if self.study_ is None:
             return {}
 
-        results: Dict[str, List] = {
+        results: dict[str, list] = {
             "mean_test_score": [],
             "rank_test_score": [],
             "params": [],

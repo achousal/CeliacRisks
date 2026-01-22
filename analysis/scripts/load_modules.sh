@@ -19,12 +19,12 @@ echo "Loading modules for CeliacRisks pipeline..."
 # CUSTOMIZE THESE FOR YOUR HPC ENVIRONMENT
 # ==============================================================================
 
-# Python module (3.8+)
+# Python module (3.10+)
 # Examples:
-#   Stanford Sherlock: python/3.9.0
-#   NIH Biowulf: python/3.9
-#   Generic: python3/3.9.7
-module load python/3.9.0
+#   Stanford Sherlock: python/3.10.0
+#   NIH Biowulf: python/3.10
+#   Generic: python3/3.10.0
+module load python/3.10.0
 
 # R module (4.0+ for visualization scripts)
 # Only needed if running compare_models_faith.R

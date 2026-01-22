@@ -5,7 +5,7 @@ Uses refactored data I/O and split generation modules.
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -26,6 +26,7 @@ from ced_ml.data.schema import (
     CONTROL_LABEL,
     INCIDENT_LABEL,
     PREVALENT_LABEL,
+    SCENARIO_DEFINITIONS,
     TARGET_COL,
 )
 from ced_ml.data.splits import (
@@ -38,25 +39,24 @@ from ced_ml.data.splits import (
 )
 from ced_ml.utils.logging import log_section, setup_logger
 
-# Scenario definitions
-SCENARIO_DEFINITIONS = {
-    "IncidentOnly": {
-        "positives": [INCIDENT_LABEL],
-        "description": "Controls + Incident (prospective prediction, recommended)",
-        "warning": None,
-    },
-    "IncidentPlusPrevalent": {
-        "positives": [INCIDENT_LABEL, PREVALENT_LABEL],
-        "description": "Controls + Incident + Prevalent",
-        "warning": None,
-    },
-}
+
+# Helper function to extract positive labels from schema SCENARIO_DEFINITIONS
+def get_positives_from_scenario(scenario: str) -> list[str]:
+    """Extract positive labels from scenario definition."""
+    if scenario not in SCENARIO_DEFINITIONS:
+        raise ValueError(
+            f"Unknown scenario: {scenario}. Valid: {list(SCENARIO_DEFINITIONS.keys())}"
+        )
+    # SCENARIO_DEFINITIONS has 'labels' which includes CONTROL_LABEL
+    # We need only the positive labels (exclude CONTROL_LABEL)
+    all_labels = SCENARIO_DEFINITIONS[scenario]["labels"]
+    return [label for label in all_labels if label != CONTROL_LABEL]
 
 
 def run_save_splits(
-    config_file: Optional[str] = None,
-    cli_args: Optional[Dict[str, Any]] = None,
-    overrides: Optional[List[str]] = None,
+    config_file: str | None = None,
+    cli_args: dict[str, Any] | None = None,
+    overrides: list[str] | None = None,
     verbose: int = 0,
 ):
     """
@@ -174,8 +174,9 @@ def _generate_scenario_splits(
     logger,
 ) -> None:
     """Generate splits for a single scenario."""
-    scenario_def = SCENARIO_DEFINITIONS[scenario]
-    positives = scenario_def["positives"]
+    positives = get_positives_from_scenario(scenario)
+    scenario_description = SCENARIO_DEFINITIONS[scenario]["description"]
+
     eval_case_labels = positives
     if config.prevalent_train_only and PREVALENT_LABEL in positives:
         eval_case_labels = [INCIDENT_LABEL]
@@ -184,7 +185,7 @@ def _generate_scenario_splits(
         train_case_labels = [INCIDENT_LABEL]
 
     logger.info(f"\n{'='*60}")
-    logger.info(f"=== Preparing {scenario} scenario ({scenario_def['description']}) ===")
+    logger.info(f"=== Preparing {scenario} scenario ({scenario_description}) ===")
     logger.info(f"{'='*60}")
 
     if config.prevalent_train_only and PREVALENT_LABEL in positives:
@@ -192,7 +193,26 @@ def _generate_scenario_splits(
 
     # Filter to scenario
     keep_labels = [CONTROL_LABEL] + positives
+
+    # Validate that all expected labels are present in data
+    unique_labels = set(df[TARGET_COL].unique())
+    missing_labels = set(keep_labels) - unique_labels
+    if missing_labels:
+        logger.warning(
+            f"Expected labels {missing_labels} not found in data. Available: {unique_labels}"
+        )
+
+    # Check for unknown labels (not in any valid scenario)
+    all_valid_labels = {CONTROL_LABEL, INCIDENT_LABEL, PREVALENT_LABEL}
+    unknown_labels = unique_labels - all_valid_labels
+    if unknown_labels:
+        logger.warning(f"Found unknown labels in data: {unknown_labels}. Will be filtered out.")
+
     mask = df[TARGET_COL].isin(keep_labels)
+    n_filtered = (~mask).sum()
+    if n_filtered > 0:
+        logger.info(f"  Filtered out {n_filtered:,} samples with labels not in {keep_labels}")
+
     df_scenario_raw = df[mask].copy()
     logger.info(f"  {scenario} (raw, pre row-filters): {len(df_scenario_raw):,} samples")
 

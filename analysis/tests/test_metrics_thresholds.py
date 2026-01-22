@@ -14,6 +14,7 @@ from ced_ml.metrics.dca import threshold_dca_zero_crossing
 from ced_ml.metrics.thresholds import (
     binary_metrics_at_threshold,
     choose_threshold_objective,
+    compute_multi_target_specificity_metrics,
     threshold_for_precision,
     threshold_for_specificity,
     threshold_from_controls,
@@ -626,3 +627,108 @@ def test_threshold_dca_zero_crossing_no_positive_benefit():
     # Just verify it returns a valid threshold or None
     if thr is not None:
         assert 0.001 <= thr <= 0.20
+
+
+# ============================================================================
+# Multi-Target Specificity Tests
+# ============================================================================
+
+
+def test_compute_multi_target_specificity_metrics_basic():
+    """Test multi-target specificity metrics with basic case."""
+    y_true = np.array([0, 0, 0, 0, 0, 1, 1, 1])
+    y_pred = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
+    spec_targets = [0.90, 0.95, 0.99]
+
+    metrics = compute_multi_target_specificity_metrics(y_true, y_pred, spec_targets)
+
+    assert "thr_ctrl_90" in metrics
+    assert "sens_ctrl_90" in metrics
+    assert "prec_ctrl_90" in metrics
+    assert "spec_ctrl_90" in metrics
+
+    assert "thr_ctrl_95" in metrics
+    assert "sens_ctrl_95" in metrics
+    assert "prec_ctrl_95" in metrics
+    assert "spec_ctrl_95" in metrics
+
+    assert "thr_ctrl_99" in metrics
+    assert "sens_ctrl_99" in metrics
+    assert "prec_ctrl_99" in metrics
+    assert "spec_ctrl_99" in metrics
+
+    # Total keys: 4 metrics x 3 targets = 12
+    assert len(metrics) == 12
+
+    # Check specificity values are close to targets
+    assert abs(metrics["spec_ctrl_90"] - 0.90) < 0.25
+    assert abs(metrics["spec_ctrl_95"] - 0.95) < 0.25
+    assert abs(metrics["spec_ctrl_99"] - 0.99) < 0.25
+
+    # Thresholds should increase with increasing specificity
+    assert metrics["thr_ctrl_90"] <= metrics["thr_ctrl_95"] <= metrics["thr_ctrl_99"]
+
+
+def test_compute_multi_target_specificity_metrics_empty():
+    """Test multi-target specificity metrics with empty targets list."""
+    y_true = np.array([0, 0, 1, 1])
+    y_pred = np.array([0.1, 0.2, 0.8, 0.9])
+    spec_targets = []
+
+    metrics = compute_multi_target_specificity_metrics(y_true, y_pred, spec_targets)
+
+    assert len(metrics) == 0
+
+
+def test_compute_multi_target_specificity_metrics_single_target():
+    """Test multi-target specificity metrics with single target."""
+    y_true = np.array([0, 0, 0, 1, 1])
+    y_pred = np.array([0.1, 0.2, 0.3, 0.8, 0.9])
+    spec_targets = [0.95]
+
+    metrics = compute_multi_target_specificity_metrics(y_true, y_pred, spec_targets)
+
+    assert "thr_ctrl_95" in metrics
+    assert "sens_ctrl_95" in metrics
+    assert "prec_ctrl_95" in metrics
+    assert "spec_ctrl_95" in metrics
+    assert len(metrics) == 4
+
+
+def test_compute_multi_target_specificity_metrics_perfect_separation():
+    """Test multi-target specificity metrics with perfect separation."""
+    y_true = np.array([0, 0, 0, 1, 1, 1])
+    y_pred = np.array([0.1, 0.2, 0.3, 0.7, 0.8, 0.9])
+    spec_targets = [0.90, 0.95, 0.99]
+
+    metrics = compute_multi_target_specificity_metrics(y_true, y_pred, spec_targets)
+
+    # All metrics should be valid
+    for key in metrics:
+        assert np.isfinite(metrics[key])
+
+    # With good separation, high specificity should still have reasonable sensitivity
+    assert metrics["sens_ctrl_90"] > 0.0
+
+
+def test_compute_multi_target_specificity_metrics_imbalanced():
+    """Test multi-target specificity metrics with imbalanced data."""
+    np.random.seed(42)
+    y_true = np.array([0] * 95 + [1] * 5)
+    y_pred = np.concatenate(
+        [
+            np.random.beta(2, 5, size=95),  # Controls
+            np.random.beta(5, 2, size=5),  # Cases
+        ]
+    )
+    spec_targets = [0.90, 0.95, 0.99]
+
+    metrics = compute_multi_target_specificity_metrics(y_true, y_pred, spec_targets)
+
+    assert len(metrics) == 12
+
+    # With imbalanced data, high specificity is easier to achieve
+    for target in [90, 95, 99]:
+        assert f"spec_ctrl_{target}" in metrics
+        assert 0.0 <= metrics[f"spec_ctrl_{target}"] <= 1.0
+        assert 0.0 <= metrics[f"sens_ctrl_{target}"] <= 1.0

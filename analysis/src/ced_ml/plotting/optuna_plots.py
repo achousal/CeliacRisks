@@ -10,7 +10,7 @@ Provides functions to visualize Optuna study results, including:
 
 import logging
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -137,10 +137,10 @@ def save_optuna_plots(
 
 
 def aggregate_optuna_trials(
-    trials_dfs: List[pd.DataFrame],
+    trials_dfs: list[pd.DataFrame],
     out_dir: Path,
     prefix: str = "aggregated_",
-) -> Optional[pd.DataFrame]:
+) -> pd.DataFrame | None:
     """
     Aggregate Optuna trials across multiple splits.
 

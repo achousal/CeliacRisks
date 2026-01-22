@@ -11,7 +11,7 @@
 # For detailed setup instructions, see: SETUP_README.md
 #
 # Requirements:
-#   - Python 3.8+
+#   - Python 3.10+
 #   - Git (for version tracking)
 #   - ~2 GB disk space for virtual environment
 #
@@ -68,8 +68,8 @@ PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
 PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d. -f1)
 PYTHON_MINOR=$(echo $PYTHON_VERSION | cut -d. -f2)
 
-if [ "$PYTHON_MAJOR" -lt 3 ] || { [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 8 ]; }; then
-    error "Python 3.8+ required, found $PYTHON_VERSION. Load a newer Python module."
+if [ "$PYTHON_MAJOR" -lt 3 ] || { [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 10 ]; }; then
+    error "Python 3.10+ required, found $PYTHON_VERSION. Load a newer Python module."
 fi
 
 success "Python $PYTHON_VERSION detected"

@@ -5,7 +5,6 @@ Implements strictness levels and leakage detection as per the refactoring plan.
 """
 
 import warnings
-from typing import List
 
 from ced_ml.config.schema import SplitsConfig, TrainingConfig
 
@@ -130,9 +129,9 @@ def validate_training_config(config: TrainingConfig):
 
 
 def check_split_overlap(
-    train_idx: List[int],
-    val_idx: List[int],
-    test_idx: List[int],
+    train_idx: list[int],
+    val_idx: list[int],
+    test_idx: list[int],
     strictness: str = "warn",
 ):
     """
@@ -170,8 +169,8 @@ def check_split_overlap(
 
 
 def check_prevalent_in_eval(
-    eval_idx: List[int],
-    prevalent_idx: List[int],
+    eval_idx: list[int],
+    prevalent_idx: list[int],
     split_name: str = "eval",
     strictness: str = "warn",
 ):
@@ -229,7 +228,7 @@ def validate_config(config):
     return errors, warnings_list
 
 
-def _handle_issues(issues: List[str], strictness: str, context: str):
+def _handle_issues(issues: list[str], strictness: str, context: str):
     """Handle validation issues based on strictness level."""
     if not issues:
         return

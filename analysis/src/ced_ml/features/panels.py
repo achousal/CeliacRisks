@@ -12,7 +12,7 @@ Design:
 - Graph-based correlation component detection
 """
 
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -22,8 +22,8 @@ from scipy import stats
 def compute_univariate_strength(
     df: pd.DataFrame,
     y: np.ndarray,
-    proteins: List[str],
-) -> Dict[str, Tuple[float, float]]:
+    proteins: list[str],
+) -> dict[str, tuple[float, float]]:
     """Compute univariate Mann-Whitney p-values and effect sizes for proteins.
 
     Used for tie-breaking when multiple proteins have equal selection frequency.
@@ -45,7 +45,7 @@ def compute_univariate_strength(
         {'PROT_A': (0.33, 2.0), 'PROT_B': (0.33, 2.0)}
     """
     y_int = np.asarray(y, dtype=int)
-    result: Dict[str, Tuple[float, float]] = {}
+    result: dict[str, tuple[float, float]] = {}
 
     for protein in proteins:
         if protein not in df.columns:
@@ -94,13 +94,13 @@ def compute_univariate_strength(
 
 def prune_correlated_proteins(
     df: pd.DataFrame,
-    y: Optional[np.ndarray],
-    proteins: List[str],
-    selection_freq: Optional[Dict[str, float]] = None,
+    y: np.ndarray | None,
+    proteins: list[str],
+    selection_freq: dict[str, float] | None = None,
     corr_threshold: float = 0.80,
     corr_method: Literal["pearson", "spearman"] = "pearson",
     tiebreak_method: Literal["freq", "freq_then_univariate"] = "freq",
-) -> Tuple[pd.DataFrame, List[str]]:
+) -> tuple[pd.DataFrame, list[str]]:
     """Prune correlated proteins using connected components graph algorithm.
 
     Builds correlation graph where edges connect proteins with |corr| >= threshold.
@@ -199,7 +199,7 @@ def prune_correlated_proteins(
         components.append(sorted(component))
 
     # Compute univariate strengths if needed for tie-breaking
-    univariate_map: Dict[str, Tuple[float, float]] = {}
+    univariate_map: dict[str, tuple[float, float]] = {}
     if tiebreak_method == "freq_then_univariate" and y is not None:
         univariate_map = compute_univariate_strength(df, y, available)
 
@@ -266,15 +266,15 @@ def prune_correlated_proteins(
 
 def prune_and_refill_panel(
     df: pd.DataFrame,
-    y: Optional[np.ndarray],
-    ranked_proteins: List[str],
-    selection_freq: Dict[str, float],
+    y: np.ndarray | None,
+    ranked_proteins: list[str],
+    selection_freq: dict[str, float],
     target_size: int,
     corr_threshold: float,
     pool_limit: int,
     corr_method: Literal["pearson", "spearman"] = "pearson",
     tiebreak_method: Literal["freq", "freq_then_univariate"] = "freq",
-) -> Tuple[pd.DataFrame, List[str]]:
+) -> tuple[pd.DataFrame, list[str]]:
     """Build correlation-pruned panel of fixed size with backfill.
 
     Algorithm:
@@ -411,14 +411,14 @@ def prune_and_refill_panel(
 
 def build_multi_size_panels(
     df: pd.DataFrame,
-    y: Optional[np.ndarray],
-    selection_freq: Dict[str, float],
-    panel_sizes: List[int],
+    y: np.ndarray | None,
+    selection_freq: dict[str, float],
+    panel_sizes: list[int],
     corr_threshold: float = 0.80,
     pool_limit: int = 1000,
     corr_method: Literal["pearson", "spearman"] = "pearson",
     tiebreak_method: Literal["freq", "freq_then_univariate"] = "freq",
-) -> Dict[int, Tuple[pd.DataFrame, List[str]]]:
+) -> dict[int, tuple[pd.DataFrame, list[str]]]:
     """Build multiple panels of different sizes with correlation pruning.
 
     Convenience wrapper around prune_and_refill_panel for building

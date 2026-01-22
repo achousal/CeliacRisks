@@ -2,9 +2,9 @@
 
 **A production-ready machine learning pipeline for disease risk prediction from high-dimensional biomarker data**
 
-![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)
-![Tests](https://img.shields.io/badge/tests-768%20passing-success)
-![Coverage](https://img.shields.io/badge/coverage-82%25-brightgreen)
+![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)
+![Tests](https://img.shields.io/badge/tests-810%20passing-success)
+![Coverage](https://img.shields.io/badge/coverage-65%25-yellowgreen)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 ---
@@ -64,7 +64,7 @@ pip install -e .
 ced --help
 ```
 
-**Requirements:** Python 3.9+, scikit-learn, pandas, numpy, scipy, matplotlib, seaborn, xgboost (optional)
+**Requirements:** Python 3.10+, scikit-learn, pandas, numpy, scipy, matplotlib, seaborn, xgboost (optional)
 
 ---
 
@@ -86,7 +86,7 @@ PROJECT=your_allocation ./run_hpc.sh
 
 These scripts handle the entire pipeline: splits generation, model training, and postprocessing.
 
-For customization options and detailed setup, see [analysis/HPC_README.md](analysis/HPC_README.md) and [analysis/WORKFLOW.md](analysis/WORKFLOW.md).
+For customization options, see [analysis/CLAUDE.md](analysis/CLAUDE.md).
 
 ---
 
@@ -106,7 +106,7 @@ ced train --config configs/training_config.yaml --model LR_EN
 
 ### 3. Aggregate Results
 ```bash
-ced postprocess --results-dir results --n-boot 500
+ced aggregate-splits --config configs/aggregate_config.yaml
 ```
 
 ### 4. Visualize
@@ -154,7 +154,7 @@ thresholds:
   target_prevalence_source: test
 ```
 
-For complete configuration options, see [analysis/docs/examples/](analysis/docs/examples/).
+For complete configuration options, see [analysis/CLAUDE.md](analysis/CLAUDE.md).
 
 ---
 
@@ -192,9 +192,9 @@ See [analysis/CLAUDE.md](analysis/CLAUDE.md) for the complete case study.
 |----------|-------------|
 | [analysis/CLAUDE.md](analysis/CLAUDE.md) | Primary project documentation with case study |
 | [analysis/docs/ARCHITECTURE.md](analysis/docs/ARCHITECTURE.md) | Technical architecture with code pointers |
-| [analysis/docs/adr/](analysis/docs/adr/) | Architecture Decision Records (15 decisions) |
-| [analysis/HPC_README.md](analysis/HPC_README.md) | HPC deployment quick reference |
-| [analysis/WORKFLOW.md](analysis/WORKFLOW.md) | Visual HPC workflow guide |
+| [analysis/docs/adr/](analysis/docs/adr/) | Architecture Decision Records (19 decisions) |
+| [analysis/docs/HYPERPARAMETER_TUNING.md](analysis/docs/HYPERPARAMETER_TUNING.md) | Hyperparameter tuning guide |
+| [analysis/docs/METRICS_REFERENCE.md](analysis/docs/METRICS_REFERENCE.md) | Metrics behavior reference |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
 
 ---
@@ -207,7 +207,7 @@ pytest tests/ -v                    # Run all tests
 pytest tests/ --cov=src/ced_ml     # With coverage
 ```
 
-**Stats:** 753 tests, 82% coverage
+**Stats:** 810 tests, 65% coverage
 
 ---
 

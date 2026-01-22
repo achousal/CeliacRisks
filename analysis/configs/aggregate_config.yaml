@@ -3,7 +3,7 @@
 
 # Input/output
 results_dir: ../results
-outdir: ../results_aggregated
+outdir: ../results/aggregated
 
 # Discovery
 split_pattern: split_seed*  # Pattern to match split directories
@@ -42,3 +42,4 @@ plot_calibration: true
 plot_risk_distribution: true
 plot_dca: true
 plot_oof_combined: true
+plot_learning_curve: true

@@ -10,10 +10,13 @@ Key classes:
         adjustment to predict_proba() outputs
 """
 
+import logging
 from typing import Any
 
 import numpy as np
 from sklearn.base import BaseEstimator
+
+logger = logging.getLogger(__name__)
 
 
 def _logit(p: np.ndarray) -> np.ndarray:
@@ -83,8 +86,18 @@ def adjust_probabilities_for_prevalence(
     """
     # Validate inputs
     if not np.isfinite(sample_prev) or not np.isfinite(target_prev):
+        logger.warning(
+            f"Prevalence adjustment skipped: non-finite prevalence values "
+            f"(sample_prev={sample_prev}, target_prev={target_prev}). "
+            "Returning raw probabilities."
+        )
         return probs
     if not (0.0 < sample_prev < 1.0) or not (0.0 < target_prev < 1.0):
+        logger.warning(
+            f"Prevalence adjustment skipped: prevalence values at boundary "
+            f"(sample_prev={sample_prev}, target_prev={target_prev}). "
+            "Valid range is (0.0, 1.0) exclusive. Returning raw probabilities."
+        )
         return probs
 
     # Compute prevalence shift on logit scale
@@ -146,6 +159,22 @@ class PrevalenceAdjustedModel(BaseEstimator):
         self.sample_prevalence = float(sample_prevalence)
         self.target_prevalence = float(target_prevalence)
         self.classes_ = getattr(base_model, "classes_", None)
+
+    def fit(self, X, y=None):
+        """
+        No-op fit method (base model is already fitted).
+
+        This method is provided for sklearn pipeline compatibility but does nothing
+        since the base model is already fitted when the wrapper is instantiated.
+
+        Args:
+            X: Feature matrix (ignored)
+            y: Target labels (ignored)
+
+        Returns:
+            self
+        """
+        return self
 
     def _can_adjust(self) -> bool:
         """Check if prevalence adjustment is valid."""

@@ -11,8 +11,8 @@ Functions:
     plot_learning_curve_summary: Plot aggregated learning curve with CIs
 """
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import List, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -26,7 +26,7 @@ logger = get_logger(__name__)
 
 def compute_learning_curve(
     estimator,
-    X: Union[pd.DataFrame, np.ndarray],
+    X: pd.DataFrame | np.ndarray,
     y: np.ndarray,
     scoring: str,
     cv: int = 5,
@@ -103,7 +103,7 @@ def _normalize_metric_scores(
 
 def save_learning_curve_csv(
     estimator,
-    X: Union[pd.DataFrame, np.ndarray],
+    X: pd.DataFrame | np.ndarray,
     y: np.ndarray,
     out_csv: Path,
     scoring: str,
@@ -111,8 +111,8 @@ def save_learning_curve_csv(
     min_frac: float = 0.3,
     n_points: int = 5,
     seed: int = 0,
-    out_plot: Optional[Path] = None,
-    meta_lines: Optional[Sequence[str]] = None,
+    out_plot: Path | None = None,
+    meta_lines: Sequence[str] | None = None,
 ) -> None:
     """Compute learning curve and save results to CSV.
 
@@ -189,7 +189,7 @@ def plot_learning_curve(
     out_path: Path,
     metric_label: str,
     metric_is_error: bool,
-    meta_lines: Optional[Sequence[str]] = None,
+    meta_lines: Sequence[str] | None = None,
 ) -> None:
     """Generate a learning curve plot with per-split scatter and mean lines.
 
@@ -285,7 +285,7 @@ def plot_learning_curve(
     plt.close()
 
 
-def aggregate_learning_curve_runs(lc_frames: List[pd.DataFrame]) -> pd.DataFrame:
+def aggregate_learning_curve_runs(lc_frames: list[pd.DataFrame]) -> pd.DataFrame:
     """Aggregate learning curves across multiple runs.
 
     Args:
@@ -362,7 +362,7 @@ def plot_learning_curve_summary(
     df: pd.DataFrame,
     out_path: Path,
     title: str,
-    meta_lines: Optional[Sequence[str]] = None,
+    meta_lines: Sequence[str] | None = None,
 ) -> None:
     """Plot aggregated learning curve with confidence intervals.
 
@@ -429,23 +429,8 @@ def plot_learning_curve_summary(
                     label=f"{label} ±1 SD",
                 )
 
-    # Plot bands (train first, then val to layer properly)
-    _plot_band("train_mean", "train_sd", "train_ci_lo", "train_ci_hi", "darkgreen", "Train")
+    # Plot validation bands (val_ci_lo, val_ci_hi, val_sd)
     _plot_band("val_mean", "val_sd", "val_ci_lo", "val_ci_hi", "darkorange", "Val")
-
-    # Plot individual training data points if available
-    if "train_score" in df.columns:
-        train_scores = np.asarray(df["train_score"], dtype=float)
-        valid_train = np.isfinite(train_scores)
-        if valid_train.any():
-            ax.scatter(
-                x[valid_train],
-                train_scores[valid_train],
-                color="darkgreen",
-                alpha=0.35,
-                s=20,
-                label="Train points",
-            )
 
     # Plot individual validation data points if available
     if "val_score" in df.columns:
@@ -461,19 +446,7 @@ def plot_learning_curve_summary(
                 label="Val points",
             )
 
-    # Plot mean lines with markers
-    ax.plot(
-        x,
-        df["train_mean"],
-        color="darkgreen",
-        linewidth=2.5,
-        linestyle="--",
-        label="Train mean",
-        marker="o",
-        markersize=6,
-        markerfacecolor="darkgreen",
-        markeredgecolor="darkgreen",
-    )
+    # Plot validation mean line with markers
     ax.plot(
         x,
         df["val_mean"],
@@ -484,6 +457,18 @@ def plot_learning_curve_summary(
         markersize=6,
         markerfacecolor="darkorange",
         markeredgecolor="darkorange",
+    )
+
+    # Plot train mean as thin reference line (minimal visual weight)
+    # EXACTLY matching individual plot style: no SD, no CI, no points, no markers
+    ax.plot(
+        x,
+        df["train_mean"],
+        color="darkgreen",
+        linestyle=":",
+        linewidth=1,
+        alpha=0.6,
+        label="Train (reference)",
     )
 
     # Format axis labels with metric direction

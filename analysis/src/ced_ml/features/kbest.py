@@ -9,7 +9,7 @@ Key functions:
 - rank_features_by_score: Rank features by score (descending)
 """
 
-from typing import Any, List, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -20,10 +20,10 @@ def select_kbest_features(
     X: pd.DataFrame,
     y: np.ndarray,
     k: int,
-    protein_cols: List[str],
+    protein_cols: list[str],
     missing_strategy: str = "median",
     fallback_to_variance: bool = True,
-) -> List[str]:
+) -> list[str]:
     """Select top-K protein features using univariate F-test.
 
     Computes ANOVA F-value for each protein and selects the K features
@@ -138,10 +138,10 @@ def rank_features_by_score(
 
 def extract_selected_proteins_from_kbest(
     fitted_pipeline,
-    protein_cols: List[str],
+    protein_cols: list[str],
     step_name: str = "sel",
     feature_name_prefix: str = "num__",
-) -> List[str]:
+) -> list[str]:
     """Extract selected protein names from fitted sklearn SelectKBest step.
 
     Args:
@@ -243,7 +243,7 @@ def compute_protein_statistics(
     X: pd.DataFrame,
     y: np.ndarray,
     protein: str,
-) -> Optional[dict]:
+) -> dict | None:
     """Compute univariate statistics for a single protein feature.
 
     Computes summary statistics separately for cases (y=1) and controls (y=0),

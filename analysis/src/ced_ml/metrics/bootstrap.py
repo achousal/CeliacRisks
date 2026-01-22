@@ -6,7 +6,7 @@ using stratified resampling to maintain case/control ratios. The percentile
 method is used for CI construction.
 """
 
-from typing import Callable, Tuple
+from collections.abc import Callable
 
 import numpy as np
 
@@ -36,7 +36,7 @@ def stratified_bootstrap_ci(
     n_boot: int = 1000,
     seed: int = 0,
     min_valid_frac: float = 0.1,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """
     Compute stratified bootstrap confidence interval for a metric.
 
@@ -117,7 +117,7 @@ def stratified_bootstrap_diff_ci(
     n_boot: int = 500,
     seed: int = 0,
     min_valid_frac: float = 0.1,
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """
     Compute stratified bootstrap CI for difference between two models.
 

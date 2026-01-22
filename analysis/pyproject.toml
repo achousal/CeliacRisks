@@ -7,7 +7,7 @@ name = "ced-ml"
 version = "1.0.0"
 description = "Machine learning pipeline for incident Celiac Disease risk prediction from proteomics"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Andres Chousal", email = "andres.chousal@example.com"},
@@ -18,20 +18,20 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
 
 dependencies = [
-    "numpy>=1.20.0",
+    "numpy>=1.21.0",
     "pandas>=1.3.0",
     "pyarrow>=10.0.0",
     "scikit-learn>=1.0.0",
     "xgboost>=1.5.0",
+    "optuna>=3.0.0",
     "matplotlib>=3.4.0",
     "seaborn>=0.11.0",
     "scipy>=1.7.0",
@@ -41,6 +41,8 @@ dependencies = [
     "pyyaml>=5.4.0",
     "click>=8.0.0",
     "tqdm>=4.62.0",
+    "plotly>=5.0.0",
+    "kaleido>=0.2.1",
 ]
 
 [project.optional-dependencies]
@@ -68,12 +70,12 @@ ced_ml = ["py.typed"]
 
 [tool.black]
 line-length = 100
-target-version = ["py38", "py39", "py310", "py311"]
+target-version = ["py310", "py311", "py312"]
 include = '\.pyi?$'
 
 [tool.ruff]
 line-length = 100
-target-version = "py38"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = [
@@ -89,13 +91,14 @@ ignore = [
     "E501",  # line too long (handled by black)
     "B008",  # do not perform function calls in argument defaults
     "C901",  # too complex
+    "UP038", # isinstance(x, (A, B)) vs isinstance(x, A | B) - both valid in 3.10+
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

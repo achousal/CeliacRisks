@@ -8,7 +8,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -48,6 +48,7 @@ from ced_ml.metrics.discrimination import (
 from ced_ml.metrics.thresholds import (
     binary_metrics_at_threshold,
     choose_threshold_objective,
+    compute_multi_target_specificity_metrics,
     compute_threshold_bundle,
 )
 from ced_ml.models.prevalence import (
@@ -61,6 +62,7 @@ from ced_ml.models.registry import (
 )
 from ced_ml.models.training import (
     _extract_selected_proteins_from_fold,
+    _maybe_apply_calibration,
     get_model_n_iter,
     oof_predictions_with_nested_cv,
 )
@@ -79,8 +81,53 @@ from ced_ml.utils.logging import log_section, setup_logger
 from ced_ml.utils.metadata import build_oof_metadata, build_plot_metadata
 
 
+def validate_protein_columns(
+    df: pd.DataFrame,
+    protein_cols: list[str],
+    logger: Any,
+) -> None:
+    """
+    Validate that protein columns are numeric and log NaN statistics.
+
+    Args:
+        df: DataFrame containing protein columns
+        protein_cols: List of protein column names to validate
+        logger: Logger instance for warnings
+
+    Raises:
+        ValueError: If protein columns contain non-numeric dtypes
+    """
+    # Check dtypes
+    non_numeric = []
+    for col in protein_cols:
+        if col in df.columns:
+            dtype = df[col].dtype
+            if not pd.api.types.is_numeric_dtype(dtype):
+                non_numeric.append(f"{col} ({dtype})")
+
+    if non_numeric:
+        raise ValueError(
+            f"Protein columns must be numeric but found non-numeric dtypes: {non_numeric[:5]}"
+        )
+
+    # Log NaN statistics (warning if >0)
+    protein_df = df[protein_cols]
+    nan_counts = protein_df.isna().sum()
+    total_nans = nan_counts.sum()
+
+    if total_nans > 0:
+        cols_with_nans = nan_counts[nan_counts > 0]
+        logger.warning(
+            f"Found {total_nans:,} NaN values across {len(cols_with_nans)} protein columns"
+        )
+        logger.warning(f"Top 5 columns with NaNs: {cols_with_nans.nlargest(5).to_dict()}")
+        logger.warning("StandardScaler will propagate NaNs - consider imputation if needed")
+    else:
+        logger.info("Protein columns validated: all numeric, no NaN values")
+
+
 def build_preprocessor(
-    protein_cols: List[str], cat_cols: List[str], meta_num_cols: List[str]
+    protein_cols: list[str], cat_cols: list[str], meta_num_cols: list[str]
 ) -> ColumnTransformer:
     """
     Build preprocessing pipeline for model training.
@@ -114,9 +161,9 @@ def build_preprocessor(
 def build_training_pipeline(
     config: Any,
     classifier: Any,
-    protein_cols: List[str],
-    cat_cols: List[str],
-    meta_num_cols: List[str],
+    protein_cols: list[str],
+    cat_cols: list[str],
+    meta_num_cols: list[str],
 ) -> Pipeline:
     """
     Build complete training pipeline with preprocessing, feature selection, and classifier.
@@ -147,7 +194,7 @@ def build_training_pipeline(
 
 def load_split_indices(
     split_dir: str, scenario: str, seed: int
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Load train/val/test split indices from CSVs.
 
@@ -161,12 +208,23 @@ def load_split_indices(
 
     Raises:
         FileNotFoundError: If any split file is missing
-    """
-    split_dir = Path(split_dir)
 
-    train_file = split_dir / f"train_idx_seed{seed}.csv"
-    val_file = split_dir / f"val_idx_seed{seed}.csv"
-    test_file = split_dir / f"test_idx_seed{seed}.csv"
+    Notes:
+        Supports both old format (train_idx_seed{seed}.csv) and new format
+        (train_idx_{scenario}_seed{seed}.csv) for backward compatibility.
+    """
+    split_path = Path(split_dir)
+
+    # Try new format first (with scenario)
+    train_file = split_path / f"train_idx_{scenario}_seed{seed}.csv"
+    val_file = split_path / f"val_idx_{scenario}_seed{seed}.csv"
+    test_file = split_path / f"test_idx_{scenario}_seed{seed}.csv"
+
+    # Fallback to old format (without scenario) if new format not found
+    if not train_file.exists():
+        train_file = split_path / f"train_idx_seed{seed}.csv"
+        val_file = split_path / f"val_idx_seed{seed}.csv"
+        test_file = split_path / f"test_idx_seed{seed}.csv"
 
     if not train_file.exists():
         raise FileNotFoundError(f"Train split file not found: {train_file}")
@@ -179,6 +237,19 @@ def load_split_indices(
     val_idx = pd.read_csv(val_file)["idx"].values
     test_idx = pd.read_csv(test_file)["idx"].values
 
+    # Validate split indices before returning
+    from ced_ml.data.persistence import validate_split_indices
+
+    is_valid, error_msg = validate_split_indices(
+        train_idx=train_idx,
+        val_idx=val_idx,
+        test_idx=test_idx,
+        total_samples=None,  # Will check bounds later when data is loaded
+    )
+
+    if not is_valid:
+        raise ValueError(f"Split index validation failed: {error_msg}")
+
     return train_idx, val_idx, test_idx
 
 
@@ -190,7 +261,8 @@ def evaluate_on_split(
     target_prev: float,
     config: Any,
     logger: Any,
-) -> Dict[str, float]:
+    precomputed_threshold: float | None = None,
+) -> dict[str, float]:
     """
     Evaluate model on a data split.
 
@@ -202,6 +274,8 @@ def evaluate_on_split(
         target_prev: Target prevalence for adjustment
         config: TrainingConfig object
         logger: Logger instance
+        precomputed_threshold: Optional precomputed threshold (e.g., from validation set).
+                              If provided, this threshold is used instead of computing a new one.
 
     Returns:
         Dictionary of metrics
@@ -214,20 +288,48 @@ def evaluate_on_split(
 
     metrics = compute_discrimination_metrics(y, y_probs_adj)
 
-    threshold_obj = config.thresholds.objective if hasattr(config, "thresholds") else "youden"
-    threshold_name, threshold = choose_threshold_objective(y, y_probs_adj, objective=threshold_obj)
+    # Use precomputed threshold if provided (e.g., from validation set)
+    # Otherwise compute threshold on this split
+    if precomputed_threshold is not None:
+        threshold = precomputed_threshold
+    else:
+        threshold_obj = config.thresholds.objective if hasattr(config, "thresholds") else "youden"
+        # Pass config threshold parameters (fixed_spec, fbeta, fixed_ppv)
+        fixed_spec = (
+            config.thresholds.fixed_spec if hasattr(config.thresholds, "fixed_spec") else 0.90
+        )
+        fbeta = config.thresholds.fbeta if hasattr(config.thresholds, "fbeta") else 1.0
+        fixed_ppv = config.thresholds.fixed_ppv if hasattr(config.thresholds, "fixed_ppv") else 0.5
+
+        _, threshold = choose_threshold_objective(
+            y,
+            y_probs_adj,
+            objective=threshold_obj,
+            fixed_spec=fixed_spec,
+            fbeta=fbeta,
+            fixed_ppv=fixed_ppv,
+        )
 
     binary_metrics = binary_metrics_at_threshold(y, y_probs_adj, threshold)
 
     metrics.update({"threshold": threshold, **binary_metrics})
 
+    # Multi-target specificity metrics
+    if hasattr(config, "evaluation") and hasattr(config.evaluation, "control_spec_targets"):
+        spec_targets = config.evaluation.control_spec_targets
+        if spec_targets:
+            multi_target_metrics = compute_multi_target_specificity_metrics(
+                y_true=y, y_pred=y_probs_adj, spec_targets=spec_targets
+            )
+            metrics.update(multi_target_metrics)
+
     return metrics
 
 
 def run_train(
-    config_file: Optional[str] = None,
-    cli_args: Optional[Dict[str, Any]] = None,
-    overrides: Optional[List[str]] = None,
+    config_file: str | None = None,
+    cli_args: dict[str, Any] | None = None,
+    overrides: list[str] | None = None,
     verbose: int = 0,
 ):
     """
@@ -259,28 +361,9 @@ def run_train(
     logger.info("Validating configuration...")
     validate_training_config(config)
 
-    # Save resolved config
+    # Create base output directory
     outdir = Path(config.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
-    config_path = outdir / "training_config.yaml"
-    save_config(config, config_path)
-    logger.info(f"Saved resolved config to: {config_path}")
-
-    # Add file handler for run.log
-    log_file = outdir / "run.log"
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(log_level)
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
-    )
-    logger.addHandler(file_handler)
-    logger.info(f"Logging to: {log_file}")
-
-    # Log config summary
-    logger.info(f"Model: {config.model}")
-    logger.info(f"Scenario: {config.scenario}")
-    logger.info(f"CV: {config.cv.folds} folds × {config.cv.repeats} repeats")
-    logger.info(f"Scoring: {config.cv.scoring}")
 
     # Step 1: Resolve columns (auto-detect or explicit)
     log_section(logger, "Resolving Columns")
@@ -313,14 +396,43 @@ def run_train(
     protein_cols = resolved.protein_cols
     logger.info(f"Using {len(protein_cols)} protein columns")
 
+    # Validate protein columns (dtype and NaN check)
+    validate_protein_columns(df_filtered, protein_cols, logger)
+
     # Determine split seed (used for output subdirs and loading splits)
     seed = getattr(config, "split_seed", getattr(config, "seed", 0))
 
-    # Step 4: Create output directories (with split-specific subdir)
+    # Determine run_id (if provided)
+    run_id = getattr(config, "run_id", None)
+
+    # Step 4: Create output directories (with run-specific and split-specific subdirs)
     log_section(logger, "Setting Up Output Structure")
-    outdirs = OutputDirectories.create(config.outdir, exist_ok=True, split_seed=seed)
+    outdirs = OutputDirectories.create(config.outdir, exist_ok=True, split_seed=seed, run_id=run_id)
     logger.info(f"Output root: {outdirs.root}")
     logger.info(f"Split seed: {seed}")
+    if run_id:
+        logger.info(f"Run ID: {run_id}")
+
+    # Save resolved config to run-specific directory
+    config_path = Path(outdirs.root) / "training_config.yaml"
+    save_config(config, config_path)
+    logger.info(f"Saved resolved config to: {config_path}")
+
+    # Add file handler for run.log in run-specific directory
+    log_file = Path(outdirs.root) / "run.log"
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(log_level)
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+    )
+    logger.addHandler(file_handler)
+    logger.info(f"Logging to: {log_file}")
+
+    # Log config summary
+    logger.info(f"Model: {config.model}")
+    logger.info(f"Scenario: {config.scenario}")
+    logger.info(f"CV: {config.cv.folds} folds × {config.cv.repeats} repeats")
+    logger.info(f"Scoring: {config.cv.scoring}")
 
     # Step 5: Load split indices
     log_section(logger, "Loading Splits")
@@ -357,8 +469,48 @@ def run_train(
     target_labels = scenario_def["labels"]
     scenario_def["positive_label"]
 
-    df_scenario = df_filtered[df_filtered[TARGET_COL].isin(target_labels)].copy()
+    # Validate that all expected labels are present in data
+    unique_labels = set(df_filtered[TARGET_COL].unique())
+    missing_labels = set(target_labels) - unique_labels
+    if missing_labels:
+        logger.warning(
+            f"Expected labels {missing_labels} not found in filtered data. Available: {unique_labels}"
+        )
+
+    # Check for unknown labels (not in scenario definition)
+    unknown_labels = unique_labels - set(target_labels)
+    if unknown_labels:
+        logger.warning(
+            f"Found labels not in scenario definition: {unknown_labels}. Will be filtered out."
+        )
+
+    mask_scenario = df_filtered[TARGET_COL].isin(target_labels)
+    n_filtered = (~mask_scenario).sum()
+    if n_filtered > 0:
+        logger.info(
+            f"Filtered out {n_filtered:,} samples with labels not in scenario {config.scenario}"
+        )
+
+    df_scenario = df_filtered[mask_scenario].copy()
     df_scenario["y"] = (df_scenario[TARGET_COL] != CONTROL_LABEL).astype(int)
+
+    # Validate split indices are within bounds now that data is loaded
+    from ced_ml.data.persistence import validate_split_indices
+
+    is_valid, error_msg = validate_split_indices(
+        train_idx=train_idx,
+        val_idx=val_idx,
+        test_idx=test_idx,
+        total_samples=len(df_scenario),
+    )
+
+    if not is_valid:
+        logger.error(f"Split index bounds validation failed: {error_msg}")
+        logger.error(f"Data shape: {len(df_scenario)} samples after filtering")
+        logger.error(f"Max train_idx: {train_idx.max() if len(train_idx) > 0 else 'N/A'}")
+        logger.error(f"Max val_idx: {val_idx.max() if len(val_idx) > 0 else 'N/A'}")
+        logger.error(f"Max test_idx: {test_idx.max() if len(test_idx) > 0 else 'N/A'}")
+        raise ValueError(f"Split index bounds validation failed: {error_msg}")
 
     feature_cols = resolved.all_feature_cols
 
@@ -434,6 +586,18 @@ def run_train(
     final_pipeline.fit(X_train, y_train)
     logger.info("Final model fitted")
 
+    # Apply calibration to final model if enabled (consistent with CV behavior)
+    final_pipeline = _maybe_apply_calibration(
+        estimator=final_pipeline,
+        model_name=config.model,
+        config=config,
+        X_train=X_train,
+        y_train=y_train,
+        random_state=seed,
+    )
+    if config.calibration.enabled and config.model != "LinSVM_cal":
+        logger.info(f"Final model calibrated using {config.calibration.method}")
+
     # Extract selected proteins from final model for test panel
     try:
         final_selected_proteins = _extract_selected_proteins_from_fold(
@@ -452,31 +616,65 @@ def run_train(
 
     # Step 11: Evaluate on validation set (threshold selection)
     log_section(logger, "Validation Set Evaluation")
-    # Determine target prevalence based on config
+
+    # Determine target prevalence for validation based on config
     if config.thresholds.target_prevalence_source == "fixed":
-        target_prev = config.thresholds.target_prevalence_fixed
+        val_target_prev = config.thresholds.target_prevalence_fixed
     elif config.thresholds.target_prevalence_source == "train":
-        target_prev = train_prev
+        val_target_prev = train_prev
+    elif config.thresholds.target_prevalence_source == "val":
+        val_target_prev = float(np.asarray(y_val).mean())
+    elif config.thresholds.target_prevalence_source == "test":
+        # Using test prevalence for val is unusual but supported
+        val_target_prev = float(np.asarray(y_test).mean())
     else:
-        # For "val" or "test" source, use train_prev as default (will be refined later)
-        target_prev = train_prev
+        val_target_prev = train_prev
 
     val_metrics = evaluate_on_split(
-        final_pipeline, X_val, y_val, train_prev, target_prev, config, logger
+        final_pipeline, X_val, y_val, train_prev, val_target_prev, config, logger
     )
 
     logger.info(f"Val AUROC: {val_metrics['AUROC']:.3f}")
     logger.info(f"Val PRAUC: {val_metrics['PR_AUC']:.3f}")
     logger.info(f"Selected threshold: {val_metrics['threshold']:.3f}")
 
+    # Store validation threshold for reuse on test set (prevents leakage)
+    val_threshold = val_metrics["threshold"]
+
     # Step 12: Evaluate on test set
     log_section(logger, "Test Set Evaluation")
+
+    # Determine target prevalence for test based on config
+    if config.thresholds.target_prevalence_source == "fixed":
+        test_target_prev = config.thresholds.target_prevalence_fixed
+    elif config.thresholds.target_prevalence_source == "train":
+        test_target_prev = train_prev
+    elif config.thresholds.target_prevalence_source == "val":
+        test_target_prev = float(np.asarray(y_val).mean())
+    elif config.thresholds.target_prevalence_source == "test":
+        test_target_prev = float(np.asarray(y_test).mean())
+    else:
+        test_target_prev = train_prev
+
+    # Reuse validation threshold on test set (standard practice, prevents leakage)
     test_metrics = evaluate_on_split(
-        final_pipeline, X_test, y_test, train_prev, target_prev, config, logger
+        final_pipeline,
+        X_test,
+        y_test,
+        train_prev,
+        test_target_prev,
+        config,
+        logger,
+        precomputed_threshold=val_threshold,
     )
 
     logger.info(f"Test AUROC: {test_metrics['AUROC']:.3f}")
     logger.info(f"Test PRAUC: {test_metrics['PR_AUC']:.3f}")
+    logger.info(f"Test threshold (from val): {test_metrics['threshold']:.3f}")
+
+    # For backward compatibility, use test_target_prev as the canonical target_prev
+    # (used in later sections for model wrapping and logging)
+    target_prev = test_target_prev
 
     # Step 13: Wrap in prevalence-adjusted model
     prevalence_model = PrevalenceAdjustedModel(
@@ -490,13 +688,44 @@ def run_train(
 
     writer = ResultsWriter(outdirs)
 
-    # Save model
+    # Save model bundle (instead of bare model for holdout compatibility)
+    import joblib
+    import sklearn
+
+    model_bundle = {
+        "model": prevalence_model,
+        "scenario": config.scenario,
+        "model_name": config.model,
+        "thresholds": {
+            "val_threshold": val_threshold,
+            "test_threshold": test_metrics["threshold"],
+            "objective": config.thresholds.objective,
+            "fixed_spec": (
+                config.thresholds.fixed_spec if hasattr(config.thresholds, "fixed_spec") else None
+            ),
+        },
+        "prevalence": {
+            "train": train_prev,
+            "val_target": val_target_prev,
+            "test_target": test_target_prev,
+        },
+        "calibration": {
+            "enabled": config.calibration.enabled,
+            "method": config.calibration.method if config.calibration.enabled else None,
+        },
+        "config": config.model_dump() if hasattr(config, "model_dump") else config.dict(),
+        "seed": seed,
+        "versions": {
+            "sklearn": sklearn.__version__,
+            "pandas": pd.__version__,
+            "numpy": np.__version__,
+        },
+    }
+
     model_filename = f"{config.model}__final_model.joblib"
     model_path = Path(outdirs.core) / model_filename
-    import joblib
-
-    joblib.dump(prevalence_model, model_path)
-    logger.info(f"Model saved: {model_path}")
+    joblib.dump(model_bundle, model_path)
+    logger.info(f"Model bundle saved: {model_path}")
 
     # Save metrics (using ResultsWriter with append mode)
     writer.save_val_metrics(val_metrics, config.scenario, config.model)
@@ -794,8 +1023,9 @@ def run_train(
         val_title = f"{config.model} - Validation Set"
 
         # Compute validation threshold bundle (standardized interface)
+        val_dca_thr = threshold_dca_zero_crossing(y_val, val_y_prob)
         val_bundle = compute_threshold_bundle(
-            y_val, val_y_prob, target_spec=config.thresholds.fixed_spec
+            y_val, val_y_prob, target_spec=config.thresholds.fixed_spec, dca_threshold=val_dca_thr
         )
 
         if config.output.plot_roc:
@@ -974,9 +1204,17 @@ def run_train(
             )
             logger.info("Val risk distribution plot saved")
 
-        # Train OOF risk distribution (mean across repeats) - use test bundle
+        # Train OOF risk distribution (mean across repeats)
         if config.output.plot_risk_distribution:
             oof_mean = oof_preds.mean(axis=0)
+            # Compute OOF-specific threshold bundle
+            oof_dca_thr = threshold_dca_zero_crossing(y_train, oof_mean)
+            oof_bundle = compute_threshold_bundle(
+                y_train,
+                oof_mean,
+                target_spec=config.thresholds.fixed_spec,
+                dca_threshold=oof_dca_thr,
+            )
             plot_risk_distribution(
                 y_true=y_train,
                 scores=oof_mean,
@@ -986,23 +1224,9 @@ def run_train(
                 subtitle="Risk Score Distribution (mean across repeats)",
                 meta_lines=meta_lines,
                 category_col=cat_train,
-                threshold_bundle=test_bundle,
+                threshold_bundle=oof_bundle,
             )
             logger.info("Train OOF risk distribution plot saved")
-
-        # Controls-only risk distribution (if any controls in training set)
-        if config.output.plot_risk_distribution and controls_mask.sum() > 0:
-            plot_risk_distribution(
-                y_true=None,
-                scores=controls_oof_mean,
-                out_path=preds_plots_dir
-                / f"{config.model}__TRAIN_OOF_controls_risk_distribution.{config.output.plot_format}",
-                title=f"{config.model} - Controls (Train OOF)",
-                subtitle="Risk Score Distribution",
-                meta_lines=meta_lines,
-                threshold_bundle=test_bundle,
-            )
-            logger.info("Controls risk distribution plot saved")
 
         logger.info(f"Diagnostic plots saved to: {plots_dir}")
         logger.info(f"Risk distribution plots saved to: {preds_plots_dir}")
@@ -1084,9 +1308,10 @@ def run_train(
         lc_enabled = getattr(config.evaluation, "learning_curve", False)
         plot_lc = getattr(config.output, "plot_learning_curve", True)
         if lc_enabled and plot_lc:
+            # CSV goes to diagnostics/learning_curves/, plots go to diagnostics/plots/
             lc_csv_path = Path(outdirs.diag_learning) / f"{config.model}__learning_curve.csv"
             lc_plot_path = (
-                Path(outdirs.diag_learning)
+                Path(outdirs.diag_plots)
                 / f"{config.model}__learning_curve.{config.output.plot_format}"
             )
             lc_meta = build_plot_metadata(

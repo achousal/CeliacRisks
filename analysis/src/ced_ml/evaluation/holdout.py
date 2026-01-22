@@ -11,18 +11,20 @@ It handles:
 
 import json
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import joblib
 import numpy as np
 import pandas as pd
 
-from ced_ml.data.io import identify_protein_columns, load_data
+from ced_ml.data.filters import apply_row_filters
+from ced_ml.data.io import identify_protein_columns, read_proteomics_file
 from ced_ml.data.schema import (
     CONTROL_LABEL,
     TARGET_COL,
     get_scenario_labels,
 )
+from ced_ml.data.splits import temporal_order_indices
 from ced_ml.metrics import (
     binary_metrics_at_threshold,
     compute_brier_score,
@@ -39,26 +41,40 @@ from ced_ml.models.calibration import (
 )
 
 
-def load_holdout_indices(path: str) -> np.ndarray:
+def load_holdout_indices(path: str) -> tuple[np.ndarray, dict[str, Any]]:
     """
-    Load holdout indices from CSV file.
+    Load holdout indices and associated metadata from CSV file.
 
     Args:
         path: Path to holdout index CSV with 'idx' column
 
     Returns:
-        Array of holdout indices
+        (indices, metadata) where metadata is loaded from companion JSON file if available
 
     Raises:
         ValueError: If file missing 'idx' column
     """
     df = pd.read_csv(path)
     if "idx" not in df.columns:
-        raise ValueError(f"Holdout index file {path} must contain an 'idx' column.")
-    return df["idx"].to_numpy(dtype=int)
+        available_cols = ", ".join(df.columns.tolist())
+        raise ValueError(
+            f"Holdout index file {path} must contain an 'idx' column. "
+            f"Available columns: [{available_cols}]"
+        )
+
+    indices = df["idx"].to_numpy(dtype=int)
+
+    # Try to load companion metadata JSON
+    metadata = {}
+    meta_path = path.replace(".csv", "_meta.json").replace("_idx.csv", "_meta.json")
+    if os.path.exists(meta_path):
+        with open(meta_path) as f:
+            metadata = json.load(f)
+
+    return indices, metadata
 
 
-def load_model_artifact(path: str) -> Dict[str, Any]:
+def load_model_artifact(path: str) -> dict[str, Any]:
     """
     Load saved model artifact (joblib bundle).
 
@@ -67,8 +83,29 @@ def load_model_artifact(path: str) -> Dict[str, Any]:
 
     Returns:
         Dictionary containing model and metadata
+
+    Notes:
+        Handles backward compatibility with bare models (pre-bundle format).
+        If a bare PrevalenceAdjustedModel is loaded, wraps it in a minimal bundle.
     """
-    return joblib.load(path)
+    artifact = joblib.load(path)
+
+    # Backward compatibility: if bare model, wrap in minimal bundle
+    if not isinstance(artifact, dict):
+
+        # Assume it's a bare PrevalenceAdjustedModel
+        return {
+            "model": artifact,
+            "scenario": "IncidentOnly",  # default fallback
+            "model_name": "unknown",
+            "thresholds": {},
+            "prevalence": {},
+            "calibration": {},
+            "config": {},
+            "seed": 0,
+        }
+
+    return artifact
 
 
 def extract_holdout_data(
@@ -76,7 +113,7 @@ def extract_holdout_data(
     X_all: pd.DataFrame,
     y_all: np.ndarray,
     holdout_idx: np.ndarray,
-) -> Tuple[pd.DataFrame, pd.DataFrame, np.ndarray]:
+) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray]:
     """
     Extract holdout subset from full dataset.
 
@@ -110,10 +147,10 @@ def extract_holdout_data(
 def compute_holdout_metrics(
     y_true: np.ndarray,
     proba_eval: np.ndarray,
-    bundle: Dict[str, Any],
+    bundle: dict[str, Any],
     scenario: str,
-    clinical_points: List[float],
-) -> Dict[str, Any]:
+    clinical_points: list[float],
+) -> dict[str, Any]:
     """
     Compute comprehensive holdout metrics.
 
@@ -137,14 +174,18 @@ def compute_holdout_metrics(
 
     # Extract threshold metadata
     thresholds_meta = bundle.get("thresholds", {})
-    objective_name = thresholds_meta.get("objective_name", "max_f1")
-    thr_objective = thresholds_meta.get("objective", 0.5)
-    thr_f1 = thresholds_meta.get("max_f1", 0.5)
-    thr_spec90 = thresholds_meta.get("spec90", 0.5)
+    # Use val_threshold as primary threshold (chosen on validation set)
+    thr_primary = thresholds_meta.get("val_threshold", thresholds_meta.get("test_threshold", 0.5))
+    objective_name = thresholds_meta.get("objective", "unknown")
+    fixed_spec_value = thresholds_meta.get("fixed_spec")
+
+    # For backward compatibility with old bundles
+    thr_f1 = thresholds_meta.get("max_f1", thr_primary)
+    thr_spec90 = thresholds_meta.get("spec90", thr_primary)
     ctrl_specs = thresholds_meta.get("control_specs", {})
 
     # Metrics at key thresholds
-    m_obj = binary_metrics_at_threshold(y_true, proba_eval, thr_objective)
+    m_primary = binary_metrics_at_threshold(y_true, proba_eval, thr_primary)
     m_f1 = binary_metrics_at_threshold(y_true, proba_eval, thr_f1)
     m_spec90 = binary_metrics_at_threshold(y_true, proba_eval, thr_spec90)
 
@@ -175,10 +216,11 @@ def compute_holdout_metrics(
         "calibration_slope_holdout": float(cal_b) if np.isfinite(cal_b) else np.nan,
         "ECE_holdout": float(ece),
         "thr_objective_name": objective_name,
-        "thr_objective": float(thr_objective),
-        "precision_holdout_at_thr_objective": float(m_obj["precision"]),
-        "recall_holdout_at_thr_objective": float(m_obj["sensitivity"]),
-        "specificity_holdout_at_thr_objective": float(m_obj["specificity"]),
+        "thr_primary": float(thr_primary),
+        "precision_holdout_at_thr_primary": float(m_primary["precision"]),
+        "recall_holdout_at_thr_primary": float(m_primary["sensitivity"]),
+        "specificity_holdout_at_thr_primary": float(m_primary["specificity"]),
+        "fixed_spec_value": float(fixed_spec_value) if fixed_spec_value is not None else np.nan,
         "thr_maxF1": float(thr_f1),
         "f1_holdout_at_thr_maxF1": float(m_f1["f1"]),
         "precision_holdout_at_thr_maxF1": float(m_f1["precision"]),
@@ -219,7 +261,7 @@ def compute_holdout_metrics(
 def compute_top_risk_capture(
     y_true: np.ndarray,
     proba_eval: np.ndarray,
-    top_fracs: List[float],
+    top_fracs: list[float],
 ) -> pd.DataFrame:
     """
     Compute top-risk capture statistics.
@@ -276,19 +318,19 @@ def evaluate_holdout(
     holdout_idx_file: str,
     model_artifact_path: str,
     outdir: str,
-    scenario: Optional[str] = None,
+    scenario: str | None = None,
     compute_dca: bool = False,
-    dca_threshold_min: Optional[float] = None,
-    dca_threshold_max: Optional[float] = None,
-    dca_threshold_step: Optional[float] = None,
+    dca_threshold_min: float | None = None,
+    dca_threshold_max: float | None = None,
+    dca_threshold_step: float | None = None,
     dca_report_points: str = "",
     dca_use_target_prevalence: bool = False,
     save_preds: bool = False,
     toprisk_fracs: str = "0.01",
-    target_prevalence: Optional[float] = None,
+    target_prevalence: float | None = None,
     clinical_threshold_points: str = "",
     subgroup_min_n: int = 40,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Evaluate trained model on holdout set.
 
@@ -328,13 +370,33 @@ def evaluate_holdout(
     model = bundle["model"]
     scenario_final = scenario or bundle.get("scenario", "IncidentOnly")
 
-    # Load and filter data
+    # Load data (supports both CSV and Parquet)
     positive_labels = get_scenario_labels(scenario_final)
-    df_raw = load_data(infile)
+    df_raw = read_proteomics_file(infile, validate=True)
 
     # Filter to relevant classes
     keep_labels = [CONTROL_LABEL] + positive_labels
-    df_filtered = df_raw[df_raw[TARGET_COL].isin(keep_labels)].copy()
+    df_scenario_raw = df_raw[df_raw[TARGET_COL].isin(keep_labels)].copy()
+
+    # Load holdout indices and metadata
+    holdout_idx, split_meta = load_holdout_indices(holdout_idx_file)
+
+    # Apply row filters (matching save_splits.py and train.py)
+    # Use metadata if available, otherwise use defaults
+    meta_num_cols = None
+    if split_meta.get("row_filters"):
+        meta_num_cols = split_meta["row_filters"].get("meta_num_cols_used")
+
+    df_filtered, filter_stats = apply_row_filters(df_scenario_raw, meta_num_cols=meta_num_cols)
+
+    # Apply temporal ordering if specified in split metadata
+    # This ensures indices align exactly with split generation
+    temporal_split = split_meta.get("temporal_split", False)
+    if temporal_split:
+        temporal_col = split_meta.get("temporal_col", "CeD_date")
+        if temporal_col in df_filtered.columns:
+            order_idx = temporal_order_indices(df_filtered, temporal_col)
+            df_filtered = df_filtered.iloc[order_idx].reset_index(drop=True)
 
     # Create binary outcome
     df_filtered["y"] = df_filtered[TARGET_COL].isin(positive_labels).astype(int)
@@ -347,7 +409,6 @@ def evaluate_holdout(
     X_all = df_filtered[prot_cols]
 
     # Extract holdout subset
-    holdout_idx = load_holdout_indices(holdout_idx_file)
     df_holdout, X_holdout, y_holdout = extract_holdout_data(df_filtered, X_all, y_all, holdout_idx)
 
     # Generate predictions

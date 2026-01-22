@@ -5,8 +5,6 @@ Defines column names, labels, and data structures used throughout the pipeline.
 Matches exactly with current implementation for behavioral equivalence.
 """
 
-from typing import List
-
 # ============================================================================
 # Column Names
 # ============================================================================
@@ -212,12 +210,12 @@ SUBDIR_FEATURE_IMPORTANCE = "feature_importance"
 # ============================================================================
 
 
-def get_protein_columns(df_columns: List[str]) -> List[str]:
+def get_protein_columns(df_columns: list[str]) -> list[str]:
     """Extract protein column names from DataFrame columns."""
     return [col for col in df_columns if col.endswith(PROTEIN_SUFFIX)]
 
 
-def get_scenario_labels(scenario: str) -> List[str]:
+def get_scenario_labels(scenario: str) -> list[str]:
     """Get valid labels for a scenario."""
     if scenario not in SCENARIO_DEFINITIONS:
         raise ValueError(

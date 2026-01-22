@@ -7,14 +7,13 @@ Replaces print() statements with proper logging throughout the codebase.
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 def setup_logger(
     name: str = "ced_ml",
     level: int = logging.INFO,
-    log_file: Optional[Path] = None,
-    format_string: Optional[str] = None,
+    log_file: Path | None = None,
+    format_string: str | None = None,
     use_live_log: bool = False,
 ) -> logging.Logger:
     """
@@ -133,8 +132,8 @@ class LoggerContext:
     def __init__(
         self,
         logger: logging.Logger,
-        level: Optional[int] = None,
-        log_file: Optional[Path] = None,
+        level: int | None = None,
+        log_file: Path | None = None,
     ):
         self.logger = logger
         self.new_level = level

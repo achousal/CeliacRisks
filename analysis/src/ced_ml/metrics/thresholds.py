@@ -9,9 +9,12 @@ Provides multiple strategies for choosing decision thresholds:
 All functions operate on true labels (y_true) and predicted probabilities (p).
 """
 
-from typing import Any, Dict, Optional, Tuple, TypedDict
+import logging
+from typing import Any, TypedDict
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # ThresholdBundle: Standardized threshold data structure for plotting
@@ -165,12 +168,17 @@ def threshold_youden(y_true: np.ndarray, p: np.ndarray) -> float:
         - Youden's J = sensitivity + specificity - 1 = TPR - FPR
         - Maximizes the vertical distance from the ROC curve to the diagonal
         - Falls back to 0.5 if no valid threshold found
+        - Returns 0.5 if y_true contains only one class (single-class guard)
     """
     y_true = np.asarray(y_true).astype(int)
     p = np.asarray(p).astype(float)
 
     # Handle empty arrays
     if len(y_true) == 0 or len(p) == 0:
+        return 0.5
+
+    # Single-class guard: ROC curve requires at least 2 unique labels
+    if len(np.unique(y_true)) < 2:
         return 0.5
 
     fpr, tpr, thr = roc_curve(y_true, p)
@@ -201,9 +209,15 @@ def threshold_for_specificity(
         - Selects lowest threshold (highest sensitivity) among those meeting specificity target
         - Falls back to closest specificity if target unattainable
         - For clinical screening: high specificity (e.g., 0.95) minimizes false positives
+        - Returns max(p) + eps if y_true contains only one class (single-class guard)
     """
     y_true = np.asarray(y_true).astype(int)
     p = np.asarray(p).astype(float)
+
+    # Single-class guard: ROC curve requires at least 2 unique labels
+    if len(np.unique(y_true)) < 2:
+        return float(np.max(p) + 1e-12) if len(p) > 0 else 0.5
+
     fpr, tpr, thr = roc_curve(y_true, p)
     spec = 1.0 - fpr
     ok = spec >= target_spec
@@ -213,6 +227,11 @@ def threshold_for_specificity(
     else:
         j = int(np.argmin(np.abs(spec - target_spec)))
         th = thr[j]
+        logger.warning(
+            f"Target specificity {target_spec:.3f} unattainable. "
+            f"Using closest achievable specificity {spec[j]:.3f} instead. "
+            f"Threshold set to {th:.6f}."
+        )
     if not np.isfinite(th):
         th = float(np.max(p) + 1e-12)
     return float(th)
@@ -291,7 +310,7 @@ def threshold_from_controls(p_controls: np.ndarray, target_spec: float) -> float
     return thr
 
 
-def binary_metrics_at_threshold(y_true: np.ndarray, p: np.ndarray, thr: float) -> Dict[str, Any]:
+def binary_metrics_at_threshold(y_true: np.ndarray, p: np.ndarray, thr: float) -> dict[str, Any]:
     """Compute classification metrics at a specific threshold.
 
     Args:
@@ -338,7 +357,7 @@ def binary_metrics_at_threshold(y_true: np.ndarray, p: np.ndarray, thr: float) -
     }
 
 
-def top_risk_capture(y_true: np.ndarray, p: np.ndarray, frac: float = 0.01) -> Dict[str, Any]:
+def top_risk_capture(y_true: np.ndarray, p: np.ndarray, frac: float = 0.01) -> dict[str, Any]:
     """Analyze risk capture in top fraction of predictions.
 
     Args:
@@ -392,7 +411,7 @@ def choose_threshold_objective(
     fbeta: float = 1.0,
     fixed_spec: float = 0.90,
     fixed_ppv: float = 0.5,
-) -> Tuple[str, float]:
+) -> tuple[str, float]:
     """Select threshold based on specified objective.
 
     Args:
@@ -439,11 +458,59 @@ def choose_threshold_objective(
     return ("max_f1", threshold_max_f1(y_true, p))
 
 
+def compute_multi_target_specificity_metrics(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    spec_targets: list[float],
+) -> dict[str, float]:
+    """Compute metrics at multiple specificity targets.
+
+    Args:
+        y_true: True binary labels (0/1)
+        y_pred: Predicted probabilities [0, 1]
+        spec_targets: List of target specificity values (e.g., [0.90, 0.95, 0.99])
+
+    Returns:
+        Flattened dict with keys: thr_ctrl_{spec}, sens_ctrl_{spec}, prec_ctrl_{spec}, spec_ctrl_{spec}
+        where {spec} is integer format (90, 95, 99)
+
+    Notes:
+        - Enables reporting metrics at multiple operating points
+        - Useful for clinical decision-making across risk tolerance levels
+        - Keys follow existing pattern for cross-split aggregation
+        - Specificity targets should be in (0, 1) range
+        - Returns empty dict if y_true contains only one class (single-class guard)
+
+    Examples:
+        >>> y = np.array([0, 0, 0, 1, 1])
+        >>> p = np.array([0.1, 0.2, 0.3, 0.8, 0.9])
+        >>> metrics = compute_multi_target_specificity_metrics(y, p, [0.90, 0.95])
+        >>> 'sens_ctrl_90' in metrics
+        True
+        >>> 'thr_ctrl_95' in metrics
+        True
+    """
+    # Single-class guard: Skip if only one unique label
+    if len(np.unique(y_true)) < 2:
+        return {}
+
+    metrics = {}
+    for target_spec in sorted(spec_targets):
+        spec_key = int(round(target_spec * 100))
+        thr = threshold_for_specificity(y_true, y_pred, target_spec=target_spec)
+        binary_metrics = binary_metrics_at_threshold(y_true, y_pred, thr)
+        metrics[f"thr_ctrl_{spec_key}"] = thr
+        metrics[f"sens_ctrl_{spec_key}"] = binary_metrics["sensitivity"]
+        metrics[f"prec_ctrl_{spec_key}"] = binary_metrics["precision"]
+        metrics[f"spec_ctrl_{spec_key}"] = binary_metrics["specificity"]
+    return metrics
+
+
 def compute_threshold_bundle(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     target_spec: float = 0.95,
-    dca_threshold: Optional[float] = None,
+    dca_threshold: float | None = None,
 ) -> ThresholdBundle:
     """Compute all standard thresholds and metrics in a single call.
 

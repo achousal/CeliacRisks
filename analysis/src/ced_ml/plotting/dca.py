@@ -5,7 +5,7 @@ This module provides functions for visualizing DCA results to assess clinical ut
 of prediction models at different decision thresholds.
 """
 
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -16,7 +16,7 @@ from ced_ml.metrics.dca import decision_curve_analysis
 
 
 def apply_plot_metadata(
-    fig: matplotlib.figure.Figure, meta_lines: Optional[Sequence[str]] = None
+    fig: matplotlib.figure.Figure, meta_lines: Sequence[str] | None = None
 ) -> float:
     """
     Apply metadata text to bottom of figure.
@@ -41,9 +41,7 @@ def apply_plot_metadata(
     return min(required_bottom, 0.30)  # Cap at 30% to avoid excessive margin
 
 
-def plot_dca(
-    dca_df: pd.DataFrame, out_path: str, meta_lines: Optional[Sequence[str]] = None
-) -> None:
+def plot_dca(dca_df: pd.DataFrame, out_path: str, meta_lines: Sequence[str] | None = None) -> None:
     """
     Generate DCA plot from pre-computed DCA DataFrame.
 
@@ -127,8 +125,8 @@ def plot_dca_curve(
     subtitle: str = "",
     max_pt: float = 0.20,
     step: float = 0.005,
-    split_ids: Optional[np.ndarray] = None,
-    meta_lines: Optional[Sequence[str]] = None,
+    split_ids: np.ndarray | None = None,
+    meta_lines: Sequence[str] | None = None,
 ) -> None:
     """
     Generate DCA plot from raw predictions with multi-split averaging.

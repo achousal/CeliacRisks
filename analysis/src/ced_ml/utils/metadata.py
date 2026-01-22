@@ -13,7 +13,6 @@ Usage Guide:
 """
 
 from datetime import datetime
-from typing import List, Optional
 
 
 def build_plot_metadata(
@@ -21,27 +20,27 @@ def build_plot_metadata(
     scenario: str,
     seed: int,
     train_prev: float,
-    target_prev: Optional[float] = None,
-    cv_folds: Optional[int] = None,
-    cv_repeats: Optional[int] = None,
-    cv_scoring: Optional[str] = None,
-    n_features: Optional[int] = None,
-    feature_method: Optional[str] = None,
-    n_train: Optional[int] = None,
-    n_val: Optional[int] = None,
-    n_test: Optional[int] = None,
-    n_train_pos: Optional[int] = None,
-    n_val_pos: Optional[int] = None,
-    n_test_pos: Optional[int] = None,
-    split_mode: Optional[str] = None,
+    target_prev: float | None = None,
+    cv_folds: int | None = None,
+    cv_repeats: int | None = None,
+    cv_scoring: str | None = None,
+    n_features: int | None = None,
+    feature_method: str | None = None,
+    n_train: int | None = None,
+    n_val: int | None = None,
+    n_test: int | None = None,
+    n_train_pos: int | None = None,
+    n_val_pos: int | None = None,
+    n_test_pos: int | None = None,
+    split_mode: str | None = None,
     optuna_enabled: bool = False,
-    n_trials: Optional[int] = None,
-    n_iter: Optional[int] = None,
-    threshold_objective: Optional[str] = None,
+    n_trials: int | None = None,
+    n_iter: int | None = None,
+    threshold_objective: str | None = None,
     prevalence_adjusted: bool = False,
     timestamp: bool = True,
-    extra_lines: Optional[List[str]] = None,
-) -> List[str]:
+    extra_lines: list[str] | None = None,
+) -> list[str]:
     """
     Build enriched metadata lines for plot annotations.
 
@@ -187,13 +186,13 @@ def build_oof_metadata(
     cv_folds: int,
     cv_repeats: int,
     train_prev: float,
-    n_train: Optional[int] = None,
-    n_train_pos: Optional[int] = None,
-    n_features: Optional[int] = None,
-    feature_method: Optional[str] = None,
-    cv_scoring: Optional[str] = None,
-    extra_lines: Optional[List[str]] = None,
-) -> List[str]:
+    n_train: int | None = None,
+    n_train_pos: int | None = None,
+    n_features: int | None = None,
+    feature_method: str | None = None,
+    cv_scoring: str | None = None,
+    extra_lines: list[str] | None = None,
+) -> list[str]:
     """
     Build metadata for out-of-fold (OOF) plots.
 
@@ -235,9 +234,9 @@ def build_oof_metadata(
 
 def build_aggregated_metadata(
     n_splits: int,
-    split_seeds: List[int],
+    split_seeds: list[int],
     timestamp: bool = True,
-) -> List[str]:
+) -> list[str]:
     """
     Build metadata for aggregated plots across multiple splits.
 
@@ -262,9 +261,9 @@ def build_holdout_metadata(
     model_name: str,
     n_holdout: int,
     holdout_prev: float,
-    n_holdout_pos: Optional[int] = None,
+    n_holdout_pos: int | None = None,
     timestamp: bool = True,
-) -> List[str]:
+) -> list[str]:
     """
     Build metadata for holdout evaluation plots.
 

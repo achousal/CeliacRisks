@@ -7,8 +7,8 @@ Creates publication-quality risk score distribution plots with:
 - Density estimation and summary statistics
 """
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Dict, Optional, Sequence, Tuple
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -19,7 +19,7 @@ from scipy.stats import gaussian_kde
 from .dca import apply_plot_metadata
 
 
-def compute_distribution_stats(scores: np.ndarray) -> Dict[str, float]:
+def compute_distribution_stats(scores: np.ndarray) -> dict[str, float]:
     """Compute summary statistics for a distribution of scores.
 
     Args:
@@ -45,24 +45,59 @@ def compute_distribution_stats(scores: np.ndarray) -> Dict[str, float]:
     }
 
 
+def _normalize_threshold(value: float | None) -> float | None:
+    """Normalize a threshold to [0, 1] for plotting, or drop invalid values.
+
+    Handles edge cases where threshold computation may produce values slightly
+    outside [0, 1] due to floating point arithmetic (e.g., max(p) + 1e-12).
+
+    Args:
+        value: Threshold value to normalize
+
+    Returns:
+        Normalized threshold in [0, 1], or None if invalid
+
+    Notes:
+        - Allows small epsilon (1e-6) tolerance outside [0, 1]
+        - Clamps values to [0, 1] range
+        - Returns None for non-finite or severely out-of-range values
+    """
+    if value is None:
+        return None
+    try:
+        thresh = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(thresh):
+        return None
+
+    # Allow small epsilon outside [0, 1] for floating point precision
+    eps = 1e-6
+    if thresh < 0.0 - eps or thresh > 1.0 + eps:
+        return None
+
+    # Clamp to [0, 1]
+    return float(min(max(thresh, 0.0), 1.0))
+
+
 def plot_risk_distribution(
-    y_true: Optional[np.ndarray],
+    y_true: np.ndarray | None,
     scores: np.ndarray,
     out_path: Path,
     title: str,
     subtitle: str = "",
     xlabel: str = "Predicted risk",
     pos_label: str = "Incident CeD",
-    meta_lines: Optional[Sequence[str]] = None,
-    category_col: Optional[np.ndarray] = None,
-    dca_threshold: Optional[float] = None,
-    spec95_threshold: Optional[float] = None,
-    youden_threshold: Optional[float] = None,
-    alpha_threshold: Optional[float] = None,
-    metrics_at_thresholds: Optional[Dict[str, Dict[str, float]]] = None,
-    x_limits: Optional[Tuple[float, float]] = None,
+    meta_lines: Sequence[str] | None = None,
+    category_col: np.ndarray | None = None,
+    dca_threshold: float | None = None,
+    spec95_threshold: float | None = None,
+    youden_threshold: float | None = None,
+    alpha_threshold: float | None = None,
+    metrics_at_thresholds: dict[str, dict[str, float]] | None = None,
+    x_limits: tuple[float, float] | None = None,
     target_spec: float = 0.95,
-    threshold_bundle: Optional[Dict] = None,
+    threshold_bundle: dict | None = None,
 ) -> None:
     """Plot risk score distribution with optional thresholds and case-type subplots.
 
@@ -134,6 +169,18 @@ def plot_risk_distribution(
                 "fp": m.get("fp"),
                 "n_celiac": (m.get("tp", 0) or 0) + (m.get("fn", 0) or 0),
             }
+
+    # Handle alpha_threshold fallback (deprecated parameter)
+    if spec95_threshold is None and alpha_threshold is not None:
+        spec95_threshold = alpha_threshold
+
+    # Normalize thresholds to [0, 1] with epsilon tolerance
+    # This handles edge cases where threshold computation may produce values
+    # slightly outside [0, 1] due to floating point arithmetic (e.g., max(p) + 1e-12)
+    spec95_threshold = _normalize_threshold(spec95_threshold)
+    youden_threshold = _normalize_threshold(youden_threshold)
+    dca_threshold = _normalize_threshold(dca_threshold)
+
     matplotlib.use("Agg")
 
     s = np.asarray(scores).astype(float)
@@ -144,10 +191,10 @@ def plot_risk_distribution(
     if category_col is not None:
         cat = np.asarray(category_col)
         mask = np.isfinite(s)
-        s[mask]
-        cat_clean = cat[mask]
-        has_incident = np.any(cat_clean == "Incident")
-        has_prevalent = np.any(cat_clean == "Prevalent")
+        s = s[mask]
+        cat = cat[mask]
+        has_incident = np.any(cat == "Incident")
+        has_prevalent = np.any(cat == "Prevalent")
 
     # Calculate number of subplots needed
     n_subplots = 1
@@ -206,10 +253,7 @@ def plot_risk_distribution(
         )
     elif category_col is not None:
         # Use category column for three-way split (Controls, Incident, Prevalent)
-        cat = np.asarray(category_col)
-        mask = np.isfinite(s)
-        s = s[mask]
-        cat = cat[mask]
+        # Note: s and cat already filtered for NaN at lines 146-148
         if len(s) == 0:
             plt.close()
             return
@@ -267,7 +311,8 @@ def plot_risk_distribution(
             ax_main.legend(loc="upper right", fontsize=10)
 
     # Add threshold lines (without labels - will be added to legend separately)
-    if spec95_threshold is not None and 0 <= spec95_threshold <= 1:
+    # Note: Thresholds are pre-normalized to [0, 1] via _normalize_threshold()
+    if spec95_threshold is not None:
         ax_main.axvline(
             spec95_threshold,
             color="red",
@@ -276,7 +321,7 @@ def plot_risk_distribution(
             alpha=0.7,
         )
 
-    if youden_threshold is not None and 0 <= youden_threshold <= 1:
+    if youden_threshold is not None:
         ax_main.axvline(
             youden_threshold,
             color="green",
@@ -285,7 +330,7 @@ def plot_risk_distribution(
             alpha=0.7,
         )
 
-    if dca_threshold is not None and 0 <= dca_threshold <= 1:
+    if dca_threshold is not None:
         ax_main.axvline(
             dca_threshold,
             color="purple",
@@ -300,50 +345,56 @@ def plot_risk_distribution(
     threshold_labels = []
 
     # Accept either "spec95" or "alpha" key for specificity threshold metrics
-    if spec95_threshold is not None and metrics_at_thresholds:
-        m = metrics_at_thresholds.get("spec95") or metrics_at_thresholds.get("alpha")
+    if spec95_threshold is not None:
+        m = (
+            metrics_at_thresholds.get("spec95") or metrics_at_thresholds.get("alpha")
+            if metrics_at_thresholds
+            else None
+        )
+
+        line_handle = Line2D([0], [0], color="red", linestyle="--", linewidth=2, alpha=0.7)
+        threshold_handles.append(line_handle)
+
+        # Multi-line label format with each metric on separate line
+        label_text = f"{target_spec*100:.0f}% Spec"
         if m:
             sens = m.get("sensitivity", np.nan)
             ppv = m.get("precision", np.nan)
             fp = m.get("fp", np.nan)
-
-            line_handle = Line2D([0], [0], color="red", linestyle="--", linewidth=2, alpha=0.7)
-            threshold_handles.append(line_handle)
-
-            # Multi-line label format with each metric on separate line
-            label_text = f"{target_spec*100:.0f}% Spec"
             if not np.isnan(sens) and not np.isnan(ppv) and not np.isnan(fp):
                 label_text += f"\nSens: {sens*100:.1f}%\nPPV: {ppv*100:.1f}%\nFP: {int(fp)}"
-            threshold_labels.append(label_text)
+        threshold_labels.append(label_text)
 
-    if youden_threshold is not None and metrics_at_thresholds and "youden" in metrics_at_thresholds:
-        m = metrics_at_thresholds["youden"]
-        sens = m.get("sensitivity", np.nan)
-        ppv = m.get("precision", np.nan)
-        fp = m.get("fp", np.nan)
+    if youden_threshold is not None:
+        m = metrics_at_thresholds.get("youden") if metrics_at_thresholds else None
 
         line_handle = Line2D([0], [0], color="green", linestyle="--", linewidth=2, alpha=0.7)
         threshold_handles.append(line_handle)
 
         # Multi-line label format with each metric on separate line
         label_text = "Youden"
-        if not np.isnan(sens) and not np.isnan(ppv) and not np.isnan(fp):
-            label_text += f"\nSens: {sens*100:.1f}%\nPPV: {ppv*100:.1f}%\nFP: {int(fp)}"
+        if m:
+            sens = m.get("sensitivity", np.nan)
+            ppv = m.get("precision", np.nan)
+            fp = m.get("fp", np.nan)
+            if not np.isnan(sens) and not np.isnan(ppv) and not np.isnan(fp):
+                label_text += f"\nSens: {sens*100:.1f}%\nPPV: {ppv*100:.1f}%\nFP: {int(fp)}"
         threshold_labels.append(label_text)
 
-    if dca_threshold is not None and metrics_at_thresholds and "dca" in metrics_at_thresholds:
-        m = metrics_at_thresholds["dca"]
-        sens = m.get("sensitivity", np.nan)
-        ppv = m.get("precision", np.nan)
-        fp = m.get("fp", np.nan)
+    if dca_threshold is not None:
+        m = metrics_at_thresholds.get("dca") if metrics_at_thresholds else None
 
         line_handle = Line2D([0], [0], color="purple", linestyle="--", linewidth=2, alpha=0.7)
         threshold_handles.append(line_handle)
 
         # Multi-line label format with each metric on separate line
         label_text = "DCA"
-        if not np.isnan(sens) and not np.isnan(ppv) and not np.isnan(fp):
-            label_text += f"\nSens: {sens*100:.1f}%\nPPV: {ppv*100:.1f}%\nFP: {int(fp)}"
+        if m:
+            sens = m.get("sensitivity", np.nan)
+            ppv = m.get("precision", np.nan)
+            fp = m.get("fp", np.nan)
+            if not np.isnan(sens) and not np.isnan(ppv) and not np.isnan(fp):
+                label_text += f"\nSens: {sens*100:.1f}%\nPPV: {ppv*100:.1f}%\nFP: {int(fp)}"
         threshold_labels.append(label_text)
 
     # Combine all handles and labels
@@ -371,6 +422,9 @@ def plot_risk_distribution(
     # Apply x-axis limits if provided
     if x_limits is not None:
         ax_main.set_xlim(x_limits)
+    elif category_col is not None:
+        # When using category_col (3-way split), match subplot xlim for consistency
+        ax_main.set_xlim(0, 1)
 
     # === INCIDENT DENSITY PLOT (if applicable) ===
     subplot_idx = 1
@@ -401,11 +455,12 @@ def plot_risk_distribution(
                 )
 
         # Add threshold lines (no labels)
-        if spec95_threshold is not None and 0 <= spec95_threshold <= 1:
+        # Note: Thresholds are pre-normalized to [0, 1] via _normalize_threshold()
+        if spec95_threshold is not None:
             ax_incident.axvline(
                 spec95_threshold, color="red", linestyle="--", linewidth=1.5, alpha=0.5
             )
-        if youden_threshold is not None and 0 <= youden_threshold <= 1:
+        if youden_threshold is not None:
             ax_incident.axvline(
                 youden_threshold,
                 color="green",
@@ -413,7 +468,7 @@ def plot_risk_distribution(
                 linewidth=1.5,
                 alpha=0.5,
             )
-        if dca_threshold is not None and 0 <= dca_threshold <= 1:
+        if dca_threshold is not None:
             ax_incident.axvline(
                 dca_threshold,
                 color="purple",
@@ -470,11 +525,12 @@ def plot_risk_distribution(
                 )
 
         # Add threshold lines (no labels)
-        if spec95_threshold is not None and 0 <= spec95_threshold <= 1:
+        # Note: Thresholds are pre-normalized to [0, 1] via _normalize_threshold()
+        if spec95_threshold is not None:
             ax_prevalent.axvline(
                 spec95_threshold, color="red", linestyle="--", linewidth=1.5, alpha=0.5
             )
-        if youden_threshold is not None and 0 <= youden_threshold <= 1:
+        if youden_threshold is not None:
             ax_prevalent.axvline(
                 youden_threshold,
                 color="green",
@@ -482,7 +538,7 @@ def plot_risk_distribution(
                 linewidth=1.5,
                 alpha=0.5,
             )
-        if dca_threshold is not None and 0 <= dca_threshold <= 1:
+        if dca_threshold is not None:
             ax_prevalent.axvline(
                 dca_threshold,
                 color="purple",

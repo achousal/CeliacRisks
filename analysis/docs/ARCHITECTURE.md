@@ -1,8 +1,8 @@
 # CeliacRisks Architecture
 
-**Version:** 1.1
-**Date:** 2026-01-20
-**Status:** Current-state documentation (updated with Optuna integration and split-specific outputs)
+**Version:** 1.2
+**Date:** 2026-01-21
+**Status:** Current-state documentation (updated with Optuna integration, split-specific outputs, and aggregation workflow)
 
 ---
 
@@ -85,7 +85,7 @@ See [docs/adr/](adr/) for complete list.
 
 ```
 analysis/
-  src/ced_ml/           # Python package (15,109 lines)
+  src/ced_ml/           # Python package (20,819 lines)
     cli/                # Command-line interface
     config/             # Configuration system
     data/               # Data I/O, splits, persistence
@@ -95,13 +95,13 @@ analysis/
     evaluation/         # Prediction & reporting
     plotting/           # Visualization
     utils/              # Shared utilities
-  tests/                # 753 tests, 82% coverage
+  tests/                # 770 tests, 63% coverage (lower % due to expanded codebase)
   docs/                 # Documentation
     ARCHITECTURE.md     # This file
     adr/                # Architecture Decision Records
     reference/          # Reference documentation (parameters, knobs)
-splits_hpc/      # Persisted split indices
-results_hpc/     # Training outputs
+splits/          # Persisted split indices
+results/         # Training outputs
 ```
 
 **Where in code:**
@@ -148,8 +148,8 @@ results_hpc/     # Training outputs
 - Model-specific configs: `LRConfig`, `SVMConfig`, `RFConfig`, `XGBoostConfig`
 
 **Where in code:**
-- [config/schema.py:351-400](../src/ced_ml/config/schema.py#L351-L400) - `TrainingConfig`
-- [config/schema.py:220-237](../src/ced_ml/config/schema.py#L220-L237) - `OptunaConfig`
+- [config/schema.py:367-440](../src/ced_ml/config/schema.py#L367-L440) - `TrainingConfig`
+- [config/schema.py:226-290](../src/ced_ml/config/schema.py#L226-L290) - `OptunaConfig`
 - [config/loader.py](../src/ced_ml/config/loader.py) - YAML loader
 - [config/validation.py](../src/ced_ml/config/validation.py) - Validators
 
@@ -165,7 +165,7 @@ See [ADR-012: Pydantic Config Schema](adr/ADR-012-pydantic-config.md) for ration
 
 **Where in code:**
 - [data/io.py](../src/ced_ml/data/io.py) - `load_data`, `usecols_for_proteomics`
-- [data/splits.py:374-438](../src/ced_ml/data/splits.py#L374-L438) - `stratified_train_val_test_split`
+- [data/splits.py:375-439](../src/ced_ml/data/splits.py#L375-L439) - `stratified_train_val_test_split`
 - [data/columns.py](../src/ced_ml/data/columns.py) - `resolve_columns`, `ResolvedColumns`
 
 See [ADR-015: Flexible Metadata Columns](adr/ADR-015-flexible-metadata-columns.md) for column configuration design.
@@ -268,7 +268,7 @@ See [ADR-009: Threshold on VAL](adr/ADR-009-threshold-on-val.md), [ADR-010: Fixe
 
 **Where in code:**
 - [cli/save_splits.py](../src/ced_ml/cli/save_splits.py) - CLI entry point
-- [data/splits.py:374-438](../src/ced_ml/data/splits.py#L374-L438) - `stratified_train_val_test_split`
+- [data/splits.py:375-439](../src/ced_ml/data/splits.py#L375-L439) - `stratified_train_val_test_split`
 - [data/splits.py:326-366](../src/ced_ml/data/splits.py#L326-L366) - `add_prevalent_to_train`
 - [data/splits.py:193-250](../src/ced_ml/data/splits.py#L193-L250) - `downsample_controls`
 - [data/persistence.py](../src/ced_ml/data/persistence.py) - `save_split_indices`
@@ -679,7 +679,7 @@ eid,y_true,y_pred_proba,y_pred,fold,repeat
 - Model-specific: `LRConfig`, `SVMConfig`, `RFConfig`, `XGBoostConfig`
 
 **Where in code:**
-- [config/schema.py:351-424](../src/ced_ml/config/schema.py#L351-L424) - `TrainingConfig`
+- [config/schema.py:367-440](../src/ced_ml/config/schema.py#L367-L440) - `TrainingConfig`
 - [config/schema.py](../src/ced_ml/config/schema.py) - All config classes
 
 **See ADR:**
@@ -779,7 +779,7 @@ direction: str | None = None                 # minimize | maximize (auto-inferre
 ```
 
 **Where in code:**
-- [config/schema.py:220-237](../src/ced_ml/config/schema.py#L220-L237) - `OptunaConfig`
+- [config/schema.py:226-290](../src/ced_ml/config/schema.py#L226-L290) - `OptunaConfig`
 - [models/optuna_search.py](../src/ced_ml/models/optuna_search.py) - `OptunaSearchCV`
 - [models/hyperparams.py](../src/ced_ml/models/hyperparams.py) - `get_param_distributions_optuna`
 
@@ -872,7 +872,7 @@ ced train --config config.yaml \
 **Why 3-Way Split?** See [ADR-001: Split Strategy](adr/ADR-001-split-strategy.md).
 
 **Where in code:**
-- [data/splits.py:374-438](../src/ced_ml/data/splits.py#L374-L438) - `stratified_train_val_test_split`
+- [data/splits.py:375-439](../src/ced_ml/data/splits.py#L375-L439) - `stratified_train_val_test_split`
 - [config/schema.py](../src/ced_ml/config/schema.py) - `SplitsConfig.validate_split_sizes`
 
 **Tests:**
@@ -1391,17 +1391,15 @@ The output directory structure uses split-specific subdirectories to support par
 
 ### 15.3 Workflow
 
-**WORKFLOW.md:** High-level pipeline execution steps.
-
 **Steps:**
 1. Generate splits: `ced save-splits`
 2. Submit job array: `bsub < CeD_hpc.lsf`
 3. Monitor jobs: `bjobs`
-4. Postprocess: `ced postprocess`
+4. Aggregate results: `ced aggregate-splits`
 5. Holdout evaluation: `ced eval-holdout` (run ONCE)
 
 **Where in code:**
-- `WORKFLOW.md` - Pipeline documentation
+- `run_hpc.sh` - Pipeline orchestration script
 
 ---
 

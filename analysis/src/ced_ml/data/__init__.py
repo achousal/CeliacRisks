@@ -7,6 +7,7 @@ from ced_ml.data.persistence import (
     save_holdout_metadata,
     save_split_indices,
     save_split_metadata,
+    validate_existing_splits,
     validate_split_indices,
 )
 from ced_ml.data.schema import (
@@ -40,6 +41,7 @@ __all__ = [
     "get_positive_label",
     # Persistence
     "validate_split_indices",
+    "validate_existing_splits",
     "check_split_files_exist",
     "save_split_indices",
     "save_holdout_indices",

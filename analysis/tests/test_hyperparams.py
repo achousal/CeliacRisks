@@ -32,6 +32,7 @@ def minimal_config():
             C_min=0.01,
             C_max=100.0,
             C_points=10,
+            l1_ratio=[0.1, 0.5, 0.9],
             class_weight_options="None,balanced",
         ),
         svm=SimpleNamespace(C_min=0.01, C_max=100.0, C_points=10, class_weight_options="balanced"),
@@ -49,6 +50,10 @@ def minimal_config():
             learning_rate_grid=[0.01, 0.1, 0.3],
             subsample_grid=[0.7, 0.8, 1.0],
             colsample_bytree_grid=[0.7, 0.8, 1.0],
+            min_child_weight_grid=[1, 3, 5],
+            gamma_grid=[0.0, 0.1, 0.3],
+            reg_alpha_grid=[0.0, 0.01, 0.1],
+            reg_lambda_grid=[1.0, 2.0, 5.0],
             scale_pos_weight=None,
             scale_pos_weight_grid=[1.0, 5.0, 10.0],
         ),
@@ -64,6 +69,9 @@ def test_get_param_distributions_lr(minimal_config):
 
     assert "clf__C" in params
     assert len(params["clf__C"]) == 10
+
+    assert "clf__l1_ratio" in params
+    assert params["clf__l1_ratio"] == [0.1, 0.5, 0.9]
 
     assert "clf__class_weight" in params
     assert None in params["clf__class_weight"]

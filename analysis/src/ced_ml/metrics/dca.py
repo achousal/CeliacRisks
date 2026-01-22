@@ -13,7 +13,7 @@ Reference:
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -87,8 +87,8 @@ def net_benefit_treat_all(
 def decision_curve_analysis(
     y_true: np.ndarray,
     y_pred_prob: np.ndarray,
-    thresholds: Optional[np.ndarray] = None,
-    prevalence_adjustment: Optional[float] = None,
+    thresholds: np.ndarray | None = None,
+    prevalence_adjustment: float | None = None,
 ) -> pd.DataFrame:
     """
     Compute Decision Curve Analysis across threshold range.
@@ -178,9 +178,9 @@ def decision_curve_analysis(
 def threshold_dca_zero_crossing(
     y_true: np.ndarray,
     y_pred_prob: np.ndarray,
-    thresholds: Optional[np.ndarray] = None,
-    prevalence_adjustment: Optional[float] = None,
-) -> Optional[float]:
+    thresholds: np.ndarray | None = None,
+    prevalence_adjustment: float | None = None,
+) -> float | None:
     """
     Find the threshold where model net benefit crosses zero.
 
@@ -241,7 +241,7 @@ def threshold_dca_zero_crossing(
 def decision_curve_table(
     scenario: str,
     y_true: np.ndarray,
-    pred_dict: Dict[str, np.ndarray],
+    pred_dict: dict[str, np.ndarray],
     max_pt: float = 0.20,
     step: float = 0.005,
 ) -> pd.DataFrame:
@@ -315,8 +315,8 @@ def decision_curve_table(
 
 def compute_dca_summary(
     dca_df: pd.DataFrame,
-    report_points: Optional[List[float]] = None,
-) -> Dict[str, Any]:
+    report_points: list[float] | None = None,
+) -> dict[str, Any]:
     """
     Compute summary statistics from DCA results.
 
@@ -396,7 +396,7 @@ def compute_dca_summary(
     return summary
 
 
-def find_dca_zero_crossing(dca_curve_path: str) -> Optional[float]:
+def find_dca_zero_crossing(dca_curve_path: str) -> float | None:
     """
     Find DCA zero-crossing threshold from saved DCA curve.
 
@@ -475,10 +475,10 @@ def save_dca_results(
     y_pred_prob: np.ndarray,
     out_dir: str,
     prefix: str = "",
-    thresholds: Optional[np.ndarray] = None,
-    report_points: Optional[List[float]] = None,
-    prevalence_adjustment: Optional[float] = None,
-) -> Dict[str, Any]:
+    thresholds: np.ndarray | None = None,
+    report_points: list[float] | None = None,
+    prevalence_adjustment: float | None = None,
+) -> dict[str, Any]:
     """
     Compute and save DCA results to files.
 
@@ -588,7 +588,7 @@ def generate_dca_thresholds(
     return np.linspace(min_thr, max_thr, n)
 
 
-def parse_dca_report_points(s: str) -> List[float]:
+def parse_dca_report_points(s: str) -> list[float]:
     """
     Parse comma-separated DCA report thresholds.
 

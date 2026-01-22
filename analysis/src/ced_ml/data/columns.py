@@ -6,7 +6,6 @@ Supports auto-detection of metadata columns from data or explicit specification.
 
 import logging
 from dataclasses import dataclass
-from typing import List, Union
 
 import pandas as pd
 
@@ -20,23 +19,23 @@ logger = logging.getLogger(__name__)
 class ResolvedColumns:
     """Container for resolved column sets."""
 
-    protein_cols: List[str]
-    numeric_metadata: List[str]
-    categorical_metadata: List[str]
+    protein_cols: list[str]
+    numeric_metadata: list[str]
+    categorical_metadata: list[str]
 
     @property
-    def all_feature_cols(self) -> List[str]:
+    def all_feature_cols(self) -> list[str]:
         """All feature columns (proteins + metadata)."""
         return self.protein_cols + self.numeric_metadata + self.categorical_metadata
 
     @property
-    def all_metadata(self) -> List[str]:
+    def all_metadata(self) -> list[str]:
         """All metadata columns."""
         return self.numeric_metadata + self.categorical_metadata
 
 
 def resolve_columns(
-    df_or_columns: Union[pd.DataFrame, List[str]],
+    df_or_columns: pd.DataFrame | list[str],
     config: ColumnsConfig,
 ) -> ResolvedColumns:
     """
@@ -134,7 +133,7 @@ def resolve_columns(
     )
 
 
-def get_available_columns_from_file(filepath: str, nrows: int = 1) -> List[str]:
+def get_available_columns_from_file(filepath: str, nrows: int = 1) -> list[str]:
     """
     Read just the column names from a CSV or Parquet file without loading full data.
 

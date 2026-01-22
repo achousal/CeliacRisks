@@ -12,7 +12,6 @@ Design:
 """
 
 import json
-from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -21,7 +20,7 @@ import pandas as pd
 def compute_selection_frequencies(
     selection_log: pd.DataFrame,
     selection_col: str = "selected_proteins_split",
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Compute selection frequency for each protein across CV splits.
 
     Selection frequency = (#splits where protein appears) / (#total splits)
@@ -55,7 +54,7 @@ def compute_selection_frequencies(
     if n_splits == 0:
         return {}
 
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for json_str in selection_log[selection_col]:
         try:
             proteins = json.loads(json_str) if isinstance(json_str, str) else []
@@ -69,7 +68,7 @@ def compute_selection_frequencies(
 
 
 def build_frequency_panel(
-    selection_frequencies: Dict[str, float],
+    selection_frequencies: dict[str, float],
     rule: str = "topN",
     top_n: int = 100,
     freq_threshold: float = 0.75,
@@ -128,7 +127,7 @@ def extract_stable_panel(
     stability_threshold: float = 0.75,
     selection_col: str = "selected_proteins_split",
     fallback_top_n: int = 20,
-) -> Tuple[pd.DataFrame, List[str], List[set]]:
+) -> tuple[pd.DataFrame, list[str], list[set]]:
     """Extract stable panel from repeated CV by requiring proteins appear in most repeats.
 
     Computes per-repeat union of selected proteins, then identifies proteins
@@ -169,7 +168,7 @@ def extract_stable_panel(
         return empty_df, [], []
 
     # Compute union of selected proteins for each repeat
-    repeat_unions: List[set] = []
+    repeat_unions: list[set] = []
     for repeat_id in range(n_repeats):
         repeat_data = selection_log[selection_log["repeat"] == repeat_id]
         repeat_union = set()
@@ -217,7 +216,7 @@ def extract_stable_panel(
     return panel_df, stable_proteins, repeat_unions
 
 
-def rank_proteins_by_frequency(selection_frequencies: Dict[str, float]) -> List[str]:
+def rank_proteins_by_frequency(selection_frequencies: dict[str, float]) -> list[str]:
     """Rank proteins by selection frequency (descending), breaking ties by name.
 
     Args:

@@ -7,9 +7,9 @@ All defaults match the current implementation exactly for behavioral equivalence
 
 import os
 from pathlib import Path
-from typing import List, Literal, Optional, Union
+from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ============================================================================
 # Data and Split Configuration
@@ -20,8 +20,8 @@ class ColumnsConfig(BaseModel):
     """Configuration for metadata column selection."""
 
     mode: Literal["auto", "explicit"] = "auto"
-    numeric_metadata: Optional[List[str]] = None
-    categorical_metadata: Optional[List[str]] = None
+    numeric_metadata: list[str] | None = None
+    categorical_metadata: list[str] | None = None
     warn_missing_defaults: bool = True
 
 
@@ -29,7 +29,7 @@ class SplitsConfig(BaseModel):
     """Configuration for data split generation."""
 
     mode: Literal["development", "holdout"] = "development"
-    scenarios: List[str] = Field(default_factory=lambda: ["IncidentOnly"])
+    scenarios: list[str] = Field(default_factory=lambda: ["IncidentOnly"])
     n_splits: int = Field(default=1, ge=1)
     val_size: float = Field(default=0.0, ge=0.0, le=1.0)
     test_size: float = Field(default=0.30, ge=0.0, le=1.0)
@@ -41,13 +41,13 @@ class SplitsConfig(BaseModel):
     prevalent_train_frac: float = Field(default=1.0, ge=0.0, le=1.0)
 
     # Control downsampling
-    train_control_per_case: Optional[float] = Field(default=None, ge=1.0)
-    eval_control_per_case: Optional[float] = Field(default=None, ge=1.0)
+    train_control_per_case: float | None = Field(default=None, ge=1.0)
+    eval_control_per_case: float | None = Field(default=None, ge=1.0)
 
     # Temporal split
     temporal_split: bool = False
     temporal_col: str = "CeD_date"
-    temporal_cutoff: Optional[str] = None
+    temporal_cutoff: str | None = None
 
     # Output
     outdir: Path = Field(default=Path("splits"))
@@ -79,9 +79,10 @@ class CVConfig(BaseModel):
     repeats: int = Field(default=3, ge=1)
     inner_folds: int = Field(default=5, ge=2)
     scoring: str = "average_precision"
+    scoring_target_fpr: float | None = Field(default=0.05, ge=0.0, le=1.0)
     n_iter: int = Field(default=30, ge=1)
     random_state: int = 0
-    tune_n_jobs: Union[int, str] = "auto"
+    tune_n_jobs: int | str = "auto"
     error_score: str = "nan"
     grid_randomize: bool = False
 
@@ -101,7 +102,7 @@ class FeatureConfig(BaseModel):
     # KBest selection
     kbest_scope: Literal["protein", "transformed"] = "protein"
     kbest_max: int = Field(default=500, ge=1)
-    k_grid: List[int] = Field(default_factory=lambda: [50, 100, 200, 500])
+    k_grid: list[int] = Field(default_factory=lambda: [50, 100, 200, 500])
 
     # Stability-based selection
     stability_thresh: float = Field(default=0.70, ge=0.0, le=1.0)
@@ -136,7 +137,7 @@ class PanelConfig(BaseModel):
     """Configuration for biomarker panel building."""
 
     build_panels: bool = False
-    panel_sizes: List[int] = Field(default_factory=lambda: [10, 25, 50, 100])
+    panel_sizes: list[int] = Field(default_factory=lambda: [10, 25, 50, 100])
     panel_corr_thresh: float = Field(default=0.80, ge=0.0, le=1.0)
     panel_corr_method: Literal["pearson", "spearman"] = "pearson"
     panel_rep_tiebreak: Literal["first", "random"] = "first"
@@ -152,16 +153,16 @@ class PanelConfig(BaseModel):
 class LRConfig(BaseModel):
     """Logistic Regression hyperparameters."""
 
-    penalty: List[str] = Field(default_factory=lambda: ["l1", "l2", "elasticnet"])
-    C_min: float = 0.001
-    C_max: float = 10.0
-    C_points: int = 5
-    l1_ratio: List[float] = Field(default_factory=lambda: [0.1, 0.5, 0.9])
+    penalty: list[str] = Field(default_factory=lambda: ["l1", "l2", "elasticnet"])
+    C_min: float = 0.0001
+    C_max: float = 100.0
+    C_points: int = 7
+    l1_ratio: list[float] = Field(default_factory=lambda: [0.1, 0.5, 0.9])
     solver: str = "saga"
     max_iter: int = 1000
     class_weight_options: str = "balanced"
     random_state: int = 0
-    n_iter: Optional[int] = Field(default=None, ge=1, description="Override cv.n_iter for LR")
+    n_iter: int | None = Field(default=None, ge=1, description="Override cv.n_iter for LR")
 
 
 class SVMConfig(BaseModel):
@@ -170,48 +171,46 @@ class SVMConfig(BaseModel):
     C_min: float = 0.01
     C_max: float = 10.0
     C_points: int = 4
-    kernel: List[str] = Field(default_factory=lambda: ["linear", "rbf"])
-    gamma: List[Union[str, float]] = Field(default_factory=lambda: ["scale", "auto", 0.001, 0.01])
+    kernel: list[str] = Field(default_factory=lambda: ["linear", "rbf"])
+    gamma: list[str | float] = Field(default_factory=lambda: ["scale", "auto", 0.001, 0.01])
     class_weight_options: str = "balanced"
     max_iter: int = 5000
     probability: bool = True
     random_state: int = 0
-    n_iter: Optional[int] = Field(default=None, ge=1, description="Override cv.n_iter for SVM")
+    n_iter: int | None = Field(default=None, ge=1, description="Override cv.n_iter for SVM")
 
 
 class RFConfig(BaseModel):
     """Random Forest hyperparameters."""
 
-    n_estimators_grid: List[int] = Field(default_factory=lambda: [100, 300, 500])
-    max_depth_grid: List[Optional[int]] = Field(default_factory=lambda: [None, 10, 20, 30])
-    min_samples_split_grid: List[int] = Field(default_factory=lambda: [2, 5, 10])
-    min_samples_leaf_grid: List[int] = Field(default_factory=lambda: [1, 2, 4])
-    max_features_grid: List[Union[str, float]] = Field(
-        default_factory=lambda: ["sqrt", "log2", 0.5]
-    )
+    n_estimators_grid: list[int] = Field(default_factory=lambda: [100, 300, 500])
+    max_depth_grid: list[int | None] = Field(default_factory=lambda: [None, 10, 20, 30])
+    min_samples_split_grid: list[int] = Field(default_factory=lambda: [2, 5, 10])
+    min_samples_leaf_grid: list[int] = Field(default_factory=lambda: [1, 2, 4])
+    max_features_grid: list[str | float] = Field(default_factory=lambda: ["sqrt", "log2", 0.5])
     class_weight_options: str = "balanced"
     n_jobs: int = -1
     random_state: int = 0
-    n_iter: Optional[int] = Field(default=None, ge=1, description="Override cv.n_iter for RF")
+    n_iter: int | None = Field(default=None, ge=1, description="Override cv.n_iter for RF")
 
 
 class XGBoostConfig(BaseModel):
     """XGBoost hyperparameters."""
 
-    n_estimators_grid: List[int] = Field(default_factory=lambda: [100, 300, 500])
-    max_depth_grid: List[int] = Field(default_factory=lambda: [3, 5, 7, 10])
-    learning_rate_grid: List[float] = Field(default_factory=lambda: [0.01, 0.05, 0.1, 0.3])
-    min_child_weight_grid: List[int] = Field(default_factory=lambda: [1, 3, 5])
-    gamma_grid: List[float] = Field(default_factory=lambda: [0.0, 0.1, 0.2])
-    subsample_grid: List[float] = Field(default_factory=lambda: [0.7, 0.8, 1.0])
-    colsample_bytree_grid: List[float] = Field(default_factory=lambda: [0.7, 0.8, 1.0])
-    reg_alpha_grid: List[float] = Field(default_factory=lambda: [0.0, 0.1, 1.0])
-    reg_lambda_grid: List[float] = Field(default_factory=lambda: [1.0, 5.0, 10.0])
-    scale_pos_weight_grid: List[float] = Field(default_factory=lambda: [1.0, 2.0, 5.0])
+    n_estimators_grid: list[int] = Field(default_factory=lambda: [100, 300, 500])
+    max_depth_grid: list[int] = Field(default_factory=lambda: [3, 5, 7, 10])
+    learning_rate_grid: list[float] = Field(default_factory=lambda: [0.01, 0.05, 0.1, 0.3])
+    min_child_weight_grid: list[int] = Field(default_factory=lambda: [1, 3, 5])
+    gamma_grid: list[float] = Field(default_factory=lambda: [0.0, 0.1, 0.3])
+    subsample_grid: list[float] = Field(default_factory=lambda: [0.7, 0.8, 1.0])
+    colsample_bytree_grid: list[float] = Field(default_factory=lambda: [0.7, 0.8, 1.0])
+    reg_alpha_grid: list[float] = Field(default_factory=lambda: [0.0, 0.01, 0.1])
+    reg_lambda_grid: list[float] = Field(default_factory=lambda: [1.0, 2.0, 5.0])
+    scale_pos_weight_grid: list[float] = Field(default_factory=lambda: [1.0, 2.0, 5.0])
     tree_method: str = "hist"
     n_jobs: int = -1
     random_state: int = 0
-    n_iter: Optional[int] = Field(default=None, ge=1, description="Override cv.n_iter for XGBoost")
+    n_iter: int | None = Field(default=None, ge=1, description="Override cv.n_iter for XGBoost")
 
 
 class CalibrationConfig(BaseModel):
@@ -228,19 +227,19 @@ class OptunaConfig(BaseModel):
 
     enabled: bool = False
     n_trials: int = Field(default=100, ge=1)
-    timeout: Optional[float] = Field(default=None, ge=0)
+    timeout: float | None = Field(default=None, ge=0)
     sampler: Literal["tpe", "random", "cmaes", "grid"] = "tpe"
-    sampler_seed: Optional[int] = None
+    sampler_seed: int | None = None
     pruner: Literal["median", "percentile", "hyperband", "none"] = "median"
     pruner_n_startup_trials: int = Field(default=5, ge=0)
     pruner_percentile: float = Field(default=25.0, ge=0, le=100)
     n_jobs: int = Field(default=1, ge=1)
-    storage: Optional[str] = None
-    study_name: Optional[str] = None
+    storage: str | None = None
+    study_name: str | None = None
     load_if_exists: bool = False
     save_study: bool = True
     save_trials_csv: bool = True
-    direction: Optional[Literal["minimize", "maximize"]] = None
+    direction: Literal["minimize", "maximize"] | None = None
 
 
 # ============================================================================
@@ -257,7 +256,7 @@ class ThresholdConfig(BaseModel):
     fixed_ppv: float = Field(default=0.10, ge=0.0, le=1.0)
     threshold_source: Literal["val", "test", "train_oof"] = "val"
     target_prevalence_source: Literal["val", "test", "train", "fixed"] = "test"
-    target_prevalence_fixed: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    target_prevalence_fixed: float | None = Field(default=None, ge=0.0, le=1.0)
     risk_prob_source: Literal["val", "test"] = "test"
 
 
@@ -281,15 +280,15 @@ class EvaluationConfig(BaseModel):
 
     # Learning curves
     learning_curve: bool = False
-    lc_train_sizes: List[float] = Field(default_factory=lambda: [0.1, 0.25, 0.5, 0.75, 1.0])
+    lc_train_sizes: list[float] = Field(default_factory=lambda: [0.1, 0.25, 0.5, 0.75, 1.0])
 
     # Feature importance
     feature_reports: bool = True
     feature_report_max: int = 100
 
     # Specificity/sensitivity targets
-    control_spec_targets: List[float] = Field(default_factory=lambda: [0.90, 0.95, 0.99])
-    toprisk_fracs: List[float] = Field(default_factory=lambda: [0.01, 0.05, 0.10])
+    control_spec_targets: list[float] = Field(default_factory=lambda: [0.90, 0.95, 0.99])
+    toprisk_fracs: list[float] = Field(default_factory=lambda: [0.01, 0.05, 0.10])
 
 
 # ============================================================================
@@ -304,7 +303,7 @@ class DCAConfig(BaseModel):
     dca_threshold_min: float = Field(default=0.0005, ge=0.0, le=1.0)
     dca_threshold_max: float = Field(default=1.0, ge=0.0, le=1.0)
     dca_threshold_step: float = Field(default=0.001, gt=0.0)
-    dca_report_points: List[float] = Field(default_factory=lambda: [0.01, 0.05, 0.10, 0.20])
+    dca_report_points: list[float] = Field(default_factory=lambda: [0.01, 0.05, 0.10, 0.20])
 
 
 # ============================================================================
@@ -315,12 +314,17 @@ class DCAConfig(BaseModel):
 class OutputConfig(BaseModel):
     """Configuration for output file generation."""
 
+    model_config = ConfigDict(extra="forbid")
+
     save_train_preds: bool = False
+    save_train_oof: bool = True
     save_val_preds: bool = True
     save_test_preds: bool = True
     save_calibration: bool = True
     calib_bins: int = Field(default=10, ge=2)
+    save_controls_oof: bool = True
     save_feature_importance: bool = True
+    feature_reports: bool = True
     save_plots: bool = True
     plot_format: str = "png"
     plot_dpi: int = 300
@@ -356,7 +360,7 @@ class ComputeConfig(BaseModel):
     """Configuration for compute resources."""
 
     cpus: int = Field(default_factory=lambda: os.cpu_count() or 1)
-    tune_n_jobs: Optional[int] = None
+    tune_n_jobs: int | None = None
 
 
 # ============================================================================
@@ -369,7 +373,7 @@ class TrainingConfig(BaseModel):
 
     # Data
     infile: Path
-    split_dir: Optional[Path] = None
+    split_dir: Path | None = None
     scenario: str = "IncidentOnly"
     split_seed: int = 0
 
@@ -398,7 +402,8 @@ class TrainingConfig(BaseModel):
 
     # Output
     outdir: Path = Field(default=Path("results"))
-    run_name: Optional[str] = None
+    run_name: str | None = None
+    run_id: str | None = None
 
     # Resources
     n_jobs: int = -1
@@ -441,8 +446,8 @@ class AggregateConfig(BaseModel):
     save_individual: bool = False
 
     # Summary statistics
-    summary_stats: List[str] = Field(default_factory=lambda: ["mean", "std", "median", "ci95"])
-    group_by: List[str] = Field(default_factory=lambda: ["scenario", "model"])
+    summary_stats: list[str] = Field(default_factory=lambda: ["mean", "std", "median", "ci95"])
+    group_by: list[str] = Field(default_factory=lambda: ["scenario", "model"])
 
     # Consensus panels
     min_stability: float = Field(default=0.7, ge=0.0, le=1.0)
@@ -464,6 +469,7 @@ class AggregateConfig(BaseModel):
     plot_risk_distribution: bool = True
     plot_dca: bool = True
     plot_oof_combined: bool = True
+    plot_learning_curve: bool = True
 
 
 class HoldoutEvalConfig(BaseModel):
@@ -476,22 +482,22 @@ class HoldoutEvalConfig(BaseModel):
     outdir: Path = Field(default=Path("holdout_results"))
 
     # Evaluation settings
-    scenario: Optional[str] = None
+    scenario: str | None = None
     compute_dca: bool = True
     save_preds: bool = True
-    toprisk_fracs: List[float] = Field(default_factory=lambda: [0.01, 0.05, 0.10])
+    toprisk_fracs: list[float] = Field(default_factory=lambda: [0.01, 0.05, 0.10])
     subgroup_min_n: int = Field(default=40, ge=1)
 
     # DCA settings
     dca_threshold_min: float = Field(default=0.0005, ge=0.0)
     dca_threshold_max: float = Field(default=1.0, ge=0.0, le=1.0)
     dca_threshold_step: float = Field(default=0.001, gt=0.0)
-    dca_report_points: List[float] = Field(default_factory=lambda: [0.01, 0.05, 0.10, 0.20])
+    dca_report_points: list[float] = Field(default_factory=lambda: [0.01, 0.05, 0.10, 0.20])
     dca_use_target_prevalence: bool = False
 
     # Clinical thresholds
-    clinical_threshold_points: List[float] = Field(default_factory=list)
-    target_prevalence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    clinical_threshold_points: list[float] = Field(default_factory=list)
+    target_prevalence: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class RootConfig(BaseModel):
@@ -502,9 +508,9 @@ class RootConfig(BaseModel):
     verbose: int = 1
 
     # Sub-configs (populated based on command)
-    splits: Optional[SplitsConfig] = None
-    training: Optional[TrainingConfig] = None
-    aggregate: Optional[AggregateConfig] = None
-    holdout: Optional[HoldoutEvalConfig] = None
+    splits: SplitsConfig | None = None
+    training: TrainingConfig | None = None
+    aggregate: AggregateConfig | None = None
+    holdout: HoldoutEvalConfig | None = None
 
     model_config = {"arbitrary_types_allowed": True}

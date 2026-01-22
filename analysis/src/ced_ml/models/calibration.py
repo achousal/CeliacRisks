@@ -5,18 +5,40 @@ This module provides:
 - Prevalence-adjusted probability calibration
 - Calibration metrics (intercept, slope, ECE)
 - sklearn CalibratedClassifierCV wrapper utilities
+
+Note: Prevalence adjustment functions are imported from prevalence.py
+      to avoid code duplication and ensure consistency.
 """
 
-from typing import Tuple
+import logging
 
 import numpy as np
-from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import LinearSVC
 
+# Import prevalence adjustment utilities from canonical module
+from .prevalence import (
+    PrevalenceAdjustedModel,
+    adjust_probabilities_for_prevalence,
+)
 
-def calibration_intercept_slope(y_true: np.ndarray, p: np.ndarray) -> Tuple[float, float]:
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "calibration_intercept_slope",
+    "calib_intercept_metric",
+    "calib_slope_metric",
+    "expected_calibration_error",
+    "adjust_probabilities_for_prevalence",  # Re-exported for backward compatibility
+    "PrevalenceAdjustedModel",  # Re-exported for backward compatibility
+    "get_calibrated_estimator_param_name",
+    "get_calibrated_cv_param_name",
+    "maybe_calibrate_estimator",
+]
+
+
+def calibration_intercept_slope(y_true: np.ndarray, p: np.ndarray) -> tuple[float, float]:
     """
     Compute calibration intercept and slope using logistic regression on logit scale.
 
@@ -115,78 +137,8 @@ def expected_calibration_error(y_true: np.ndarray, y_pred: np.ndarray, n_bins: i
     return float(ece)
 
 
-def adjust_probabilities_for_prevalence(
-    probs: np.ndarray,
-    sample_prev: float,
-    target_prev: float,
-) -> np.ndarray:
-    """
-    Apply intercept shift so that predicted probabilities reflect target prevalence.
-
-    Uses the method: P(Y=1|X,prev_new) = sigmoid(logit(p) + logit(prev_new) - logit(prev_old))
-
-    Args:
-        probs: Predicted probabilities from model
-        sample_prev: Prevalence in training sample
-        target_prev: Target prevalence for deployment
-
-    Returns:
-        Adjusted probabilities
-
-    Reference:
-        Steyerberg (2019). Clinical Prediction Models (2nd ed.), Chapter 13.
-    """
-    eps = 1e-7
-    p = np.clip(probs, eps, 1.0 - eps)
-    logit_p = np.log(p / (1.0 - p))
-
-    sample_prev = np.clip(sample_prev, eps, 1.0 - eps)
-    target_prev = np.clip(target_prev, eps, 1.0 - eps)
-
-    shift = np.log(target_prev / (1.0 - target_prev)) - np.log(sample_prev / (1.0 - sample_prev))
-    adjusted_logit = logit_p + shift
-
-    adjusted_probs = 1.0 / (1.0 + np.exp(-adjusted_logit))
-    return np.clip(adjusted_probs, eps, 1.0 - eps)
-
-
-class PrevalenceAdjustedModel(BaseEstimator, ClassifierMixin):
-    """
-    Wraps a fitted classifier and applies a prevalence shift to predict_proba outputs.
-
-    This ensures the serialized artifact produces the same adjusted probabilities
-    that were evaluated within this script.
-
-    Attributes:
-        base_model: Underlying fitted classifier
-        sample_prevalence: Prevalence in training sample
-        target_prevalence: Target prevalence for deployment
-    """
-
-    def __init__(self, base_model, sample_prevalence: float, target_prevalence: float):
-        self.base_model = base_model
-        self.sample_prevalence = float(sample_prevalence)
-        self.target_prevalence = float(target_prevalence)
-
-    def fit(self, X, y=None):
-        """No-op (base model is already fitted)."""
-        return self
-
-    def predict_proba(self, X) -> np.ndarray:
-        """Predict probabilities with prevalence adjustment."""
-        raw_probs = self.base_model.predict_proba(X)
-        if raw_probs.shape[1] == 2:
-            pos_probs = raw_probs[:, 1]
-            adjusted_probs = adjust_probabilities_for_prevalence(
-                pos_probs, self.sample_prevalence, self.target_prevalence
-            )
-            return np.column_stack([1.0 - adjusted_probs, adjusted_probs])
-        else:
-            return raw_probs
-
-    def predict(self, X) -> np.ndarray:
-        """Predict class labels."""
-        return (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
+# Note: adjust_probabilities_for_prevalence and PrevalenceAdjustedModel
+# are now imported from prevalence.py (see top of file) to avoid code duplication
 
 
 def get_calibrated_estimator_param_name() -> str:
@@ -255,5 +207,9 @@ def maybe_calibrate_estimator(
         param_name = get_calibrated_estimator_param_name()
         kwargs[param_name] = estimator
         return CalibratedClassifierCV(**kwargs)
-    except Exception:
+    except Exception as e:
+        logger.warning(
+            f"Failed to calibrate {model_name} with method={method}, cv={cv}: {e}. "
+            "Returning original estimator without calibration."
+        )
         return estimator

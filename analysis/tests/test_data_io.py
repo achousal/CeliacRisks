@@ -257,10 +257,28 @@ class TestIdentifyProteinColumns:
                 "APOE_resid": [0.5],
                 "IL6_resid": [1.2],
                 "TGM2_resid": [0.8],
+                "P1_resid": [0.1],
+                "P2_resid": [0.2],
+                "P3_resid": [0.3],
+                "P4_resid": [0.4],
+                "P5_resid": [0.5],
+                "P6_resid": [0.6],
+                "P7_resid": [0.7],
             }
         )
         proteins = identify_protein_columns(df)
-        assert proteins == ["APOE_resid", "IL6_resid", "TGM2_resid"]
+        assert proteins == [
+            "APOE_resid",
+            "IL6_resid",
+            "P1_resid",
+            "P2_resid",
+            "P3_resid",
+            "P4_resid",
+            "P5_resid",
+            "P6_resid",
+            "P7_resid",
+            "TGM2_resid",
+        ]
 
     def test_exclude_non_protein_columns(self):
         """Should exclude columns without _resid suffix."""
@@ -268,10 +286,30 @@ class TestIdentifyProteinColumns:
             {
                 "APOE": [0.5],  # No suffix
                 "APOE_resid": [0.5],  # Has suffix
+                "P1_resid": [0.1],
+                "P2_resid": [0.2],
+                "P3_resid": [0.3],
+                "P4_resid": [0.4],
+                "P5_resid": [0.5],
+                "P6_resid": [0.6],
+                "P7_resid": [0.7],
+                "P8_resid": [0.8],
+                "P9_resid": [0.9],
             }
         )
         proteins = identify_protein_columns(df)
-        assert proteins == ["APOE_resid"]
+        assert proteins == [
+            "APOE_resid",
+            "P1_resid",
+            "P2_resid",
+            "P3_resid",
+            "P4_resid",
+            "P5_resid",
+            "P6_resid",
+            "P7_resid",
+            "P8_resid",
+            "P9_resid",
+        ]
 
     def test_no_proteins_raises_error(self):
         """Should raise ValueError if no protein columns found."""
@@ -286,10 +324,28 @@ class TestIdentifyProteinColumns:
                 "ZZZ_resid": [1.0],
                 "AAA_resid": [2.0],
                 "MMM_resid": [3.0],
+                "P1_resid": [0.1],
+                "P2_resid": [0.2],
+                "P3_resid": [0.3],
+                "P4_resid": [0.4],
+                "P5_resid": [0.5],
+                "P6_resid": [0.6],
+                "P7_resid": [0.7],
             }
         )
         proteins = identify_protein_columns(df)
-        assert proteins == ["AAA_resid", "MMM_resid", "ZZZ_resid"]
+        assert proteins == [
+            "AAA_resid",
+            "MMM_resid",
+            "P1_resid",
+            "P2_resid",
+            "P3_resid",
+            "P4_resid",
+            "P5_resid",
+            "P6_resid",
+            "P7_resid",
+            "ZZZ_resid",
+        ]
 
 
 class TestGetDataStats:
@@ -315,10 +371,18 @@ class TestGetDataStats:
                 "CeD_comparison": ["Controls"],
                 "IL6_resid": [0.1],
                 "APOE_resid": [0.2],
+                "P1_resid": [0.1],
+                "P2_resid": [0.2],
+                "P3_resid": [0.3],
+                "P4_resid": [0.4],
+                "P5_resid": [0.5],
+                "P6_resid": [0.6],
+                "P7_resid": [0.7],
+                "P8_resid": [0.8],
             }
         )
         stats = get_data_stats(df)
-        assert stats["n_proteins"] == 2
+        assert stats["n_proteins"] == 10
 
     def test_outcome_distribution(self):
         """Should compute outcome counts."""

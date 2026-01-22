@@ -9,7 +9,7 @@ Commands:
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from ced_ml.config.loader import (
     load_splits_config,
@@ -35,7 +35,7 @@ def validate_config_file(
     command: str,
     strict: bool = False,
     verbose: int = 0,
-) -> Tuple[bool, List[str], List[str]]:
+) -> tuple[bool, list[str], list[str]]:
     """
     Validate configuration file and return diagnostic report.
 
@@ -89,9 +89,9 @@ def validate_config_file(
 def diff_configs(
     config_file1: Path,
     config_file2: Path,
-    output_file: Optional[Path] = None,
+    output_file: Path | None = None,
     verbose: int = 0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compare two config files and report differences.
 
@@ -162,9 +162,9 @@ def diff_configs(
 
 
 def _diff_dicts(
-    d1: Dict[str, Any],
-    d2: Dict[str, Any],
-    result: Dict[str, Any],
+    d1: dict[str, Any],
+    d2: dict[str, Any],
+    result: dict[str, Any],
     prefix: str = "",
 ):
     """Recursively compare two dictionaries."""
@@ -242,7 +242,7 @@ def run_config_validate(
 def run_config_diff(
     config_file1: Path,
     config_file2: Path,
-    output_file: Optional[Path] = None,
+    output_file: Path | None = None,
     verbose: int = 0,
 ):
     """

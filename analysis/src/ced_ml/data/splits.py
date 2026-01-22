@@ -8,7 +8,7 @@ This module handles three-way stratified splitting (TRAIN/VAL/TEST) with:
 - Holdout set creation for final external validation
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -123,7 +123,7 @@ def collapse_rare_strata(df: pd.DataFrame, strata: pd.Series, min_count: int) ->
     return collapsed.astype(str)
 
 
-def validate_strata(strata: pd.Series) -> Tuple[bool, str]:
+def validate_strata(strata: pd.Series) -> tuple[bool, str]:
     """
     Validate that all strata have at least 2 samples (required for splitting).
 
@@ -140,7 +140,7 @@ def validate_strata(strata: pd.Series) -> Tuple[bool, str]:
     return True, "ok"
 
 
-def build_working_strata(df: pd.DataFrame, min_count: int = 2) -> Tuple[pd.Series, str]:
+def build_working_strata(df: pd.DataFrame, min_count: int = 2) -> tuple[pd.Series, str]:
     """
     Build robust stratification labels by trying schemes from most to least granular.
 
@@ -165,7 +165,7 @@ def build_working_strata(df: pd.DataFrame, min_count: int = 2) -> Tuple[pd.Serie
         "outcome+sex",
         "outcome",
     ]
-    last_reason: Optional[str] = None
+    last_reason: str | None = None
 
     for sch in schemes:
         try:
@@ -194,8 +194,8 @@ def build_working_strata(df: pd.DataFrame, min_count: int = 2) -> Tuple[pd.Serie
 def downsample_controls(
     idx_set: np.ndarray,
     df: pd.DataFrame,
-    case_labels: List[str],
-    controls_per_case: Optional[float],
+    case_labels: list[str],
+    controls_per_case: float | None,
     rng: np.random.RandomState,
 ) -> np.ndarray:
     """
@@ -379,7 +379,7 @@ def stratified_train_val_test_split(
     val_size: float,
     test_size: float,
     random_state: int,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Perform three-way stratified split into TRAIN/VAL/TEST.
 
@@ -436,6 +436,32 @@ def stratified_train_val_test_split(
         idx_val = np.array([], dtype=int)
         y_val = np.array([], dtype=int)
 
+    # Validate minimum cases and controls in each split
+    def _validate_split(split_name: str, y_split: np.ndarray) -> None:
+        """Validate that split has minimum 2 cases and 2 controls."""
+        if len(y_split) == 0:
+            return  # Empty split is OK (e.g., no validation set)
+
+        n_cases = int(y_split.sum())
+        n_controls = int(len(y_split) - n_cases)
+
+        if n_cases < 2:
+            raise ValueError(
+                f"{split_name} split has insufficient cases: {n_cases} < 2. "
+                "This will cause downstream metric failures. "
+                "Try reducing val_size/test_size or using a larger dataset."
+            )
+        if n_controls < 2:
+            raise ValueError(
+                f"{split_name} split has insufficient controls: {n_controls} < 2. "
+                "This will cause downstream metric failures. "
+                "Try reducing val_size/test_size or using a larger dataset."
+            )
+
+    _validate_split("TRAIN", y_train)
+    _validate_split("VAL", y_val)
+    _validate_split("TEST", y_test)
+
     return idx_train, idx_val, idx_test, y_train, y_val, y_test
 
 
@@ -444,7 +470,7 @@ def temporal_train_val_test_split(
     y: np.ndarray,
     val_size: float,
     test_size: float,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Perform three-way temporal split (chronological order).
 
@@ -492,6 +518,32 @@ def temporal_train_val_test_split(
     y_val = y[np.isin(indices, idx_val)] if n_val > 0 else np.array([], dtype=int)
     y_test = y[np.isin(indices, idx_test)]
 
+    # Validate minimum cases and controls in each split
+    def _validate_split(split_name: str, y_split: np.ndarray) -> None:
+        """Validate that split has minimum 2 cases and 2 controls."""
+        if len(y_split) == 0:
+            return  # Empty split is OK (e.g., no validation set)
+
+        n_cases = int(y_split.sum())
+        n_controls = int(len(y_split) - n_cases)
+
+        if n_cases < 2:
+            raise ValueError(
+                f"{split_name} split has insufficient cases: {n_cases} < 2. "
+                "This will cause downstream metric failures. "
+                "Try reducing val_size/test_size or using a larger dataset."
+            )
+        if n_controls < 2:
+            raise ValueError(
+                f"{split_name} split has insufficient controls: {n_controls} < 2. "
+                "This will cause downstream metric failures. "
+                "Try reducing val_size/test_size or using a larger dataset."
+            )
+
+    _validate_split("TRAIN", y_train)
+    _validate_split("VAL", y_val)
+    _validate_split("TEST", y_test)
+
     return idx_train, idx_val, idx_test, y_train, y_val, y_test
 
 
@@ -529,7 +581,7 @@ def summarize_split(
     y_train: np.ndarray,
     y_val: np.ndarray,
     y_test: np.ndarray,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute summary statistics for a split.
 

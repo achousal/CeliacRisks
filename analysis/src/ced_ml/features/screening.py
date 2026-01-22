@@ -5,8 +5,6 @@ Pure functions for Mann-Whitney U and F-statistic screening to identify
 discriminative proteins before model training.
 """
 
-from typing import List, Tuple
-
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -16,10 +14,10 @@ from sklearn.feature_selection import f_classif
 def mann_whitney_screen(
     X_train: pd.DataFrame,
     y_train: np.ndarray,
-    protein_cols: List[str],
+    protein_cols: list[str],
     top_n: int,
     min_n_per_group: int = 10,
-) -> Tuple[List[str], pd.DataFrame]:
+) -> tuple[list[str], pd.DataFrame]:
     """
     Screen proteins using Mann-Whitney U test.
 
@@ -120,9 +118,9 @@ def mann_whitney_screen(
 def f_statistic_screen(
     X_train: pd.DataFrame,
     y_train: np.ndarray,
-    protein_cols: List[str],
+    protein_cols: list[str],
     top_n: int,
-) -> Tuple[List[str], pd.DataFrame]:
+) -> tuple[list[str], pd.DataFrame]:
     """
     Screen proteins using ANOVA F-statistic.
 
@@ -203,11 +201,11 @@ def f_statistic_screen(
 def screen_proteins(
     X_train: pd.DataFrame,
     y_train: np.ndarray,
-    protein_cols: List[str],
+    protein_cols: list[str],
     method: str = "mannwhitney",
     top_n: int = 1000,
     min_n_per_group: int = 10,
-) -> Tuple[List[str], pd.DataFrame]:
+) -> tuple[list[str], pd.DataFrame]:
     """
     Screen proteins using univariate statistical tests.
 
@@ -265,11 +263,11 @@ def screen_proteins(
 
 def variance_missingness_prefilter(
     X_train: pd.DataFrame,
-    protein_cols: List[str],
+    protein_cols: list[str],
     min_nonmissing: float = 0.95,
     min_var: float = 1e-6,
     strict: bool = True,
-) -> Tuple[List[str], pd.DataFrame]:
+) -> tuple[list[str], pd.DataFrame]:
     """
     Pre-filter proteins by missingness and variance.
 

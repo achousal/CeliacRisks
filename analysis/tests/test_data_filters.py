@@ -271,6 +271,7 @@ class TestApplyRowFilters:
             "n_in",
             "drop_uncertain_controls",
             "dropna_meta_num",
+            "meta_num_cols_used",  # Added to support column-resolution metadata persistence
             "n_removed_uncertain_controls",
             "n_removed_dropna_meta_num",
             "n_out",

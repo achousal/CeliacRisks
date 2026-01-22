@@ -20,7 +20,16 @@ def make_mock_config(**overrides):
     """
     defaults = {
         "cv": SimpleNamespace(
-            folds=3, repeats=2, inner_folds=2, n_iter=5, scoring="neg_brier_score"
+            folds=3,
+            repeats=2,
+            inner_folds=2,
+            n_iter=5,
+            scoring="neg_brier_score",
+            scoring_target_fpr=0.05,
+            random_state=0,
+            tune_n_jobs="auto",
+            error_score="nan",
+            grid_randomize=False,
         ),
         "features": SimpleNamespace(
             feature_select="none",
@@ -39,6 +48,9 @@ def make_mock_config(**overrides):
             C_min=0.01,
             C_max=100.0,
             C_points=5,
+            l1_ratio=[0.1, 0.5, 0.9],
+            solver="saga",
+            max_iter=1000,
             class_weight_options="None,balanced",
         ),
         "svm": SimpleNamespace(

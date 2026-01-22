@@ -120,22 +120,19 @@ class TestROCCurvePlotting:
 
     def test_roc_with_threshold_markers(self, basic_predictions, tmp_path):
         """Test ROC curve with Youden and alpha threshold markers."""
+        from ced_ml.metrics.thresholds import compute_threshold_bundle
+
         y_true, y_pred = basic_predictions
         out_path = tmp_path / "roc_thresholds.png"
 
-        metrics_at_thresholds = {
-            "youden": {"fpr": 0.20, "tpr": 0.75},
-            "alpha": {"fpr": 0.05, "tpr": 0.60},
-        }
+        bundle = compute_threshold_bundle(y_true, y_pred, target_spec=0.95)
 
         plot_roc_curve(
             y_true=y_true,
             y_pred=y_pred,
             out_path=out_path,
             title="ROC with Thresholds",
-            youden_threshold=0.35,
-            alpha_threshold=0.70,
-            metrics_at_thresholds=metrics_at_thresholds,
+            threshold_bundle=bundle,
         )
 
         assert out_path.exists()
@@ -197,6 +194,45 @@ class TestROCCurvePlotting:
             y_pred=y_pred,
             out_path=out_path,
             title="Random ROC",
+        )
+
+        assert out_path.exists()
+
+    def test_roc_with_overlapping_thresholds(self, basic_predictions, tmp_path):
+        """Test ROC curve handles overlapping threshold markers correctly."""
+        from ced_ml.metrics.thresholds import compute_threshold_bundle
+
+        y_true, y_pred = basic_predictions
+        out_path = tmp_path / "roc_overlap.png"
+
+        # Create a bundle where thresholds are very close (will trigger overlap detection)
+        bundle = compute_threshold_bundle(y_true, y_pred, target_spec=0.90)
+
+        plot_roc_curve(
+            y_true=y_true,
+            y_pred=y_pred,
+            out_path=out_path,
+            title="ROC with Overlapping Thresholds",
+            threshold_bundle=bundle,
+        )
+
+        assert out_path.exists()
+
+    def test_roc_with_threshold_bundle(self, basic_predictions, tmp_path):
+        """Test ROC curve with ThresholdBundle interface."""
+        from ced_ml.metrics.thresholds import compute_threshold_bundle
+
+        y_true, y_pred = basic_predictions
+        out_path = tmp_path / "roc_bundle.png"
+
+        bundle = compute_threshold_bundle(y_true, y_pred, target_spec=0.95)
+
+        plot_roc_curve(
+            y_true=y_true,
+            y_pred=y_pred,
+            out_path=out_path,
+            title="ROC with Threshold Bundle",
+            threshold_bundle=bundle,
         )
 
         assert out_path.exists()

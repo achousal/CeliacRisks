@@ -5,7 +5,7 @@ This module serves as the single source of truth for all default parameter value
 ensuring behavioral equivalence with the legacy codebase.
 """
 
-from typing import Any, Dict
+from typing import Any
 
 # Valid scenario names
 VALID_SCENARIOS = [
@@ -29,7 +29,7 @@ VALID_MODELS = [
 ]
 
 # Default split configuration (matches save_splits.py)
-DEFAULT_SPLITS_CONFIG: Dict[str, Any] = {
+DEFAULT_SPLITS_CONFIG: dict[str, Any] = {
     "mode": "development",
     "scenarios": ["IncidentOnly"],
     "n_splits": 1,
@@ -49,7 +49,7 @@ DEFAULT_SPLITS_CONFIG: Dict[str, Any] = {
 }
 
 # Default CV configuration (matches celiacML_faith.py)
-DEFAULT_CV_CONFIG: Dict[str, Any] = {
+DEFAULT_CV_CONFIG: dict[str, Any] = {
     "folds": 5,
     "repeats": 3,
     "inner_folds": 5,
@@ -62,7 +62,7 @@ DEFAULT_CV_CONFIG: Dict[str, Any] = {
 }
 
 # Default feature selection configuration
-DEFAULT_FEATURE_CONFIG: Dict[str, Any] = {
+DEFAULT_FEATURE_CONFIG: dict[str, Any] = {
     "feature_select": "none",
     "screen_method": "mannwhitney",
     "screen_top_n": 0,
@@ -80,7 +80,7 @@ DEFAULT_FEATURE_CONFIG: Dict[str, Any] = {
 }
 
 # Default panel building configuration
-DEFAULT_PANEL_CONFIG: Dict[str, Any] = {
+DEFAULT_PANEL_CONFIG: dict[str, Any] = {
     "build_panels": False,
     "panel_sizes": [10, 25, 50, 100],
     "panel_corr_thresh": 0.80,
@@ -91,7 +91,7 @@ DEFAULT_PANEL_CONFIG: Dict[str, Any] = {
 }
 
 # Default threshold configuration
-DEFAULT_THRESHOLD_CONFIG: Dict[str, Any] = {
+DEFAULT_THRESHOLD_CONFIG: dict[str, Any] = {
     "objective": "max_f1",
     "fbeta": 1.0,
     "fixed_spec": 0.90,
@@ -103,7 +103,7 @@ DEFAULT_THRESHOLD_CONFIG: Dict[str, Any] = {
 }
 
 # Default evaluation configuration
-DEFAULT_EVALUATION_CONFIG: Dict[str, Any] = {
+DEFAULT_EVALUATION_CONFIG: dict[str, Any] = {
     "test_ci_bootstrap": True,
     "n_boot": 500,
     "boot_random_state": 0,
@@ -116,7 +116,7 @@ DEFAULT_EVALUATION_CONFIG: Dict[str, Any] = {
 }
 
 # Default DCA configuration
-DEFAULT_DCA_CONFIG: Dict[str, Any] = {
+DEFAULT_DCA_CONFIG: dict[str, Any] = {
     "compute_dca": False,
     "dca_threshold_min": 0.0005,
     "dca_threshold_max": 1.0,
@@ -125,7 +125,7 @@ DEFAULT_DCA_CONFIG: Dict[str, Any] = {
 }
 
 # Default output configuration
-DEFAULT_OUTPUT_CONFIG: Dict[str, Any] = {
+DEFAULT_OUTPUT_CONFIG: dict[str, Any] = {
     "save_train_preds": False,
     "save_val_preds": True,
     "save_test_preds": True,
@@ -138,7 +138,7 @@ DEFAULT_OUTPUT_CONFIG: Dict[str, Any] = {
 }
 
 # Default strictness configuration
-DEFAULT_STRICTNESS_CONFIG: Dict[str, Any] = {
+DEFAULT_STRICTNESS_CONFIG: dict[str, Any] = {
     "level": "warn",
     "check_split_overlap": True,
     "check_prevalent_in_eval": True,
@@ -148,7 +148,7 @@ DEFAULT_STRICTNESS_CONFIG: Dict[str, Any] = {
 }
 
 # Model-specific hyperparameter defaults (matching celiacML_faith.py get_param_distributions)
-DEFAULT_LR_CONFIG: Dict[str, Any] = {
+DEFAULT_LR_CONFIG: dict[str, Any] = {
     "penalty": ["l1", "l2", "elasticnet"],
     "C_min": 0.001,
     "C_max": 10.0,
@@ -160,7 +160,7 @@ DEFAULT_LR_CONFIG: Dict[str, Any] = {
     "random_state": 0,
 }
 
-DEFAULT_SVM_CONFIG: Dict[str, Any] = {
+DEFAULT_SVM_CONFIG: dict[str, Any] = {
     "C_min": 0.01,
     "C_max": 10.0,
     "C_points": 4,
@@ -172,7 +172,7 @@ DEFAULT_SVM_CONFIG: Dict[str, Any] = {
     "random_state": 0,
 }
 
-DEFAULT_RF_CONFIG: Dict[str, Any] = {
+DEFAULT_RF_CONFIG: dict[str, Any] = {
     "n_estimators": [100, 300, 500],
     "max_depth": [None, 10, 20, 30],
     "min_samples_split": [2, 5, 10],
@@ -183,7 +183,7 @@ DEFAULT_RF_CONFIG: Dict[str, Any] = {
     "random_state": 0,
 }
 
-DEFAULT_XGBOOST_CONFIG: Dict[str, Any] = {
+DEFAULT_XGBOOST_CONFIG: dict[str, Any] = {
     "n_estimators": [100, 300, 500],
     "max_depth": [3, 5, 7, 10],
     "learning_rate": [0.01, 0.05, 0.1, 0.3],
@@ -199,14 +199,14 @@ DEFAULT_XGBOOST_CONFIG: Dict[str, Any] = {
     "random_state": 0,
 }
 
-DEFAULT_CALIBRATION_CONFIG: Dict[str, Any] = {
+DEFAULT_CALIBRATION_CONFIG: dict[str, Any] = {
     "method": "sigmoid",
     "cv": 5,
     "ensemble": False,
 }
 
 # Default Optuna configuration
-DEFAULT_OPTUNA_CONFIG: Dict[str, Any] = {
+DEFAULT_OPTUNA_CONFIG: dict[str, Any] = {
     "enabled": False,
     "n_trials": 100,
     "timeout": None,
@@ -225,7 +225,7 @@ DEFAULT_OPTUNA_CONFIG: Dict[str, Any] = {
 }
 
 # Default aggregate configuration
-DEFAULT_AGGREGATE_CONFIG: Dict[str, Any] = {
+DEFAULT_AGGREGATE_CONFIG: dict[str, Any] = {
     "results_dir": "results",
     "outdir": "results_aggregated",
     "split_pattern": "split_seed*",
@@ -242,7 +242,7 @@ DEFAULT_AGGREGATE_CONFIG: Dict[str, Any] = {
 }
 
 # Default holdout evaluation configuration
-DEFAULT_HOLDOUT_CONFIG: Dict[str, Any] = {
+DEFAULT_HOLDOUT_CONFIG: dict[str, Any] = {
     "compute_dca": True,
     "save_preds": True,
     "toprisk_fracs": [0.01, 0.05, 0.10],

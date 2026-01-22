@@ -9,7 +9,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -22,6 +22,7 @@ from ced_ml.metrics.discrimination import (
 )
 from ced_ml.metrics.thresholds import (
     binary_metrics_at_threshold,
+    compute_multi_target_specificity_metrics,
     compute_threshold_bundle,
     threshold_for_specificity,
     threshold_youden,
@@ -31,10 +32,10 @@ from ced_ml.utils.metadata import build_aggregated_metadata
 
 
 def run_aggregate_splits_with_config(
-    config_file: Optional[str] = None,
-    overrides: Optional[List[str]] = None,
+    config_file: str | None = None,
+    overrides: list[str] | None = None,
     **kwargs,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Wrapper for run_aggregate_splits that loads config from YAML.
 
@@ -62,6 +63,7 @@ def run_aggregate_splits_with_config(
         "plot_risk_distribution": config.plot_risk_distribution,
         "plot_dca": config.plot_dca,
         "plot_oof_combined": config.plot_oof_combined,
+        "plot_learning_curve": config.plot_learning_curve,
     }
 
     params.update(kwargs)
@@ -69,7 +71,7 @@ def run_aggregate_splits_with_config(
     return run_aggregate_splits(**params)
 
 
-def discover_split_dirs(results_dir: Path) -> List[Path]:
+def discover_split_dirs(results_dir: Path) -> list[Path]:
     """
     Discover all split_seedX subdirectories in results_dir.
 
@@ -87,7 +89,7 @@ def discover_split_dirs(results_dir: Path) -> List[Path]:
 
 
 def collect_metrics(
-    split_dirs: List[Path],
+    split_dirs: list[Path],
     metrics_file: str = "core/test_metrics.csv",
 ) -> pd.DataFrame:
     """
@@ -121,8 +123,8 @@ def collect_metrics(
 
 def compute_summary_stats(
     metrics_df: pd.DataFrame,
-    group_cols: Optional[List[str]] = None,
-    metric_cols: Optional[List[str]] = None,
+    group_cols: list[str] | None = None,
+    metric_cols: list[str] | None = None,
 ) -> pd.DataFrame:
     """
     Compute summary statistics (mean, std, min, max, count) across splits.
@@ -174,7 +176,7 @@ def compute_summary_stats(
         if not isinstance(group_vals, tuple):
             group_vals = (group_vals,)
 
-        row = dict(zip(group_cols, group_vals))
+        row = dict(zip(group_cols, group_vals, strict=False))
         row["n_splits"] = len(group_df)
 
         for col in metric_cols:
@@ -191,9 +193,9 @@ def compute_summary_stats(
 
 
 def collect_predictions(
-    split_dirs: List[Path],
+    split_dirs: list[Path],
     pred_type: str,
-    logger: Optional[logging.Logger] = None,
+    logger: logging.Logger | None = None,
 ) -> pd.DataFrame:
     """
     Collect predictions from all splits and add split_seed and model columns.
@@ -266,7 +268,8 @@ def compute_pooled_metrics(
     pooled_df: pd.DataFrame,
     y_col: str = "y_true",
     pred_col: str = "y_prob",
-) -> Dict[str, float]:
+    spec_targets: list[float] | None = None,
+) -> dict[str, float]:
     """
     Compute metrics on pooled predictions.
 
@@ -307,6 +310,13 @@ def compute_pooled_metrics(
     metrics["n_positive"] = int(y_true.sum())
     metrics["prevalence"] = float(y_true.mean())
 
+    # Multi-target specificity metrics
+    if spec_targets:
+        multi_target_metrics = compute_multi_target_specificity_metrics(
+            y_true=y_true, y_pred=y_pred, spec_targets=spec_targets
+        )
+        metrics.update(multi_target_metrics)
+
     return metrics
 
 
@@ -314,7 +324,8 @@ def compute_pooled_metrics_by_model(
     pooled_df: pd.DataFrame,
     y_col: str = "y_true",
     pred_col: str = "y_prob",
-) -> Dict[str, Dict[str, float]]:
+    spec_targets: list[float] | None = None,
+) -> dict[str, dict[str, float]]:
     """
     Compute metrics on pooled predictions, grouped by model.
 
@@ -331,12 +342,12 @@ def compute_pooled_metrics_by_model(
 
     if "model" not in pooled_df.columns:
         # Fall back to single-model behavior
-        metrics = compute_pooled_metrics(pooled_df, y_col, pred_col)
+        metrics = compute_pooled_metrics(pooled_df, y_col, pred_col, spec_targets)
         return {"unknown": metrics} if metrics else {}
 
     results = {}
     for model_name, model_df in pooled_df.groupby("model"):
-        metrics = compute_pooled_metrics(model_df, y_col, pred_col)
+        metrics = compute_pooled_metrics(model_df, y_col, pred_col, spec_targets)
         if metrics:
             metrics["model"] = model_name
             results[model_name] = metrics
@@ -349,7 +360,7 @@ def compute_pooled_threshold_metrics(
     y_col: str = "y_true",
     pred_col: str = "y_prob",
     target_spec: float = 0.95,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute threshold-based metrics from pooled predictions.
 
@@ -397,7 +408,7 @@ def compute_pooled_threshold_metrics(
 
     fpr, tpr, _ = roc_curve(y_true, y_pred)
 
-    def get_fpr_tpr_at_threshold(threshold: float) -> Tuple[float, float]:
+    def get_fpr_tpr_at_threshold(threshold: float) -> tuple[float, float]:
         y_hat = (y_pred >= threshold).astype(int)
         tp = np.sum((y_hat == 1) & (y_true == 1))
         fp = np.sum((y_hat == 1) & (y_true == 0))
@@ -440,9 +451,9 @@ def compute_pooled_threshold_metrics(
 
 
 def save_threshold_data(
-    threshold_info: Dict[str, Dict[str, Any]],
+    threshold_info: dict[str, dict[str, Any]],
     out_dir: Path,
-    logger: Optional[logging.Logger] = None,
+    logger: logging.Logger | None = None,
 ) -> None:
     """
     Save threshold information to CSV files (one per model).
@@ -607,10 +618,10 @@ def save_threshold_data(
 
 
 def aggregate_feature_stability(
-    split_dirs: List[Path],
+    split_dirs: list[Path],
     stability_threshold: float = 0.75,
-    logger: Optional[logging.Logger] = None,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    logger: logging.Logger | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Aggregate feature selection across splits.
 
@@ -691,8 +702,8 @@ def aggregate_feature_stability(
 
 
 def collect_feature_reports(
-    split_dirs: List[Path],
-    logger: Optional[logging.Logger] = None,
+    split_dirs: list[Path],
+    logger: logging.Logger | None = None,
 ) -> pd.DataFrame:
     """
     Collect feature reports from all split directories.
@@ -738,7 +749,7 @@ def collect_feature_reports(
 
 def aggregate_feature_reports(
     feature_reports_df: pd.DataFrame,
-    logger: Optional[logging.Logger] = None,
+    logger: logging.Logger | None = None,
 ) -> pd.DataFrame:
     """
     Aggregate feature reports across splits.
@@ -791,11 +802,11 @@ def aggregate_feature_reports(
 
 
 def build_consensus_panels(
-    split_dirs: List[Path],
-    panel_sizes: Optional[List[int]] = None,
+    split_dirs: list[Path],
+    panel_sizes: list[int] | None = None,
     threshold: float = 0.75,
-    logger: Optional[logging.Logger] = None,
-) -> Dict[int, Dict[str, Any]]:
+    logger: logging.Logger | None = None,
+) -> dict[int, dict[str, Any]]:
     """
     Build consensus panels from per-split panels.
 
@@ -838,7 +849,7 @@ def build_consensus_panels(
         if not panel_proteins_per_split:
             continue
 
-        protein_counts: Dict[str, int] = {}
+        protein_counts: dict[str, int] = {}
         for protein_set in panel_proteins_per_split:
             for protein in protein_set:
                 protein_counts[protein] = protein_counts.get(protein, 0) + 1
@@ -870,16 +881,17 @@ def generate_aggregated_plots(
     pooled_val_df: pd.DataFrame,
     pooled_train_oof_df: pd.DataFrame,
     out_dir: Path,
-    threshold_info: Dict[str, Any],
-    plot_formats: List[str],
-    meta_lines: Optional[List[str]] = None,
-    logger: Optional[logging.Logger] = None,
+    threshold_info: dict[str, Any],
+    plot_formats: list[str],
+    meta_lines: list[str] | None = None,
+    logger: logging.Logger | None = None,
     plot_roc: bool = True,
     plot_pr: bool = True,
     plot_calibration: bool = True,
     plot_risk_distribution: bool = True,
     plot_dca: bool = True,
     plot_oof_combined: bool = True,
+    target_specificity: float = 0.95,
 ) -> None:
     """
     Generate all aggregated diagnostic plots, separated by model.
@@ -914,9 +926,7 @@ def generate_aggregated_plots(
 
     def get_arrays(
         df: pd.DataFrame,
-    ) -> Tuple[
-        Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]
-    ]:
+    ) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None, np.ndarray | None]:
         if df.empty:
             return None, None, None, None
 
@@ -965,11 +975,11 @@ def generate_aggregated_plots(
         if logger:
             logger.info(f"Generating plots for model: {model_name}")
 
-        # Create model-specific output directories
-        model_plots_dir = out_dir / "diagnostics" / "plots" / model_name
+        # Create output directories (model name not needed since parent folder already specifies it)
+        model_plots_dir = out_dir / "diagnostics" / "plots"
         model_plots_dir.mkdir(parents=True, exist_ok=True)
 
-        model_preds_plots_dir = out_dir / "preds" / "plots" / model_name
+        model_preds_plots_dir = out_dir / "preds" / "plots"
         model_preds_plots_dir.mkdir(parents=True, exist_ok=True)
 
         # Filter data for this model
@@ -1032,7 +1042,7 @@ def generate_aggregated_plots(
             local_bundle = compute_threshold_bundle(
                 y_true,
                 y_pred,
-                target_spec=0.95,
+                target_spec=target_specificity,
                 dca_threshold=dca_thr,
             )
 
@@ -1102,7 +1112,7 @@ def generate_aggregated_plots(
                 oof_bundle = compute_threshold_bundle(
                     y_true_train,
                     y_pred_train,
-                    target_spec=0.95,
+                    target_spec=target_specificity,
                     dca_threshold=dca_thr,
                 )
 
@@ -1175,26 +1185,12 @@ def generate_aggregated_plots(
                                 )
 
                 # Generate controls-only risk distribution if available
-                controls_mask = y_true_train == 0
-                if controls_mask.sum() > 0:
-                    controls_pred = y_pred_train[controls_mask]
-                    if plot_risk_distribution:
-                        for fmt in plot_formats:
-                            plot_risk_distribution(
-                                y_true=None,
-                                scores=controls_pred,
-                                out_path=model_preds_plots_dir
-                                / f"train_oof_controls_risk_dist.{fmt}",
-                                title=f"Aggregated Train OOF Controls Risk Distribution - {model_name}",
-                                threshold_bundle=oof_bundle,
-                                meta_lines=model_meta_lines,
-                            )
 
 
 def run_aggregate_splits(
     results_dir: str,
     stability_threshold: float = 0.75,
-    plot_formats: Optional[List[str]] = None,
+    plot_formats: list[str] | None = None,
     target_specificity: float = 0.95,
     n_boot: int = 500,
     verbose: int = 0,
@@ -1205,7 +1201,9 @@ def run_aggregate_splits(
     plot_risk_distribution: bool = True,
     plot_dca: bool = True,
     plot_oof_combined: bool = True,
-) -> Dict[str, Any]:
+    plot_learning_curve: bool = True,
+    control_spec_targets: list[float] | None = None,
+) -> dict[str, Any]:
     """
     Aggregate results across multiple split seeds.
 
@@ -1223,12 +1221,16 @@ def run_aggregate_splits(
         plot_risk_distribution: Whether to generate risk distribution plots (default True)
         plot_dca: Whether to generate DCA plots (default True)
         plot_oof_combined: Whether to generate OOF combined plots (default True)
+        plot_learning_curve: Whether to generate learning curve plots (default True)
 
     Returns:
         Dictionary with aggregation results summary
     """
     if plot_formats is None:
         plot_formats = ["png"]
+
+    if control_spec_targets is None:
+        control_spec_targets = [0.90, 0.95, 0.99]
 
     log_level = 20 - (verbose * 10)
     logger = setup_logger("ced_ml.aggregate", level=log_level)
@@ -1328,9 +1330,9 @@ def run_aggregate_splits(
 
     log_section(logger, "Computing Pooled Metrics")
 
-    pooled_test_metrics: Dict[str, Dict[str, float]] = {}
-    pooled_val_metrics: Dict[str, Dict[str, float]] = {}
-    threshold_info: Dict[str, Any] = {}
+    pooled_test_metrics: dict[str, dict[str, float]] = {}
+    pooled_val_metrics: dict[str, dict[str, float]] = {}
+    threshold_info: dict[str, Any] = {}
 
     # Detect models present in predictions
     test_models = (
@@ -1352,7 +1354,9 @@ def run_aggregate_splits(
 
     if not pooled_test_df.empty:
         # Compute per-model pooled metrics
-        pooled_test_metrics = compute_pooled_metrics_by_model(pooled_test_df)
+        pooled_test_metrics = compute_pooled_metrics_by_model(
+            pooled_test_df, spec_targets=control_spec_targets
+        )
 
         if pooled_test_metrics:
             # Save per-model metrics
@@ -1389,7 +1393,9 @@ def run_aggregate_splits(
             save_threshold_data(threshold_info, agg_dir, logger)
 
     if not pooled_val_df.empty:
-        pooled_val_metrics = compute_pooled_metrics_by_model(pooled_val_df)
+        pooled_val_metrics = compute_pooled_metrics_by_model(
+            pooled_val_df, spec_targets=control_spec_targets
+        )
         if pooled_val_metrics:
             metrics_rows = list(pooled_val_metrics.values())
             pd.DataFrame(metrics_rows).to_csv(core_dir / "pooled_val_metrics.csv", index=False)
@@ -1535,6 +1541,7 @@ def run_aggregate_splits(
             plot_risk_distribution=plot_risk_distribution,
             plot_dca=plot_dca,
             plot_oof_combined=plot_oof_combined,
+            target_specificity=target_specificity,
         )
 
     log_section(logger, "Aggregating Optuna Trials")
@@ -1608,7 +1615,7 @@ def run_aggregate_splits(
                 y_true, y_pred, n_bins=calib_bins, strategy="uniform"
             )
 
-            for bin_center, obs_freq in zip(prob_pred, prob_true):
+            for bin_center, obs_freq in zip(prob_pred, prob_true, strict=False):
                 calib_rows.append(
                     {
                         "split": split_name,
@@ -1726,13 +1733,17 @@ def run_aggregate_splits(
 
     # --- Learning curve aggregation ---
     try:
-        diag_learning_dir = agg_dir / "diagnostics" / "learning_curves"
+        # CSVs go to diagnostics/learning_curve/, plots go to diagnostics/plots/
+        diag_learning_dir = agg_dir / "diagnostics" / "learning_curve"
         diag_learning_dir.mkdir(parents=True, exist_ok=True)
+        diag_plots_dir = agg_dir / "diagnostics" / "plots"
+        diag_plots_dir.mkdir(parents=True, exist_ok=True)
 
         all_learning_curves = []
         for split_dir in split_dirs:
             seed = int(split_dir.name.replace("split_seed", ""))
-            lc_path = split_dir / "diagnostics" / "learning_curves"
+            # Individual splits store CSVs in diagnostics/learning_curve/ (singular)
+            lc_path = split_dir / "diagnostics" / "learning_curve"
 
             if not lc_path.exists():
                 continue
@@ -1741,6 +1752,7 @@ def run_aggregate_splits(
                 try:
                     df = pd.read_csv(csv_file)
                     df["split_seed"] = seed
+                    df["run_dir"] = split_dir.name
                     all_learning_curves.append(df)
                 except Exception as e:
                     if logger:
@@ -1752,32 +1764,42 @@ def run_aggregate_splits(
             combined_lc.to_csv(lc_csv_path, index=False)
             logger.info(f"Learning curves aggregated: {lc_csv_path}")
 
-            # Aggregate learning curve plots
-            try:
-                from ced_ml.plotting.learning_curve import (
-                    aggregate_learning_curve_runs,
-                    plot_learning_curve_summary,
-                )
+            # Generate learning curve summary plot
+            if save_plots and plot_learning_curve:
+                try:
+                    from ced_ml.plotting.learning_curve import (
+                        aggregate_learning_curve_runs,
+                        plot_learning_curve_summary,
+                    )
 
-                if "train_size" in combined_lc.columns:
-                    agg_lc = aggregate_learning_curve_runs(combined_lc)
-                    for fmt in plot_formats:
-                        plot_learning_curve_summary(
-                            agg_lc,
-                            out_plot=diag_learning_dir / f"learning_curve.{fmt}",
-                            meta_lines=meta_lines,
-                        )
-                    logger.info("Learning curve summary plot saved")
-            except Exception as e:
-                if logger:
-                    logger.debug(f"Failed to generate learning curve plot: {e}")
+                    if "train_size" in combined_lc.columns:
+                        # aggregate_learning_curve_runs expects list[pd.DataFrame]
+                        agg_lc = aggregate_learning_curve_runs(all_learning_curves)
+                        if not agg_lc.empty:
+                            # Save aggregated summary CSV to learning_curve dir
+                            agg_lc_path = diag_learning_dir / "learning_curve_summary.csv"
+                            agg_lc.to_csv(agg_lc_path, index=False)
+                            logger.info(f"Learning curve summary: {agg_lc_path}")
+
+                            # Save plots to diagnostics/plots/
+                            for fmt in plot_formats:
+                                plot_learning_curve_summary(
+                                    df=agg_lc,
+                                    out_path=diag_plots_dir / f"learning_curve.{fmt}",
+                                    title="Aggregated Learning Curve",
+                                    meta_lines=meta_lines,
+                                )
+                            logger.info("Learning curve summary plot saved")
+                except Exception as e:
+                    if logger:
+                        logger.debug(f"Failed to generate learning curve plot: {e}")
     except Exception as e:
         if logger:
             logger.warning(f"Failed to aggregate learning curves: {e}")
 
     log_section(logger, "Saving Aggregation Metadata")
 
-    agg_metadata: Dict[str, Any] = {
+    agg_metadata: dict[str, Any] = {
         "timestamp": datetime.now().isoformat(),
         "n_splits": n_splits,
         "split_seeds": split_seeds,

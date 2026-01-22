@@ -1,15 +1,13 @@
 """CLI implementation for holdout evaluation command."""
 
-from typing import List, Optional
-
 from ced_ml.config.loader import load_holdout_config
 from ced_ml.evaluation import evaluate_holdout
 from ced_ml.utils.logging import get_logger
 
 
 def run_eval_holdout_with_config(
-    config_file: Optional[str] = None,
-    overrides: Optional[List[str]] = None,
+    config_file: str | None = None,
+    overrides: list[str] | None = None,
     **kwargs,
 ):
     """

@@ -342,7 +342,7 @@ class TestStratifiedTrainValTestSplit:
     def setup_method(self):
         """Create sample data."""
         self.indices = np.arange(100)
-        self.y = np.array([0] * 90 + [1] * 10)  # 10% positive
+        self.y = np.array([0] * 80 + [1] * 20)  # 20% positive - ensures min 2 cases per split
         self.strata = pd.Series(["A"] * 50 + ["B"] * 50)
 
     def test_three_way_split_sizes(self):
@@ -401,7 +401,9 @@ class TestTemporalTrainValTestSplit:
     def setup_method(self):
         """Create sample data."""
         self.indices = np.arange(100)  # Already temporally ordered
-        self.y = np.array([0] * 90 + [1] * 10)
+        # Distribute 20 cases evenly across time to ensure each temporal split gets enough
+        # Pattern: 4 controls, 1 case repeated (ensures train/val/test all get cases)
+        self.y = np.array([0, 0, 0, 0, 1] * 20)
 
     def test_three_way_temporal_split(self):
         """Should split chronologically."""
@@ -425,16 +427,22 @@ class TestTemporalTrainValTestSplit:
 
     def test_clamping_prevents_empty_splits(self):
         """Should clamp values to prevent empty splits."""
-        # With 2 samples, val=0.5 + test=0.6 would normally exceed 100%
-        # But clamping ensures at least 1 train and 1 test
-        small_idx = np.array([0, 1])
-        small_y = np.array([0, 1])
+        # With 50 samples, val=0.35 + test=0.45 would normally exceed 100%
+        # But clamping should adjust to ensure reasonable splits
+        # Distribute cases evenly across time to ensure each split gets min 2 cases
+        small_idx = np.arange(50)
+        small_y = np.array([0, 0, 1, 1] * 12 + [0, 0])  # 24 cases distributed evenly
         idx_tr, idx_val, idx_te, y_tr, y_val, y_te = temporal_train_val_test_split(
-            small_idx, small_y, val_size=0.5, test_size=0.6
+            small_idx, small_y, val_size=0.35, test_size=0.45
         )
-        # Should clamp to ensure train >= 1 and test >= 1
+        # Should clamp to ensure all splits have at least some samples
         assert len(idx_tr) >= 1
         assert len(idx_te) >= 1
+        # Verify total = original
+        assert len(idx_tr) + len(idx_val) + len(idx_te) == 50
+        # Verify each split has min 2 cases (validation requirement)
+        assert y_tr.sum() >= 2
+        assert y_te.sum() >= 2
 
     def test_too_few_samples_raises(self):
         """Should raise if < 2 samples."""

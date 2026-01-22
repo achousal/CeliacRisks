@@ -17,7 +17,7 @@ References:
     - Fluss et al. (2005). Estimation of the Youden Index and its cutoff point.
 """
 
-from typing import Dict
+import warnings
 
 import numpy as np
 from sklearn.metrics import (
@@ -27,6 +27,32 @@ from sklearn.metrics import (
     roc_auc_score,
     roc_curve,
 )
+
+
+def _validate_binary_labels(y_true: np.ndarray, metric_name: str) -> bool:
+    """
+    Validate that y_true contains both positive and negative classes.
+
+    Args:
+        y_true: True binary labels (0/1)
+        metric_name: Name of metric for error/warning messages
+
+    Returns:
+        True if both classes present, False otherwise
+
+    Warns:
+        UserWarning if only one class is present
+    """
+    unique_classes = np.unique(y_true)
+    if len(unique_classes) < 2:
+        warnings.warn(
+            f"{metric_name} requires both classes (0 and 1) in y_true, "
+            f"but only found {unique_classes.tolist()}. Returning NaN.",
+            UserWarning,
+            stacklevel=3,
+        )
+        return False
+    return True
 
 
 def auroc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -41,13 +67,14 @@ def auroc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         y_pred: Predicted probabilities for positive class, shape (n_samples,)
 
     Returns:
-        AUROC score in [0.0, 1.0]
+        AUROC score in [0.0, 1.0], or NaN if only one class present
             - 1.0: Perfect discrimination
             - 0.5: No discrimination (random classifier)
             - <0.5: Worse than random (usually indicates label swap)
+            - NaN: Only one class present in y_true
 
-    Raises:
-        ValueError: If y_true contains only one class
+    Warns:
+        UserWarning if only one class is present
 
     Examples:
         >>> y_true = np.array([0, 0, 1, 1])
@@ -57,6 +84,10 @@ def auroc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """
     y_true = np.asarray(y_true).astype(int)
     y_pred = np.asarray(y_pred).astype(float)
+
+    if not _validate_binary_labels(y_true, "AUROC"):
+        return np.nan
+
     return float(roc_auc_score(y_true, y_pred))
 
 
@@ -73,12 +104,13 @@ def prauc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         y_pred: Predicted probabilities for positive class, shape (n_samples,)
 
     Returns:
-        PR-AUC score in [0.0, 1.0]
+        PR-AUC score in [0.0, 1.0], or NaN if only one class present
             - 1.0: Perfect precision and recall
             - Baseline: prevalence (random classifier)
+            - NaN: Only one class present in y_true
 
-    Raises:
-        ValueError: If y_true contains only one class
+    Warns:
+        UserWarning if only one class is present
 
     Examples:
         >>> y_true = np.array([0, 0, 1, 1])
@@ -88,6 +120,10 @@ def prauc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """
     y_true = np.asarray(y_true).astype(int)
     y_pred = np.asarray(y_pred).astype(float)
+
+    if not _validate_binary_labels(y_true, "PR-AUC"):
+        return np.nan
+
     return float(average_precision_score(y_true, y_pred))
 
 
@@ -104,12 +140,13 @@ def youden_j(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         y_pred: Predicted probabilities for positive class, shape (n_samples,)
 
     Returns:
-        Youden's J statistic in [0.0, 1.0]
+        Youden's J statistic in [0.0, 1.0], or NaN if only one class present
             - 1.0: Perfect separation (TPR=1, FPR=0)
             - 0.0: No discrimination beyond chance
+            - NaN: Only one class present in y_true
 
-    Raises:
-        ValueError: If y_true contains only one class
+    Warns:
+        UserWarning if only one class is present
 
     Notes:
         J = max(TPR - FPR) = max(Sensitivity + Specificity - 1)
@@ -122,6 +159,9 @@ def youden_j(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """
     y_true = np.asarray(y_true).astype(int)
     y_pred = np.asarray(y_pred).astype(float)
+
+    if not _validate_binary_labels(y_true, "Youden's J"):
+        return np.nan
 
     fpr, tpr, _ = roc_curve(y_true, y_pred)
     j_scores = tpr - fpr
@@ -194,7 +234,7 @@ def compute_discrimination_metrics(
     include_youden: bool = True,
     include_alpha: bool = True,
     alpha_target_specificity: float = 0.95,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Compute all discrimination metrics in one pass.
 
@@ -210,13 +250,13 @@ def compute_discrimination_metrics(
 
     Returns:
         Dictionary with metric names as keys and computed values:
-            - "AUROC": Area under ROC curve
-            - "PR_AUC": Precision-Recall area under curve
-            - "Youden": Youden's J statistic (if include_youden=True)
-            - "Alpha": Sensitivity at target specificity (if include_alpha=True)
+            - "AUROC": Area under ROC curve (NaN if only one class)
+            - "PR_AUC": Precision-Recall area under curve (NaN if only one class)
+            - "Youden": Youden's J statistic (if include_youden=True, NaN if only one class)
+            - "Alpha": Sensitivity at target specificity (if include_alpha=True, NaN if only one class)
 
-    Raises:
-        ValueError: If y_true contains only one class
+    Warns:
+        UserWarning if only one class is present
 
     Examples:
         >>> y_true = np.array([0, 0, 1, 1])
@@ -229,6 +269,19 @@ def compute_discrimination_metrics(
     """
     y_true = np.asarray(y_true).astype(int)
     y_pred = np.asarray(y_pred).astype(float)
+
+    # Check for single-class case
+    if not _validate_binary_labels(y_true, "compute_discrimination_metrics"):
+        # Return NaN for all metrics
+        metrics = {
+            "AUROC": np.nan,
+            "PR_AUC": np.nan,
+        }
+        if include_youden:
+            metrics["Youden"] = np.nan
+        if include_alpha:
+            metrics["Alpha"] = np.nan
+        return metrics
 
     # Core discrimination metrics
     metrics = {

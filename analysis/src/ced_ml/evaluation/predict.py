@@ -6,7 +6,7 @@ This module handles:
 - Prediction export to CSV
 """
 
-from typing import Any, Dict, Optional, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -16,7 +16,7 @@ from ..models.prevalence import PrevalenceAdjustedModel
 
 
 def generate_predictions(
-    model: Union[Pipeline, PrevalenceAdjustedModel],
+    model: Pipeline | PrevalenceAdjustedModel,
     X: pd.DataFrame,
     return_raw: bool = True,
 ) -> np.ndarray:
@@ -59,11 +59,11 @@ def generate_predictions(
 
 
 def generate_predictions_with_adjustment(
-    model: Union[Pipeline, PrevalenceAdjustedModel],
+    model: Pipeline | PrevalenceAdjustedModel,
     X: pd.DataFrame,
     train_prevalence: float,
     target_prevalence: float,
-) -> Dict[str, np.ndarray]:
+) -> dict[str, np.ndarray]:
     """Generate raw and prevalence-adjusted predictions.
 
     Parameters
@@ -116,11 +116,11 @@ def generate_predictions_with_adjustment(
 
 
 def export_predictions(
-    predictions: Dict[str, np.ndarray],
+    predictions: dict[str, np.ndarray],
     y_true: np.ndarray,
     out_path: str,
-    ids: Optional[np.ndarray] = None,
-    target_col: Optional[pd.Series] = None,
+    ids: np.ndarray | None = None,
+    target_col: pd.Series | None = None,
     active_key: str = "adjusted",
     percentile: bool = True,
 ) -> None:
@@ -190,7 +190,7 @@ def predict_on_validation(
     train_prevalence: float,
     target_prevalence: float,
     use_adjusted: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Generate predictions on validation set with prevalence adjustment.
 
     Parameters
@@ -255,7 +255,7 @@ def predict_on_test(
     train_prevalence: float,
     target_prevalence: float,
     use_adjusted: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Generate predictions on test set with prevalence adjustment.
 
     Identical to predict_on_validation but semantically distinct for test set.
@@ -309,12 +309,12 @@ def predict_on_test(
 
 
 def predict_on_holdout(
-    model: Union[Pipeline, PrevalenceAdjustedModel],
+    model: Pipeline | PrevalenceAdjustedModel,
     X_holdout: pd.DataFrame,
     y_holdout: np.ndarray,
-    train_prevalence: Optional[float] = None,
-    target_prevalence: Optional[float] = None,
-) -> Dict[str, Any]:
+    train_prevalence: float | None = None,
+    target_prevalence: float | None = None,
+) -> dict[str, Any]:
     """Generate predictions on holdout set.
 
     If model is PrevalenceAdjustedModel, uses embedded prevalence settings.

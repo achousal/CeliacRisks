@@ -407,3 +407,135 @@ class TestPlotRiskDistribution:
         plot_risk_distribution(y_true=None, scores=scores, out_path=out_path, title="String Path")
 
         assert Path(out_path).exists()
+
+
+class TestThresholdLineVisibility:
+    """Regression tests for threshold line visibility bug.
+
+    Bug: When data is clustered in a narrow range and thresholds are outside
+    that range, threshold lines were not visible because main plot auto-scaled
+    to data range while subplots used xlim=[0,1].
+
+    Fix: Set main plot xlim=[0,1] when category_col is provided to match subplots.
+    """
+
+    def test_threshold_visible_with_low_scores(self, tmp_path):
+        """Test that threshold lines are visible even when scores are clustered low.
+
+        Regression test for bug where:
+        - Test set scores clustered 0.0-0.3 (mostly low-risk controls)
+        - Spec95 threshold at 0.5 was off-screen
+        - Legend showed threshold but line was invisible
+        """
+        np.random.seed(42)
+        # Low-risk scores (skewed beta distribution)
+        y_true = np.array([0] * 95 + [1] * 5)
+        scores = np.random.beta(2, 10, 100)  # Mostly 0-0.3 range
+        category = np.array(["Controls"] * 95 + ["Incident"] * 5)
+
+        # Create threshold bundle with threshold likely > max(scores)
+        from ced_ml.metrics.thresholds import compute_threshold_bundle
+
+        bundle = compute_threshold_bundle(y_true, scores, target_spec=0.95)
+
+        out_path = tmp_path / "low_scores_threshold.png"
+        plot_risk_distribution(
+            y_true=y_true,
+            scores=scores,
+            out_path=out_path,
+            title="Low Scores with High Threshold",
+            category_col=category,
+            threshold_bundle=bundle,
+        )
+
+        assert out_path.exists()
+        # With fix, main plot should have xlim=[0,1] when category_col provided
+        # This ensures threshold line at bundle['spec_target_threshold'] is visible
+        # even if it's beyond the max score in the data
+
+    def test_threshold_visible_with_high_scores(self, tmp_path):
+        """Test threshold visibility when scores are clustered high."""
+        np.random.seed(43)
+        # High-risk scores (reversed beta)
+        y_true = np.array([0] * 5 + [1] * 95)
+        scores = np.random.beta(10, 2, 100)  # Mostly 0.7-1.0 range
+        category = np.array(["Controls"] * 5 + ["Incident"] * 95)
+
+        from ced_ml.metrics.thresholds import compute_threshold_bundle
+
+        bundle = compute_threshold_bundle(y_true, scores, target_spec=0.95)
+
+        out_path = tmp_path / "high_scores_threshold.png"
+        plot_risk_distribution(
+            y_true=y_true,
+            scores=scores,
+            out_path=out_path,
+            title="High Scores with Low Threshold",
+            category_col=category,
+            threshold_bundle=bundle,
+        )
+
+        assert out_path.exists()
+
+    def test_all_thresholds_visible_simultaneously(self, tmp_path):
+        """Test that all three threshold lines (spec95, youden, dca) are visible."""
+        np.random.seed(44)
+        y_true = np.array([0] * 90 + [1] * 10)
+        scores = np.random.beta(2, 5, 100)  # Clustered 0-0.4
+        category = np.array(["Controls"] * 90 + ["Incident"] * 10)
+
+        from ced_ml.metrics.dca import threshold_dca_zero_crossing
+        from ced_ml.metrics.thresholds import compute_threshold_bundle
+
+        dca_thr = threshold_dca_zero_crossing(y_true, scores)
+        bundle = compute_threshold_bundle(y_true, scores, target_spec=0.95, dca_threshold=dca_thr)
+
+        out_path = tmp_path / "all_thresholds.png"
+        plot_risk_distribution(
+            y_true=y_true,
+            scores=scores,
+            out_path=out_path,
+            title="All Thresholds Test",
+            category_col=category,
+            threshold_bundle=bundle,
+        )
+
+        assert out_path.exists()
+
+    def test_threshold_slightly_above_one(self, tmp_path):
+        """Test threshold slightly > 1.0 due to floating point arithmetic.
+
+        Regression test for floating point precision bug where threshold
+        computation could return values like 1.0000000001 (e.g., max(p) + 1e-12),
+        causing the line not to be drawn due to strict 0 <= threshold <= 1 check.
+
+        Fix: _normalize_threshold() clamps values within epsilon to [0, 1].
+        """
+        np.random.seed(45)
+        y_true = np.array([0] * 95 + [1] * 5)
+        scores = np.random.beta(2, 10, 100)
+        category = np.array(["Controls"] * 95 + ["Incident"] * 5)
+
+        # Simulate threshold computation returning value slightly > 1.0
+        bundle = {
+            "spec_target_threshold": 1.0000000001,  # Edge case from max(p) + eps
+            "youden_threshold": 0.5,
+            "target_spec": 0.95,
+            "spec_target": {"sensitivity": 0.8, "precision": 0.75, "fp": 10, "tp": 4, "fn": 1},
+        }
+
+        out_path = tmp_path / "threshold_above_one.png"
+        plot_risk_distribution(
+            y_true=y_true,
+            scores=scores,
+            out_path=out_path,
+            title="Threshold > 1.0 Edge Case",
+            category_col=category,
+            threshold_bundle=bundle,
+        )
+
+        assert out_path.exists()
+        # With normalization, threshold 1.0000000001 should be clamped to 1.0
+        # and the red line should be visible at x=1.0
+        # All three lines (red spec95, green youden, purple dca) should be visible
+        # even if some thresholds are beyond the natural data range

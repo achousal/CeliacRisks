@@ -5,7 +5,11 @@
 # Config-driven local pipeline orchestration
 # All settings in configs/pipeline_local.yaml
 #
+# IMPORTANT: This script must be run from the analysis/ directory.
+#            Relative paths in configs assume this working directory.
+#
 # Usage:
+#   cd analysis/                      # REQUIRED: Run from analysis/
 #   ./run_local.sh                    # Use pipeline_local.yaml
 #   PIPELINE_CONFIG=custom.yaml ./run_local.sh  # Custom config
 #   DRY_RUN=1 ./run_local.sh          # Override dry_run
@@ -70,15 +74,18 @@ MODELS_STR=$(get_yaml_list "${PIPELINE_CONFIG}" "models")
 N_BOOT=$(get_yaml "${PIPELINE_CONFIG}" "n_boot")
 OVERWRITE_SPLITS_CFG=$(get_yaml "${PIPELINE_CONFIG}" "overwrite_splits")
 DRY_RUN_CFG=$(get_yaml "${PIPELINE_CONFIG}" "dry_run")
+POSTPROCESS_ONLY_CFG=$(get_yaml "${PIPELINE_CONFIG}" "postprocess_only")
 
 # Environment variable overrides
 DRY_RUN="${DRY_RUN:-${DRY_RUN_CFG}}"
 OVERWRITE_SPLITS="${OVERWRITE_SPLITS:-${OVERWRITE_SPLITS_CFG}}"
+POSTPROCESS_ONLY="${POSTPROCESS_ONLY:-${POSTPROCESS_ONLY_CFG}}"
 RUN_MODELS="${RUN_MODELS:-${MODELS_STR}}"
 
 # Convert true/false to 1/0
 [[ "${DRY_RUN}" == "true" ]] && DRY_RUN=1 || DRY_RUN=0
 [[ "${OVERWRITE_SPLITS}" == "true" ]] && OVERWRITE_SPLITS=1 || OVERWRITE_SPLITS=0
+[[ "${POSTPROCESS_ONLY}" == "true" ]] && POSTPROCESS_ONLY=1 || POSTPROCESS_ONLY=0
 
 #==============================================================
 # ENVIRONMENT DETECTION
@@ -109,54 +116,62 @@ mkdir -p "${LOGS_DIR}" "${RESULTS_DIR}" "${SPLITS_DIR}"
 N_SPLITS=$(grep "^n_splits:" "${SPLITS_CONFIG}" | awk '{print $2}')
 SEED_START=$(grep "^seed_start:" "${SPLITS_CONFIG}" | awk '{print $2}')
 
+# Generate run ID (timestamp-based)
+RUN_ID=$(date +"%Y%m%d_%H%M%S")
+
 log "============================================"
 log "CeD-ML Pipeline (Config-Driven)"
 log "============================================"
 log "Pipeline config: ${PIPELINE_CONFIG}"
 log "Environment: ${ENV_TYPE}"
+log "Run ID: ${RUN_ID}"
 log "Input: ${INFILE}"
 log "Splits: ${SPLITS_DIR} (${N_SPLITS} splits, seeds ${SEED_START}-$((SEED_START + N_SPLITS - 1)))"
 log "Results: ${RESULTS_DIR}"
 log "Models: ${RUN_MODELS}"
 log "Bootstrap: ${N_BOOT}"
 log "Dry run: ${DRY_RUN}"
+log "Postprocess only: ${POSTPROCESS_ONLY}"
 log "============================================"
 
 #==============================================================
 # STEP 1: GENERATE SPLITS
 #==============================================================
-log "Step 1/3: Generate splits"
-
-SPLITS_EXIST=0
-if ls "${SPLITS_DIR}"/*_train_idx_seed0.csv 1>/dev/null 2>&1 && \
-   ls "${SPLITS_DIR}"/*_val_idx_seed0.csv 1>/dev/null 2>&1; then
-  SPLITS_EXIST=1
-fi
-
-if [[ ${SPLITS_EXIST} -eq 1 && ${OVERWRITE_SPLITS} -eq 0 ]]; then
-  log "Splits exist. Set overwrite_splits: true in config or OVERWRITE_SPLITS=1"
+if [[ ${POSTPROCESS_ONLY} -eq 1 ]]; then
+  log "POSTPROCESS_ONLY=1: Skipping split generation and training"
 else
-  if [[ ${DRY_RUN} -eq 1 ]]; then
-    log "[DRY RUN] Would run: ced save-splits"
-  else
-    log "Generating splits..."
-    OVERWRITE_FLAG=""
-    [[ ${OVERWRITE_SPLITS} -eq 1 ]] && OVERWRITE_FLAG="--overwrite"
+  log "Step 1/4: Generate splits"
 
-    ced save-splits \
-      --config "${SPLITS_CONFIG}" \
-      --infile "${INFILE}" \
-      --outdir "${SPLITS_DIR}" \
-      ${OVERWRITE_FLAG}
-
-    log "[OK] Splits generated"
+  SPLITS_EXIST=0
+  if ls "${SPLITS_DIR}"/train_idx_seed*.csv 1>/dev/null 2>&1 && \
+     ls "${SPLITS_DIR}"/val_idx_seed*.csv 1>/dev/null 2>&1; then
+    SPLITS_EXIST=1
   fi
-fi
+
+  if [[ ${SPLITS_EXIST} -eq 1 && ${OVERWRITE_SPLITS} -eq 0 ]]; then
+    log "Splits exist. Set overwrite_splits: true in config or OVERWRITE_SPLITS=1"
+  else
+    if [[ ${DRY_RUN} -eq 1 ]]; then
+      log "[DRY RUN] Would run: ced save-splits"
+    else
+      log "Generating splits..."
+      OVERWRITE_FLAG=""
+      [[ ${OVERWRITE_SPLITS} -eq 1 ]] && OVERWRITE_FLAG="--overwrite"
+
+      ced save-splits \
+        --config "${SPLITS_CONFIG}" \
+        --infile "${INFILE}" \
+        --outdir "${SPLITS_DIR}" \
+        ${OVERWRITE_FLAG}
+
+      log "[OK] Splits generated"
+    fi
+  fi
 
 #==============================================================
 # STEP 2: TRAIN MODELS (SEQUENTIAL, PER-SPLIT)
 #==============================================================
-log "Step 2/3: Train models (${N_SPLITS} splits)"
+log "Step 2/4: Train models (${N_SPLITS} splits)"
 
   IFS=',' read -r -a MODEL_ARRAY <<< "${RUN_MODELS}"
   COMPLETED_RUNS=()
@@ -185,8 +200,9 @@ log "Step 2/3: Train models (${N_SPLITS} splits)"
           --model "${MODEL}" \
           --infile "${INFILE}" \
           --split-dir "${SPLITS_DIR}" \
-          --outdir "${RESULTS_DIR}" \
+          --outdir "${RESULTS_DIR}/${MODEL}" \
           --split-seed "${SEED}" \
+          --override run_id="${RUN_ID}" \
           2>&1 | tee "${LOG_FILE}"; then
 
           ELAPSED=$(($(date +%s) - START_TIME))
@@ -200,6 +216,7 @@ log "Step 2/3: Train models (${N_SPLITS} splits)"
   done
 
   log "Completed ${#COMPLETED_RUNS[@]} run(s)"
+fi
 
 #==============================================================
 # STEP 3: SAVE RUN METADATA
@@ -214,21 +231,19 @@ if [[ ${DRY_RUN} -ne 1 ]]; then
   done
   SEEDS_JSON="${SEEDS_JSON}]"
 
-  MODELS_JSON="["
   IFS=',' read -r -a MODEL_ARRAY_META <<< "${RUN_MODELS}"
   for MODEL in "${MODEL_ARRAY_META[@]}"; do
     MODEL=$(echo "${MODEL}" | xargs)
-    [[ "${MODELS_JSON}" != "[" ]] && MODELS_JSON="${MODELS_JSON},"
-    MODELS_JSON="${MODELS_JSON}\"${MODEL}\""
-  done
-  MODELS_JSON="${MODELS_JSON}]"
+    [[ -z "${MODEL}" ]] && continue
 
-  cat > "${RESULTS_DIR}/run_metadata.json" << EOF
+    MODEL_RUN_DIR="${RESULTS_DIR}/${MODEL}/run_${RUN_ID}"
+    if [[ -d "${MODEL_RUN_DIR}" ]]; then
+      cat > "${MODEL_RUN_DIR}/run_metadata.json" << EOF
 {
   "n_splits": ${N_SPLITS},
   "seed_start": ${SEED_START},
   "seeds": ${SEEDS_JSON},
-  "models": ${MODELS_JSON},
+  "model": "${MODEL}",
   "timestamp": "$(date -Iseconds)",
   "environment": "local",
   "pipeline_config": "${PIPELINE_CONFIG}",
@@ -237,23 +252,39 @@ if [[ ${DRY_RUN} -ne 1 ]]; then
   "infile": "${INFILE}"
 }
 EOF
-  log "Metadata saved"
+      log "Metadata saved for ${MODEL}"
+    else
+      log "[SKIP] Model directory not found: ${MODEL_RUN_DIR}"
+    fi
+  done
 fi
 
 #==============================================================
 # STEP 4: POSTPROCESSING / AGGREGATION
 #==============================================================
-log "Step 4/4: Aggregate results"
+log "Step 4/4: Aggregate results (per model)"
 
 if [[ ${DRY_RUN} -eq 1 ]]; then
-  log "[DRY RUN] Would run: ced aggregate-splits"
+  log "[DRY RUN] Would run: ced aggregate-splits for each model"
 else
   COMPLETED_COUNT=$(find "${RESULTS_DIR}" -path "*/split_seed*/core/test_metrics.csv" 2>/dev/null | wc -l)
   log "Found ${COMPLETED_COUNT} completed split run(s)"
 
   if [[ ${COMPLETED_COUNT} -gt 0 ]]; then
-    log "Aggregating..."
-    ced aggregate-splits --results-dir "${RESULTS_DIR}" --n-boot "${N_BOOT}"
+    IFS=',' read -r -a MODEL_ARRAY_AGG <<< "${RUN_MODELS}"
+    for MODEL in "${MODEL_ARRAY_AGG[@]}"; do
+      MODEL=$(echo "${MODEL}" | xargs)
+      [[ -z "${MODEL}" ]] && continue
+
+      MODEL_DIR="${RESULTS_DIR}/${MODEL}/run_${RUN_ID}"
+      if [[ -d "${MODEL_DIR}" ]]; then
+        log "Aggregating ${MODEL}..."
+        ced aggregate-splits --results-dir "${MODEL_DIR}" --n-boot "${N_BOOT}"
+        log "  [OK] ${MODEL} aggregated"
+      else
+        log "  [SKIP] ${MODEL} run directory not found: ${MODEL_DIR}"
+      fi
+    done
     log "[OK] Aggregation complete"
   else
     log "No completed runs. Skipping aggregation."
@@ -266,11 +297,12 @@ fi
 log "============================================"
 log "Pipeline complete"
 log "============================================"
+log "Run ID: ${RUN_ID}"
 log "Results: ${RESULTS_DIR}"
-log "Aggregated: ${RESULTS_DIR}/aggregated/"
+log "Aggregated: ${RESULTS_DIR}/<model>/run_${RUN_ID}/aggregated/"
 log ""
 log "Next steps:"
 log "  - Edit config: vim ${PIPELINE_CONFIG}"
-log "  - Re-aggregate: ced aggregate-splits --results-dir ${RESULTS_DIR}"
-log "  - View results: ls ${RESULTS_DIR}/aggregated/"
+log "  - Re-aggregate: ced aggregate-splits --results-dir ${RESULTS_DIR}/<model>/run_${RUN_ID}"
+log "  - View results: ls ${RESULTS_DIR}/<model>/run_${RUN_ID}/aggregated/"
 log "============================================"

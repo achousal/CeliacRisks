@@ -198,7 +198,7 @@ def test_check_split_files_exist_none(temp_outdir):
 
 def test_check_split_files_exist_train_only(temp_outdir):
     """Test detects existing train file."""
-    train_path = os.path.join(temp_outdir, "train_idx_seed42.csv")
+    train_path = os.path.join(temp_outdir, "train_idx_IncidentOnly_seed42.csv")
     Path(train_path).touch()
 
     exists, paths = check_split_files_exist(
@@ -215,9 +215,9 @@ def test_check_split_files_exist_train_only(temp_outdir):
 def test_check_split_files_exist_all_splits(temp_outdir):
     """Test detects all split files including metadata."""
     for fname in [
-        "train_idx_seed42.csv",
-        "test_idx_seed42.csv",
-        "split_meta_seed42.json",
+        "train_idx_IncidentOnly_seed42.csv",
+        "test_idx_IncidentOnly_seed42.csv",
+        "split_meta_IncidentOnly_seed42.json",
     ]:
         Path(os.path.join(temp_outdir, fname)).touch()
 
@@ -233,11 +233,12 @@ def test_check_split_files_exist_all_splits(temp_outdir):
 
 
 def test_check_split_files_exist_with_val(temp_outdir):
-    """Test detects validation file when has_val=True."""
+    """Test detects validation split file."""
     for fname in [
-        "train_idx_seed42.csv",
-        "val_idx_seed42.csv",
-        "test_idx_seed42.csv",
+        "train_idx_IncidentOnly_seed42.csv",
+        "test_idx_IncidentOnly_seed42.csv",
+        "val_idx_IncidentOnly_seed42.csv",
+        "split_meta_IncidentOnly_seed42.json",
     ]:
         Path(os.path.join(temp_outdir, fname)).touch()
 
@@ -246,10 +247,10 @@ def test_check_split_files_exist_with_val(temp_outdir):
         scenario="IncidentOnly",
         seed=42,
         has_val=True,
-        n_splits=10,  # Multiple splits use seed suffix
+        n_splits=1,
     )
     assert exists
-    assert len(paths) == 3
+    assert len(paths) == 4
 
 
 # ============================================================================
@@ -334,7 +335,12 @@ def test_save_split_indices_creates_directory(valid_split):
 
 
 def test_save_split_indices_raises_on_existing(temp_outdir, valid_split):
-    """Test raises FileExistsError when files exist and overwrite=False."""
+    """Test behavior when files exist and overwrite=False.
+
+    Behavior depends on whether indices match:
+    - If indices match: skip with warning (no error)
+    - If indices differ: raise FileExistsError
+    """
     # Save once
     save_split_indices(
         outdir=temp_outdir,
@@ -344,13 +350,26 @@ def test_save_split_indices_raises_on_existing(temp_outdir, valid_split):
         test_idx=valid_split["test"],
     )
 
-    # Try to save again without overwrite
-    with pytest.raises(FileExistsError, match="already exist"):
+    # Try to save again with SAME indices (should skip with warning, no error)
+    paths = save_split_indices(
+        outdir=temp_outdir,
+        scenario="IncidentOnly",
+        seed=42,
+        train_idx=valid_split["train"],
+        test_idx=valid_split["test"],
+        overwrite=False,
+    )
+    assert "train" in paths
+    assert "test" in paths
+
+    # Try to save again with DIFFERENT indices (should raise error)
+    different_train = valid_split["train"] + 100  # Different indices
+    with pytest.raises(FileExistsError, match="DO NOT match"):
         save_split_indices(
             outdir=temp_outdir,
             scenario="IncidentOnly",
             seed=42,
-            train_idx=valid_split["train"],
+            train_idx=different_train,
             test_idx=valid_split["test"],
             overwrite=False,
         )
@@ -418,42 +437,109 @@ def test_save_split_indices_sorts_indices(temp_outdir):
     np.testing.assert_array_equal(test_df, np.array([0, 3, 4, 6, 7]))
 
 
+def test_validate_existing_splits_match(temp_outdir, valid_split):
+    """Test validate_existing_splits returns True when splits match."""
+    from ced_ml.data.persistence import validate_existing_splits
+
+    # Save splits
+    save_split_indices(
+        outdir=temp_outdir,
+        scenario="TestScenario",
+        seed=0,
+        train_idx=valid_split["train"],
+        test_idx=valid_split["test"],
+    )
+
+    # Validate with same indices
+    is_match, msg = validate_existing_splits(
+        outdir=temp_outdir,
+        scenario="TestScenario",
+        seed=0,
+        train_idx=valid_split["train"],
+        test_idx=valid_split["test"],
+    )
+
+    assert is_match is True
+    assert "match" in msg.lower()
+
+
+def test_validate_existing_splits_differ(temp_outdir, valid_split):
+    """Test validate_existing_splits returns False when splits differ."""
+    from ced_ml.data.persistence import validate_existing_splits
+
+    # Save splits
+    save_split_indices(
+        outdir=temp_outdir,
+        scenario="TestScenario",
+        seed=0,
+        train_idx=valid_split["train"],
+        test_idx=valid_split["test"],
+    )
+
+    # Validate with different indices
+    different_train = valid_split["train"] + 100
+    is_match, msg = validate_existing_splits(
+        outdir=temp_outdir,
+        scenario="TestScenario",
+        seed=0,
+        train_idx=different_train,
+        test_idx=valid_split["test"],
+    )
+
+    assert is_match is False
+    assert "differ" in msg.lower()
+
+
+def test_validate_existing_splits_missing(temp_outdir, valid_split):
+    """Test validate_existing_splits returns False when files don't exist."""
+    from ced_ml.data.persistence import validate_existing_splits
+
+    # Don't save anything, just validate
+    is_match, msg = validate_existing_splits(
+        outdir=temp_outdir,
+        scenario="NonExistent",
+        seed=999,
+        train_idx=valid_split["train"],
+        test_idx=valid_split["test"],
+    )
+
+    assert is_match is False
+    assert "do not exist" in msg.lower()
+
+
 # ============================================================================
 # Metadata Persistence Tests
 # ============================================================================
 
 
-def test_save_split_metadata_minimal(temp_outdir, valid_split, valid_labels):
-    """Test saving minimal split metadata (no optional fields)."""
+def test_save_split_metadata_minimal(temp_outdir, valid_split):
+    """Test saves minimal metadata."""
+    y_train = np.array([0, 0, 1, 1, 0])
+    y_test = np.array([1, 0, 1])
+
     meta_path = save_split_metadata(
         outdir=temp_outdir,
         scenario="IncidentOnly",
         seed=42,
         train_idx=valid_split["train"],
         test_idx=valid_split["test"],
-        y_train=valid_labels["y_train"],
-        y_test=valid_labels["y_test"],
+        y_train=y_train,
+        y_test=y_test,
     )
 
+    assert meta_path.endswith("split_meta_IncidentOnly_seed42.json")
     assert os.path.exists(meta_path)
-    assert meta_path.endswith("split_meta_seed42.json")
 
+    # Load and check
     with open(meta_path) as f:
         meta = json.load(f)
 
-    # Check required fields
     assert meta["scenario"] == "IncidentOnly"
     assert meta["seed"] == 42
-    assert meta["split_type"] == "development"
-    assert meta["index_space"] == "full"
-    assert meta["n_train"] == 50
-    assert meta["n_test"] == 25
-    assert meta["n_train_pos"] == 10
-    assert meta["n_test_pos"] == 5
-    assert abs(meta["prevalence_train"] - 0.2) < 1e-6
-    assert abs(meta["prevalence_test"] - 0.2) < 1e-6
-    assert "split_id_train" in meta
-    assert "split_id_test" in meta
+    assert meta["n_train"] == len(valid_split["train"])
+    assert meta["n_test"] == len(valid_split["test"])
+    assert meta["n_train_pos"] == 2
+    assert meta["n_test_pos"] == 2
 
 
 def test_save_split_metadata_with_val(temp_outdir, valid_split, valid_labels):

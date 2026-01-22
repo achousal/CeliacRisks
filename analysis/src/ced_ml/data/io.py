@@ -5,8 +5,9 @@ This module handles reading proteomics CSV files with schema validation,
 dtype coercion, and quality checks.
 """
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -23,8 +24,8 @@ logger = get_logger(__name__)
 
 
 def usecols_for_proteomics(
-    numeric_metadata: Optional[List[str]] = None,
-    categorical_metadata: Optional[List[str]] = None,
+    numeric_metadata: list[str] | None = None,
+    categorical_metadata: list[str] | None = None,
 ) -> Callable[[str], bool]:
     """
     Create column filter function for pd.read_csv(usecols=...).
@@ -64,7 +65,7 @@ def usecols_for_proteomics(
 def read_proteomics_csv(
     filepath: str,
     *,
-    usecols: Optional[Callable[[str], bool]] = None,
+    usecols: Callable[[str], bool] | None = None,
     low_memory: bool = False,
     validate: bool = True,
 ) -> pd.DataFrame:
@@ -109,7 +110,7 @@ def read_proteomics_csv(
 def read_proteomics_file(
     filepath: str,
     *,
-    usecols: Optional[Callable[[str], bool]] = None,
+    usecols: Callable[[str], bool] | None = None,
     low_memory: bool = False,
     validate: bool = True,
 ) -> pd.DataFrame:
@@ -301,7 +302,7 @@ def identify_protein_columns(df: pd.DataFrame) -> list[str]:
         List of protein column names (sorted)
 
     Raises:
-        ValueError: If no protein columns found
+        ValueError: If no protein columns found or insufficient protein count
 
     Example:
         >>> df = pd.DataFrame({"age": [25], "APOE_resid": [0.5], "IL6_resid": [1.2]})
@@ -313,11 +314,16 @@ def identify_protein_columns(df: pd.DataFrame) -> list[str]:
         raise ValueError(
             "No protein columns (*_resid) found. " "Check column naming or usecols filter."
         )
+    if len(protein_cols) < 10:
+        raise ValueError(
+            f"Insufficient protein columns: found {len(protein_cols)}, minimum required is 10. "
+            "Check that input data has the expected format with *_resid suffix columns."
+        )
     logger.info(f"Identified {len(protein_cols):,} protein columns")
     return protein_cols
 
 
-def get_data_stats(df: pd.DataFrame) -> Dict[str, Any]:
+def get_data_stats(df: pd.DataFrame) -> dict[str, Any]:
     """
     Compute summary statistics for loaded data.
 
@@ -414,9 +420,9 @@ def load_data(infile: str) -> pd.DataFrame:
 
 def convert_csv_to_parquet(
     csv_path: str,
-    parquet_path: Optional[str] = None,
+    parquet_path: str | None = None,
     compression: str = "snappy",
-    usecols: Optional[Callable[[str], bool]] = None,
+    usecols: Callable[[str], bool] | None = None,
     validate: bool = True,
 ) -> Path:
     """

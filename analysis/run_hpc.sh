@@ -5,7 +5,11 @@
 # Config-driven HPC pipeline orchestration
 # All settings in configs/pipeline_hpc.yaml
 #
+# IMPORTANT: This script must be run from the analysis/ directory.
+#            Relative paths in configs assume this working directory.
+#
 # Usage:
+#   cd analysis/                     # REQUIRED: Run from analysis/
 #   ./run_hpc.sh                     # Use pipeline_hpc.yaml
 #   PIPELINE_CONFIG=custom.yaml ./run_hpc.sh  # Custom config
 #   DRY_RUN=1 ./run_hpc.sh           # Override dry_run
@@ -16,6 +20,15 @@ IFS=$'\n\t'
 
 log() { echo "[$(date +"%F %T")] $*"; }
 die() { echo "ERROR: $*" >&2; exit 1; }
+normalize_bool() {
+  local val="${1:-}"
+  val="$(printf '%s' "${val}" | tr '[:upper:]' '[:lower:]')"
+  case "${val}" in
+    1|true|yes|y) echo 1 ;;
+    0|false|no|n|'') echo 0 ;;
+    *) echo "${val}" ;;
+  esac
+}
 
 #==============================================================
 # LOAD PIPELINE CONFIG
@@ -70,15 +83,11 @@ CORES=$(get_yaml "${PIPELINE_CONFIG}" "cores")
 MEM=$(get_yaml "${PIPELINE_CONFIG}" "mem_per_core")
 
 # Environment variable overrides
-DRY_RUN="${DRY_RUN:-${DRY_RUN_CFG}}"
-POSTPROCESS_ONLY="${POSTPROCESS_ONLY:-${POSTPROCESS_ONLY_CFG}}"
-OVERWRITE_SPLITS="${OVERWRITE_SPLITS:-${OVERWRITE_SPLITS_CFG}}"
+DRY_RUN="$(normalize_bool "${DRY_RUN:-${DRY_RUN_CFG}}")"
+POSTPROCESS_ONLY="$(normalize_bool "${POSTPROCESS_ONLY:-${POSTPROCESS_ONLY_CFG}}")"
+OVERWRITE_SPLITS="$(normalize_bool "${OVERWRITE_SPLITS:-${OVERWRITE_SPLITS_CFG}}")"
 RUN_MODELS="${RUN_MODELS:-${MODELS_STR}}"
 PROJECT="${PROJECT:-YOUR_PROJECT_ALLOCATION}"
-
-[[ "${DRY_RUN}" == "true" ]] && DRY_RUN=1 || DRY_RUN="${DRY_RUN:-0}"
-[[ "${POSTPROCESS_ONLY}" == "true" ]] && POSTPROCESS_ONLY=1 || POSTPROCESS_ONLY="${POSTPROCESS_ONLY:-0}"
-[[ "${OVERWRITE_SPLITS}" == "true" ]] && OVERWRITE_SPLITS=1 || OVERWRITE_SPLITS="${OVERWRITE_SPLITS:-0}"
 
 #==============================================================
 # ENVIRONMENT SETUP
@@ -104,16 +113,21 @@ fi
 N_SPLITS=$(grep "^n_splits:" "${SPLITS_CONFIG}" | awk '{print $2}')
 SEED_START=$(grep "^seed_start:" "${SPLITS_CONFIG}" | awk '{print $2}')
 
+# Generate run ID (timestamp-based)
+RUN_ID=$(date +"%Y%m%d_%H%M%S")
+
 log "============================================"
 log "CeD-ML Pipeline (HPC, Config-Driven)"
 log "============================================"
 log "Pipeline config: ${PIPELINE_CONFIG}"
+log "Run ID: ${RUN_ID}"
 log "Input: ${INFILE}"
 log "Splits: ${SPLITS_DIR} (${N_SPLITS} splits, seeds ${SEED_START}-$((SEED_START + N_SPLITS - 1)))"
 log "Results: ${RESULTS_DIR}"
 log "Models: ${RUN_MODELS}"
 log "HPC: ${PROJECT} / ${QUEUE} / ${WALLTIME} / ${CORES}c / ${MEM}MB"
 log "Dry run: ${DRY_RUN}"
+log "Postprocess only: ${POSTPROCESS_ONLY}"
 log "============================================"
 
 #==============================================================
@@ -183,19 +197,19 @@ else
           -R "span[hosts=1] rusage[mem=${MEM}]" \
           -oo "${LOG_BASE}.out.live" \
           -eo "${LOG_BASE}.err.live" \
-          -env "MODEL=${MODEL},SEED=${SEED},BASE_DIR=${BASE_DIR},INFILE=${INFILE},SPLITS_DIR=${SPLITS_DIR},RESULTS_DIR=${RESULTS_DIR},TRAINING_CONFIG=${TRAINING_CONFIG},LOG_BASE=${LOG_BASE}" \
+          -env "MODEL=${MODEL},SEED=${SEED},BASE_DIR=${BASE_DIR},INFILE=${INFILE},SPLITS_DIR=${SPLITS_DIR},RESULTS_DIR=${RESULTS_DIR},TRAINING_CONFIG=${TRAINING_CONFIG},LOG_BASE=${LOG_BASE},RUN_ID=${RUN_ID}" \
           bash -c "
             set -euo pipefail
-            source ${VENV_PATH}
+            source \"\${VENV_PATH}\"
 
-            ced train --config ${TRAINING_CONFIG} --model ${MODEL} --infile ${INFILE} --split-dir ${SPLITS_DIR} --outdir ${RESULTS_DIR} --split-seed ${SEED}
+            ced train --config \"\${TRAINING_CONFIG}\" --model \"\${MODEL}\" --infile \"\${INFILE}\" --split-dir \"\${SPLITS_DIR}\" --outdir \"\${RESULTS_DIR}/\${MODEL}\" --split-seed \"\${SEED}\" --override run_id=\"\${RUN_ID}\"
             EXIT_CODE=\$?
 
-            if [[ -f \"${LOG_BASE}.out.live\" ]]; then
-              mv \"${LOG_BASE}.out.live\" \"${LOG_BASE}.out\"
+            if [[ -f \"\${LOG_BASE}.out.live\" ]]; then
+              mv \"\${LOG_BASE}.out.live\" \"\${LOG_BASE}.out\"
             fi
-            if [[ -f \"${LOG_BASE}.err.live\" ]]; then
-              mv \"${LOG_BASE}.err.live\" \"${LOG_BASE}.err\"
+            if [[ -f \"\${LOG_BASE}.err.live\" ]]; then
+              mv \"\${LOG_BASE}.err.live\" \"\${LOG_BASE}.err\"
             fi
 
             exit \$EXIT_CODE
@@ -231,21 +245,19 @@ if [[ ${DRY_RUN} -ne 1 ]]; then
   done
   SEEDS_JSON="${SEEDS_JSON}]"
 
-  MODELS_JSON="["
   IFS=',' read -r -a MODEL_ARRAY_META <<< "${RUN_MODELS}"
   for MODEL in "${MODEL_ARRAY_META[@]}"; do
     MODEL=$(echo "${MODEL}" | xargs)
-    [[ "${MODELS_JSON}" != "[" ]] && MODELS_JSON="${MODELS_JSON},"
-    MODELS_JSON="${MODELS_JSON}\"${MODEL}\""
-  done
-  MODELS_JSON="${MODELS_JSON}]"
+    [[ -z "${MODEL}" ]] && continue
 
-  cat > "${RESULTS_DIR}/run_metadata.json" << EOF
+    MODEL_RUN_DIR="${RESULTS_DIR}/${MODEL}/run_${RUN_ID}"
+    if [[ -d "${MODEL_RUN_DIR}" ]]; then
+      cat > "${MODEL_RUN_DIR}/run_metadata.json" << EOF
 {
   "n_splits": ${N_SPLITS},
   "seed_start": ${SEED_START},
   "seeds": ${SEEDS_JSON},
-  "models": ${MODELS_JSON},
+  "model": "${MODEL}",
   "timestamp": "$(date -Iseconds)",
   "environment": "hpc",
   "pipeline_config": "${PIPELINE_CONFIG}",
@@ -256,27 +268,48 @@ if [[ ${DRY_RUN} -ne 1 ]]; then
   "queue": "${QUEUE}"
 }
 EOF
-  log "Metadata saved"
+      log "Metadata saved for ${MODEL}"
+    else
+      log "[SKIP] Model directory not found: ${MODEL_RUN_DIR}"
+    fi
+  done
 fi
 
 #==============================================================
 # STEP 4: POSTPROCESSING / AGGREGATION
 #==============================================================
-log "Step 4/4: Aggregate results"
+log "Step 4/4: Aggregate results (per model)"
 
 if [[ ${DRY_RUN} -eq 1 ]]; then
-  log "[DRY RUN] Would run: ced aggregate-splits"
+  log "[DRY RUN] Would run: ced aggregate-splits for each model"
 else
   COMPLETED_COUNT=$(find "${RESULTS_DIR}" -path "*/split_seed*/core/test_metrics.csv" 2>/dev/null | wc -l)
   log "Found ${COMPLETED_COUNT} completed split run(s)"
 
   if [[ ${COMPLETED_COUNT} -gt 0 ]]; then
-    log "Aggregating..."
-    ced aggregate-splits --results-dir "${RESULTS_DIR}" --n-boot "${N_BOOT}"
+    IFS=',' read -r -a MODEL_ARRAY_AGG <<< "${RUN_MODELS}"
+    for MODEL in "${MODEL_ARRAY_AGG[@]}"; do
+      MODEL=$(echo "${MODEL}" | xargs)
+      [[ -z "${MODEL}" ]] && continue
+
+      MODEL_DIR="${RESULTS_DIR}/${MODEL}/run_${RUN_ID}"
+      if [[ -d "${MODEL_DIR}" ]]; then
+        log "Aggregating ${MODEL}..."
+        ced aggregate-splits --results-dir "${MODEL_DIR}" --n-boot "${N_BOOT}"
+        log "  [OK] ${MODEL} aggregated"
+      else
+        log "  [SKIP] ${MODEL} run directory not found: ${MODEL_DIR}"
+      fi
+    done
     log "[OK] Aggregation complete"
   else
-    log "No completed runs yet. Aggregate after jobs finish:"
-    log "  ced aggregate-splits --results-dir ${RESULTS_DIR}"
+    log "No completed runs yet. Aggregate after jobs finish (per model):"
+    IFS=',' read -r -a MODEL_ARRAY_INFO <<< "${RUN_MODELS}"
+    for MODEL in "${MODEL_ARRAY_INFO[@]}"; do
+      MODEL=$(echo "${MODEL}" | xargs)
+      [[ -z "${MODEL}" ]] && continue
+      log "  ced aggregate-splits --results-dir ${RESULTS_DIR}/${MODEL}/run_${RUN_ID}"
+    done
   fi
 fi
 
@@ -286,6 +319,7 @@ fi
 log "============================================"
 log "Pipeline submission complete"
 log "============================================"
+log "Run ID: ${RUN_ID}"
 log "Monitor jobs:"
 log "  bjobs -w | grep CeD_"
 log "  ls ${LOGS_DIR}/*.live  # Running jobs"
@@ -296,5 +330,5 @@ log "Cleanup stale .live logs (if jobs crashed):"
 log "  for f in ${LOGS_DIR}/*.live; do mv \"\$f\" \"\${f%.live}\"; done"
 log ""
 log "Aggregate after all jobs complete:"
-log "  ced aggregate-splits --results-dir ${RESULTS_DIR}"
+log "  ced aggregate-splits --results-dir ${RESULTS_DIR}/<model>/run_${RUN_ID}"
 log "============================================"

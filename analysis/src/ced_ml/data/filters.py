@@ -5,7 +5,7 @@ Provides consistent row filtering across split generation and training to ensure
 index alignment. Filters are applied before stratified splitting.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import pandas as pd
 
@@ -16,8 +16,8 @@ def apply_row_filters(
     df: pd.DataFrame,
     drop_uncertain_controls: bool = True,
     dropna_meta_num: bool = True,
-    meta_num_cols: Optional[List[str]] = None,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    meta_num_cols: list[str] | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """
     Apply row filters consistently across split generation and training.
 
@@ -42,6 +42,7 @@ def apply_row_filters(
             - n_in: Input row count
             - drop_uncertain_controls: Whether filter was applied
             - dropna_meta_num: Whether filter was applied
+            - meta_num_cols_used: List of numeric metadata columns checked for NaN
             - n_removed_uncertain_controls: Rows removed by uncertain control filter
             - n_removed_dropna_meta_num: Rows removed by missing metadata filter
             - n_out: Output row count
@@ -51,10 +52,14 @@ def apply_row_filters(
         >>> print(f"Removed {stats['n_removed_uncertain_controls']} uncertain controls")
         >>> print(f"Removed {stats['n_removed_dropna_meta_num']} rows with missing metadata")
     """
-    stats: Dict[str, Any] = {
+    # Determine which columns will be checked for NaN filtering
+    cols_to_check = meta_num_cols if meta_num_cols is not None else META_NUM_COLS
+
+    stats: dict[str, Any] = {
         "n_in": len(df),
         "drop_uncertain_controls": drop_uncertain_controls,
         "dropna_meta_num": dropna_meta_num,
+        "meta_num_cols_used": list(cols_to_check),  # Record which columns were used
         "n_removed_uncertain_controls": 0,
         "n_removed_dropna_meta_num": 0,
         "n_out": 0,
@@ -72,7 +77,6 @@ def apply_row_filters(
 
     # Filter 2: Drop rows missing required numeric metadata
     if dropna_meta_num:
-        cols_to_check = meta_num_cols if meta_num_cols is not None else META_NUM_COLS
         meta_present = [c for c in cols_to_check if c in df2.columns]
         if meta_present:
             n_before = len(df2)

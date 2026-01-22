@@ -18,10 +18,15 @@ configs:
 
 # Execution
 execution:
-  models: [LR_EN, RF, LinSVM_cal, XGBoost]  # Options: LR_EN, LR_L1, LinSVM_cal, RF, XGBoost
+  models:
+    - LR_EN
+    - LinSVM_cal
+    - RF
+    - XGBoost
   n_boot: 100  # Bootstrap iterations for aggregation (local: faster)
   overwrite_splits: false
   dry_run: false
+  postprocess_only: false  # Skip training, only run aggregation
 
 # The splits config controls n_splits and seed_start
 # Edit configs/splits_config.yaml to change those settings

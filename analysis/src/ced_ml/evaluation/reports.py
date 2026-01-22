@@ -16,7 +16,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import joblib
 import pandas as pd
@@ -83,6 +83,7 @@ class OutputDirectories:
         root: str,
         exist_ok: bool = True,
         split_seed: int | None = None,
+        run_id: str | None = None,
     ) -> "OutputDirectories":
         """
         Create output directory structure.
@@ -91,7 +92,9 @@ class OutputDirectories:
             root: Base output directory path
             exist_ok: If True, do not raise if directories exist
             split_seed: If provided, creates a split-specific subdirectory
-                        (e.g., root/split_seed0/) for multi-split runs
+                        (e.g., root/run_20260121_143022/split_seed0/) for multi-split runs
+            run_id: If provided, creates a run-specific subdirectory
+                    (e.g., root/run_20260121_143022/split_seed0/)
 
         Returns:
             OutputDirectories instance with all paths created
@@ -100,6 +103,10 @@ class OutputDirectories:
             OSError: If directory creation fails
         """
         root_path = Path(root)
+
+        # If run_id is provided, nest under a run-specific subdirectory
+        if run_id is not None:
+            root_path = root_path / f"run_{run_id}"
 
         # If split_seed is provided, nest under a split-specific subdirectory
         if split_seed is not None:
@@ -187,7 +194,7 @@ class ResultsWriter:
 
     # ========== Settings and Configuration ==========
 
-    def save_run_settings(self, settings: Dict[str, Any]) -> str:
+    def save_run_settings(self, settings: dict[str, Any]) -> str:
         """
         Save run configuration to core/run_settings.json.
 
@@ -205,7 +212,7 @@ class ResultsWriter:
 
     # ========== Metrics ==========
 
-    def save_val_metrics(self, metrics: Dict[str, Any], scenario: str, model: str) -> str:
+    def save_val_metrics(self, metrics: dict[str, Any], scenario: str, model: str) -> str:
         """
         Save validation metrics to core/val_metrics.csv (append mode).
 
@@ -232,7 +239,7 @@ class ResultsWriter:
         logger.info(f"Saved validation metrics: {path}")
         return str(path)
 
-    def save_test_metrics(self, metrics: Dict[str, Any], scenario: str, model: str) -> str:
+    def save_test_metrics(self, metrics: dict[str, Any], scenario: str, model: str) -> str:
         """
         Save test metrics to core/test_metrics.csv (append mode).
 
@@ -260,7 +267,7 @@ class ResultsWriter:
         return str(path)
 
     def save_cv_repeat_metrics(
-        self, cv_results: List[Dict[str, Any]], scenario: str, model: str
+        self, cv_results: list[dict[str, Any]], scenario: str, model: str
     ) -> str:
         """
         Save cross-validation repeat metrics to cv/cv_repeat_metrics.csv (append mode).
@@ -291,7 +298,7 @@ class ResultsWriter:
         logger.info(f"Saved CV repeat metrics: {path}")
         return str(path)
 
-    def save_bootstrap_ci_metrics(self, metrics: Dict[str, Any], scenario: str, model: str) -> str:
+    def save_bootstrap_ci_metrics(self, metrics: dict[str, Any], scenario: str, model: str) -> str:
         """
         Save bootstrap CI metrics to core/test_bootstrap_ci.csv.
 
@@ -314,7 +321,7 @@ class ResultsWriter:
 
     # ========== Cross-Validation Artifacts ==========
 
-    def save_best_params_per_split(self, best_params: List[Dict[str, Any]], scenario: str) -> str:
+    def save_best_params_per_split(self, best_params: list[dict[str, Any]], scenario: str) -> str:
         """
         Save best hyperparameters per outer split to cv/best_params_per_split.csv.
 
@@ -334,7 +341,7 @@ class ResultsWriter:
         return str(path)
 
     def save_selected_proteins_per_split(
-        self, selected_proteins: List[Dict[str, Any]], scenario: str
+        self, selected_proteins: list[dict[str, Any]], scenario: str
     ) -> str:
         """
         Save selected proteins per outer split to cv/selected_proteins_per_outer_split.csv.
@@ -473,7 +480,7 @@ class ResultsWriter:
         return str(path)
 
     def save_panel_manifest(
-        self, manifest: Dict[str, Any], scenario: str, model: str, panel_size: int
+        self, manifest: dict[str, Any], scenario: str, model: str, panel_size: int
     ) -> str:
         """
         Save panel manifest to reports/panels/{model}__N{size}__panel_manifest.json.
@@ -495,7 +502,7 @@ class ResultsWriter:
         return str(path)
 
     def save_final_test_panel(
-        self, panel_proteins: List[str], scenario: str, model: str, metadata: Dict[str, Any] = None
+        self, panel_proteins: list[str], scenario: str, model: str, metadata: dict[str, Any] = None
     ) -> str:
         """
         Save final test panel (proteins used in final model) to reports/panels/{model}__final_test_panel.json.
@@ -544,7 +551,7 @@ class ResultsWriter:
     # ========== Model Artifacts ==========
 
     def save_model_artifact(
-        self, model: Any, metadata: Dict[str, Any], scenario: str, model_name: str
+        self, model: Any, metadata: dict[str, Any], scenario: str, model_name: str
     ) -> str:
         """
         Save trained model artifact to core/{model}__final_model.joblib.
@@ -579,7 +586,7 @@ class ResultsWriter:
             logger.error(f"Failed to save model artifact: {e}")
             raise OSError(f"Model serialization failed: {e}") from e
 
-    def load_model_artifact(self, scenario: str, model_name: str) -> Dict[str, Any]:
+    def load_model_artifact(self, scenario: str, model_name: str) -> dict[str, Any]:
         """
         Load trained model artifact from core/{model}__final_model.joblib.
 
@@ -669,7 +676,7 @@ class ResultsWriter:
 
     # ========== Utility Methods ==========
 
-    def summarize_outputs(self) -> List[str]:
+    def summarize_outputs(self) -> list[str]:
         """
         Return list of key output files that exist.
 

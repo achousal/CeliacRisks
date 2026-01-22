@@ -78,13 +78,14 @@ class TestBinnedLogits:
         """Test basic binned logits computation."""
         y_true, probs = simple_predictions
         result = _binned_logits(y_true, probs, n_bins=10, bin_strategy="uniform")
-        xs, ys, ys_lo, ys_hi, sizes = result
+        xs, ys, ys_lo, ys_hi, ys_sd, sizes = result
 
         # Should return valid arrays
         assert xs is not None
         assert ys is not None
         assert ys_lo is not None
         assert ys_hi is not None
+        assert ys_sd is not None
         assert sizes is not None
 
         # All should be finite
@@ -92,6 +93,7 @@ class TestBinnedLogits:
         assert np.all(np.isfinite(ys))
         assert np.all(np.isfinite(ys_lo))
         assert np.all(np.isfinite(ys_hi))
+        assert np.all(np.isfinite(ys_sd))
 
         # CI bounds should be ordered correctly
         assert np.all(ys_lo <= ys)
@@ -104,7 +106,7 @@ class TestBinnedLogits:
         """Test quantile-based binning."""
         y_true, probs = simple_predictions
         result = _binned_logits(y_true, probs, n_bins=10, bin_strategy="quantile")
-        xs, ys, ys_lo, ys_hi, sizes = result
+        xs, ys, ys_lo, ys_hi, ys_sd, sizes = result
 
         assert xs is not None
         assert len(xs) > 0
@@ -123,7 +125,7 @@ class TestBinnedLogits:
         result = _binned_logits(y, p, n_bins=10)
 
         # Should still return valid result (with CIs)
-        xs, ys, ys_lo, ys_hi, sizes = result
+        xs, ys, ys_lo, ys_hi, ys_sd, sizes = result
         if xs is not None:  # May merge bins
             assert np.all(np.isfinite(xs))
             assert np.all(np.isfinite(ys))
@@ -134,7 +136,7 @@ class TestBinnedLogits:
         p = np.array([0.2, 0.8, np.nan, 0.7, 0.5, 0.9])
 
         result = _binned_logits(y, p, n_bins=2)
-        xs, ys, ys_lo, ys_hi, sizes = result
+        xs, ys, ys_lo, ys_hi, ys_sd, sizes = result
 
         # Should filter NaNs and return valid data
         if xs is not None:
@@ -246,12 +248,6 @@ class TestPlotLogitCalibrationPanel:
         y_true, probs = simple_predictions
         fig, ax = plt.subplots()
 
-        # Try to import LOESS (may not be available)
-        try:
-            from statsmodels.nonparametric.smoothers_lowess import lowess
-        except ImportError:
-            lowess = None
-
         _plot_logit_calibration_panel(
             ax,
             y_true,
@@ -261,7 +257,6 @@ class TestPlotLogitCalibrationPanel:
             split_ids=None,
             unique_splits=None,
             panel_title="Logit Calibration",
-            lowess=lowess,
             calib_intercept=0.0,
             calib_slope=1.0,
         )
@@ -289,7 +284,6 @@ class TestPlotLogitCalibrationPanel:
             split_ids=split_ids,
             unique_splits=unique_splits,
             panel_title="Multi-Split Logit",
-            lowess=None,
             calib_intercept=0.1,
             calib_slope=0.9,
         )
@@ -315,7 +309,6 @@ class TestPlotLogitCalibrationPanel:
             split_ids=None,
             unique_splits=None,
             panel_title="With Recalibration",
-            lowess=None,
             calib_intercept=0.5,  # Significant miscalibration
             calib_slope=0.7,
         )

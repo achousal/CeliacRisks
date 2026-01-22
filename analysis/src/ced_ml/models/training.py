@@ -12,7 +12,7 @@ Provides:
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -23,6 +23,7 @@ from sklearn.model_selection import RepeatedStratifiedKFold, StratifiedKFold
 from sklearn.pipeline import Pipeline
 
 from ..config import TrainingConfig
+from ..metrics.scorers import get_scorer
 
 logger = logging.getLogger(__name__)
 
@@ -71,11 +72,11 @@ def oof_predictions_with_nested_cv(
     model_name: str,
     X: pd.DataFrame,
     y: np.ndarray,
-    protein_cols: List[str],
+    protein_cols: list[str],
     config: TrainingConfig,
     random_state: int,
-    grid_rng: Optional[np.random.Generator] = None,
-) -> Tuple[np.ndarray, float, pd.DataFrame, pd.DataFrame]:
+    grid_rng: np.random.Generator | None = None,
+) -> tuple[np.ndarray, float, pd.DataFrame, pd.DataFrame]:
     """
     Generate out-of-fold predictions using nested cross-validation.
 
@@ -109,8 +110,8 @@ def oof_predictions_with_nested_cv(
 
     n_samples = len(y)
     preds = np.full((n_repeats, n_samples), np.nan, dtype=float)
-    best_params_rows: List[Dict[str, Any]] = []
-    selected_proteins_rows: List[Dict[str, Any]] = []
+    best_params_rows: list[dict[str, Any]] = []
+    selected_proteins_rows: list[dict[str, Any]] = []
 
     total_outer_folds = n_repeats if n_splits < 2 else n_splits * n_repeats
     split_idx = 0
@@ -147,8 +148,11 @@ def oof_predictions_with_nested_cv(
             xgb_spw = _compute_xgb_scale_pos_weight(y[train_idx], config)
             try:
                 base_pipeline.set_params(clf__scale_pos_weight=float(xgb_spw))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    f"Failed to set scale_pos_weight={xgb_spw} for XGBoost in fold {split_idx}: {e}. "
+                    "Model will train with default class weighting."
+                )
 
         # Build inner CV hyperparameter search
         search = _build_hyperparameter_search(
@@ -302,13 +306,14 @@ def _scoring_to_direction(scoring: str) -> str:
         "precision",
         "recall",
         "jaccard",
+        "tpr_at_fpr",
     }
 
     # neg_* metrics are also maximized (sklearn convention)
     if scoring in maximize_metrics or scoring.startswith("neg_"):
         return "maximize"
 
-    return "maximize"  # Default to maximize for unknown metrics
+    return "maximize"  # Default to maximize for unknown metrics  # Default to maximize for unknown metrics
 
 
 def _build_hyperparameter_search(
@@ -316,8 +321,8 @@ def _build_hyperparameter_search(
     model_name: str,
     config: TrainingConfig,
     random_state: int,
-    xgb_spw: Optional[float],
-    grid_rng: Optional[np.random.Generator],
+    xgb_spw: float | None,
+    grid_rng: np.random.Generator | None,
 ):
     """
     Build hyperparameter search object (Optuna or RandomizedSearchCV).
@@ -377,12 +382,15 @@ def _build_hyperparameter_search(
                 f"sampler={config.optuna.sampler}, direction={direction}"
             )
 
+            # Get scorer (handles custom scorers like tpr_at_fpr)
+            scorer = get_scorer(config.cv.scoring, target_fpr=config.cv.scoring_target_fpr)
+
             return OptunaSearchCV(
                 estimator=pipeline,
                 param_distributions=param_dists,
                 n_trials=config.optuna.n_trials,
                 timeout=config.optuna.timeout,
-                scoring=config.cv.scoring,
+                scoring=scorer,
                 cv=inner_cv,
                 n_jobs=config.optuna.n_jobs,
                 random_state=random_state,
@@ -420,11 +428,14 @@ def _build_hyperparameter_search(
     # Determine parallelization strategy
     n_jobs = _get_search_n_jobs(model_name, config)
 
+    # Get scorer (handles custom scorers like tpr_at_fpr)
+    scorer = get_scorer(config.cv.scoring, target_fpr=config.cv.scoring_target_fpr)
+
     return RandomizedSearchCV(
         estimator=pipeline,
         param_distributions=param_dists,
         n_iter=n_iter,
-        scoring=config.cv.scoring,
+        scoring=scorer,
         cv=inner_cv,
         n_jobs=n_jobs,
         pre_dispatch=n_jobs,
@@ -517,12 +528,12 @@ def _maybe_apply_calibration(
 def _extract_selected_proteins_from_fold(
     fitted_model,
     model_name: str,
-    protein_cols: List[str],
+    protein_cols: list[str],
     config: TrainingConfig,
     X_train: pd.DataFrame,
     y_train: np.ndarray,
     random_state: int,
-) -> List[str]:
+) -> list[str]:
     """
     Extract selected proteins from a fitted model/pipeline.
 
@@ -602,7 +613,7 @@ def _extract_selected_proteins_from_fold(
     return sorted(selected_proteins)
 
 
-def _extract_from_kbest_transformed(pipeline: Pipeline, protein_cols: List[str]) -> set:
+def _extract_from_kbest_transformed(pipeline: Pipeline, protein_cols: list[str]) -> set:
     """Extract protein names from SelectKBest in transformed space."""
     if "sel" not in pipeline.named_steps:
         return set()
@@ -638,7 +649,7 @@ def _extract_from_kbest_transformed(pipeline: Pipeline, protein_cols: List[str])
 
 
 def _extract_from_model_coefficients(
-    pipeline: Pipeline, model_name: str, protein_cols: List[str], config: TrainingConfig
+    pipeline: Pipeline, model_name: str, protein_cols: list[str], config: TrainingConfig
 ) -> set:
     """Extract protein names from linear model coefficients."""
     coef_thresh = config.features.coef_threshold
@@ -689,7 +700,7 @@ def _extract_from_model_coefficients(
 
     # Extract proteins with |coef| > threshold
     proteins = set()
-    for name, c in zip(feature_names, coefs):
+    for name, c in zip(feature_names, coefs, strict=False):
         # Handle different feature naming patterns:
         # - num__{protein} (legacy/standard sklearn ColumnTransformer)
         # - {protein}_resid (ResidualTransformer output)
@@ -710,7 +721,7 @@ def _extract_from_rf_permutation(
     pipeline: Pipeline,
     X_train: pd.DataFrame,
     y_train: np.ndarray,
-    protein_cols: List[str],
+    protein_cols: list[str],
     config: TrainingConfig,
     random_state: int,
 ) -> set:
@@ -731,11 +742,14 @@ def _extract_from_rf_permutation(
 
     # Compute permutation importance
     try:
+        # Get scorer (handles custom scorers like tpr_at_fpr)
+        scorer = get_scorer(config.cv.scoring, target_fpr=config.cv.scoring_target_fpr)
+
         perm_result = permutation_importance(
             pipeline,
             X_train,
             y_train,
-            scoring=config.cv.scoring,
+            scoring=scorer,
             n_repeats=config.features.rf_perm_repeats,
             random_state=random_state,
             n_jobs=1,  # Already inside parallel context
@@ -750,8 +764,8 @@ def _extract_from_rf_permutation(
         return set()
 
     # Aggregate protein importances (sum across transformed features)
-    protein_importance: Dict[str, float] = {}
-    for name, imp in zip(feature_names, importances):
+    protein_importance: dict[str, float] = {}
+    for name, imp in zip(feature_names, importances, strict=False):
         if not np.isfinite(imp):
             continue
 

@@ -3,7 +3,7 @@
 **Project Owner:** Andres Chousal
 **Lab:** Elahi Lab
 **Last Updated:** 2026-01-21
-**Status:** Production-ready with Optuna hyperparameter optimization
+**Status:** Production-ready with Optuna hyperparameter optimization and cross-split aggregation
 
 ---
 
@@ -89,7 +89,7 @@ Metadata columns are configurable via `ColumnsConfig` with two modes:
 
 ## Package Architecture
 
-**Stats:** ~19,657 lines of code, 762 tests (82% coverage), zero duplication.
+**Stats:** 20,819 lines of code, 810 tests (65% coverage), zero duplication.
 
 For detailed architecture with code pointers, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -357,7 +357,7 @@ pytest tests/ -m slow
 pytest tests/ --cov=ced_ml --cov-report=term-missing
 ```
 
-**Test suite:** 762 tests covering:
+**Test suite:** 810 tests covering:
 - Data I/O (CSV/Parquet), column resolution, and split generation
 - Feature screening, k-best, stability, correlation pruning, panels
 - Model registry, hyperparameters, training, calibration, prevalence
@@ -367,7 +367,7 @@ pytest tests/ --cov=ced_ml --cov-report=term-missing
 - CLI integration (zero duplication verified)
 - Config validation and comparison
 
-**Coverage:** 82% overall (90-100% for most modules)
+**Coverage:** 65% overall
 
 **Test markers:**
 - `slow`: Integration tests that train real models (10-20s each). Skip with `pytest -m "not slow"` for faster development.
@@ -439,10 +439,7 @@ DRY_RUN=1 ./run_local.sh
 bjobs -w | grep CeD_
 ```
 
-For detailed setup instructions, see:
-- [SETUP_README.md](SETUP_README.md) - Environment setup and getting started
-- [HPC_README.md](HPC_README.md) - HPC quick reference
-- [WORKFLOW.md](WORKFLOW.md) - Visual workflow guide
+For detailed setup instructions, see [SETUP_README.md](SETUP_README.md).
 
 ---
 
@@ -513,7 +510,7 @@ ced config validate config.yaml --strict
      categorical_metadata: [sex]
    ```
 
-For more troubleshooting, see [HPC_README.md](HPC_README.md) or [WORKFLOW.md](WORKFLOW.md).
+For more troubleshooting, see [docs/TROUBLESHOOTING_BEST_PARAMS.md](docs/TROUBLESHOOTING_BEST_PARAMS.md).
 
 ---
 
@@ -528,24 +525,10 @@ For more troubleshooting, see [HPC_README.md](HPC_README.md) or [WORKFLOW.md](WO
 
 **Current Status:** Production-ready ✅ (updated 2026-01-21)
 
-### Recent Improvements (Jan 21, 2026)
-- ✅ Optuna hyperparameter optimization with trial visualization ([ADR-018](docs/adr/ADR-018-optuna-hyperparameter-optimization.md))
-- ✅ Split-specific output directories ([ADR-019](docs/adr/ADR-019-split-specific-output-directories.md))
-- ✅ Combined OOF plotting across splits ([ADR-016](docs/adr/ADR-016-oof-combined-plotting.md))
-- ✅ Config-driven pipeline orchestration (`pipeline_local.yaml`, `pipeline_hpc.yaml`)
-- ✅ Unified CLI with `aggregate-splits` command
-- ✅ Parquet file format support ([ADR-017](docs/adr/ADR-017-parquet-format-support.md))
-- ✅ Flexible metadata column configuration (`ColumnsConfig`)
-- ✅ Out-of-fold (OOF) prediction plotting module
-- ✅ Improved error messages for file I/O and column resolution
-- ✅ Standardized path structure (`../splits`, `../results`, `../logs`)
-- ✅ Test suite: **762 tests**, Coverage: **82%**, Lines: **~19,657**
-
 ### Remaining Tasks
 - [ ] Run validation study on HPC
 - [ ] Performance benchmarking
 - [ ] Docker container for reproducibility
-- [ ] Publication artifacts (Zenodo/Figshare)
 
 ---
 
@@ -554,7 +537,7 @@ For more troubleshooting, see [HPC_README.md](HPC_README.md) or [WORKFLOW.md](WO
 | Document | Purpose |
 |----------|---------|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical architecture with code pointers |
-| [docs/adr/](docs/adr/) | Architecture Decision Records (20 decisions) |
+| [docs/adr/](docs/adr/) | Architecture Decision Records (19 decisions) |
 | [docs/reference/CLI_REFERENCE.md](docs/reference/CLI_REFERENCE.md) | Complete CLI command reference |
 | [SETUP_README.md](SETUP_README.md) | Environment setup and getting started |
 | [../README.md](../README.md) | Root project overview |

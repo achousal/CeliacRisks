@@ -94,5 +94,129 @@ def test_cv_config_validation():
         CVConfig(folds=1)
 
 
+def test_apply_overrides_run_id_string():
+    """Test that run_id is treated as string, not parsed as int."""
+    config_dict = {"run_id": None, "run_name": "test"}
+
+    # Numeric-looking run_id should stay as string
+    overrides = ["run_id=20260121125646"]
+    result = apply_overrides(config_dict, overrides)
+
+    assert result["run_id"] == "20260121125646"
+    assert isinstance(result["run_id"], str)
+
+    # run_name should also stay as string
+    overrides = ["run_name=12345"]
+    result = apply_overrides(config_dict, overrides)
+
+    assert result["run_name"] == "12345"
+    assert isinstance(result["run_name"], str)
+
+
+def test_resolve_paths_relative_to_config(tmp_path):
+    """Test path resolution relative to config file directory."""
+    from pathlib import Path
+
+    from ced_ml.config.loader import resolve_paths_relative_to_config
+
+    # Create test directory structure
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    # Create test data file
+    test_file = data_dir / "input.csv"
+    test_file.write_text("dummy")
+
+    # Config file path
+    config_file = config_dir / "test_config.yaml"
+
+    # Config dict with relative path
+    config_dict = {
+        "infile": "../data/input.csv",  # Relative to config file
+        "outdir": "../results",
+    }
+
+    # Resolve paths
+    resolved = resolve_paths_relative_to_config(config_dict, config_file)
+
+    # Check that infile was resolved (exists)
+    assert Path(resolved["infile"]).exists()
+    assert Path(resolved["infile"]).is_absolute()
+
+    # Check that outdir was resolved (doesn't exist but path contains separator)
+    assert Path(resolved["outdir"]).is_absolute()
+
+
+def test_resolve_paths_nested_config(tmp_path):
+    """Test path resolution in nested config dicts."""
+    from pathlib import Path
+
+    from ced_ml.config.loader import resolve_paths_relative_to_config
+
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    test_file = data_dir / "model.joblib"
+    test_file.write_text("dummy")
+
+    config_file = config_dir / "test.yaml"
+
+    # Nested config
+    config_dict = {
+        "evaluation": {
+            "model_artifact": "../data/model.joblib",
+        },
+        "output": {
+            "outdir": "../results",
+        },
+    }
+
+    resolved = resolve_paths_relative_to_config(config_dict, config_file)
+
+    # Check nested path resolution
+    assert Path(resolved["evaluation"]["model_artifact"]).exists()
+    assert Path(resolved["evaluation"]["model_artifact"]).is_absolute()
+
+
+def test_resolve_paths_absolute_unchanged(tmp_path):
+    """Test that absolute paths are unchanged."""
+    from ced_ml.config.loader import resolve_paths_relative_to_config
+
+    config_file = tmp_path / "config.yaml"
+
+    # Absolute path should not be changed
+    abs_path = str(tmp_path / "data" / "input.csv")
+    config_dict = {"infile": abs_path}
+
+    resolved = resolve_paths_relative_to_config(config_dict, config_file)
+
+    # Absolute path unchanged
+    assert resolved["infile"] == abs_path
+
+
+def test_resolve_paths_non_path_values_unchanged(tmp_path):
+    """Test that non-path values are unchanged."""
+    from ced_ml.config.loader import resolve_paths_relative_to_config
+
+    config_file = tmp_path / "config.yaml"
+
+    # Non-path values
+    config_dict = {
+        "n_splits": 10,
+        "model": "LR_EN",
+        "val_size": 0.25,
+        "enabled": True,
+    }
+
+    resolved = resolve_paths_relative_to_config(config_dict, config_file)
+
+    # All values unchanged
+    assert resolved == config_dict
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

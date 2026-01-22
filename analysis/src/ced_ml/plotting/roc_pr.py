@@ -5,8 +5,8 @@ Provides functions to generate ROC and PR curves with confidence intervals
 and threshold annotations.
 """
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -36,12 +36,9 @@ def plot_roc_curve(
     out_path: Path,
     title: str,
     subtitle: str = "",
-    split_ids: Optional[np.ndarray] = None,
-    meta_lines: Optional[Sequence[str]] = None,
-    youden_threshold: Optional[float] = None,
-    alpha_threshold: Optional[float] = None,
-    metrics_at_thresholds: Optional[dict] = None,
-    threshold_bundle: Optional[dict] = None,
+    split_ids: np.ndarray | None = None,
+    meta_lines: Sequence[str] | None = None,
+    threshold_bundle: dict | None = None,
 ) -> None:
     """
     Plot ROC curve with optional split-wise confidence bands and threshold markers.
@@ -54,16 +51,22 @@ def plot_roc_curve(
         subtitle: Optional subtitle
         split_ids: Array indicating split membership for each sample
         meta_lines: Optional metadata lines to display at bottom
-        youden_threshold: Youden threshold value (for marker) [deprecated, use threshold_bundle]
-        alpha_threshold: Alpha threshold value (for marker) [deprecated, use threshold_bundle]
-        metrics_at_thresholds: Dict with threshold keys containing fpr/tpr [deprecated, use threshold_bundle]
-        threshold_bundle: ThresholdBundle from compute_threshold_bundle() - preferred interface.
-            If provided, overrides individual threshold parameters.
+        threshold_bundle: ThresholdBundle from compute_threshold_bundle() containing
+            threshold values and metrics. See ced_ml.metrics.thresholds.compute_threshold_bundle().
 
     Returns:
         None. Saves plot to out_path.
+
+    Example:
+        >>> from ced_ml.metrics.thresholds import compute_threshold_bundle
+        >>> bundle = compute_threshold_bundle(y_true, y_pred, target_spec=0.95)
+        >>> plot_roc_curve(y_true, y_pred, "roc.png", "My Model", threshold_bundle=bundle)
     """
-    # If threshold_bundle provided, extract values (preferred interface)
+    # Extract threshold information from bundle if provided
+    youden_threshold = None
+    alpha_threshold = None
+    metrics_at_thresholds = None
+
     if threshold_bundle is not None:
         youden_threshold = threshold_bundle.get("youden_threshold")
         alpha_threshold = threshold_bundle.get("spec_target_threshold")
@@ -145,29 +148,19 @@ def plot_roc_curve(
         ax.plot(fpr, tpr, color="steelblue", linewidth=2, label=f"AUC = {auc:.3f}")
 
     if metrics_at_thresholds is not None:
+        # Collect marker coordinates for overlap detection
+        fpr_youden = None
+        tpr_youden = None
+        fpr_alpha = None
+        tpr_alpha = None
+
+        # Extract Youden coordinates
         if youden_threshold is not None and "youden" in metrics_at_thresholds:
             m = metrics_at_thresholds["youden"]
             fpr_youden = m.get("fpr", None)
             tpr_youden = m.get("tpr", None)
-            if (
-                fpr_youden is not None
-                and tpr_youden is not None
-                and 0 <= fpr_youden <= 1
-                and 0 <= tpr_youden <= 1
-            ):
-                ax.scatter(
-                    [fpr_youden],
-                    [tpr_youden],
-                    s=100,
-                    color="green",
-                    marker="o",
-                    edgecolors="darkgreen",
-                    linewidths=2,
-                    label="Youden",
-                    zorder=5,
-                )
 
-        # Accept alpha, spec95, or spec_target keys for specificity threshold
+        # Extract spec_target coordinates
         spec_key = next(
             (k for k in ["alpha", "spec95", "spec_target"] if k in metrics_at_thresholds),
             None,
@@ -176,23 +169,58 @@ def plot_roc_curve(
             m = metrics_at_thresholds[spec_key]
             fpr_alpha = m.get("fpr", None)
             tpr_alpha = m.get("tpr", None)
-            if (
-                fpr_alpha is not None
-                and tpr_alpha is not None
-                and 0 <= fpr_alpha <= 1
-                and 0 <= tpr_alpha <= 1
-            ):
-                ax.scatter(
-                    [fpr_alpha],
-                    [tpr_alpha],
-                    s=100,
-                    color="orange",
-                    marker="D",
-                    edgecolors="darkorange",
-                    linewidths=2,
-                    label="Alpha threshold",
-                    zorder=5,
-                )
+
+        # Check for overlap (within 2% of plot range)
+        markers_overlap = False
+        if (
+            fpr_youden is not None
+            and tpr_youden is not None
+            and fpr_alpha is not None
+            and tpr_alpha is not None
+        ):
+            dist = np.sqrt((fpr_youden - fpr_alpha) ** 2 + (tpr_youden - tpr_alpha) ** 2)
+            markers_overlap = dist < 0.02  # 2% threshold for overlap
+
+        # Apply offset if overlapping (shift Youden left, spec_target right)
+        offset = 0.015 if markers_overlap else 0.0
+
+        # Plot Youden marker
+        if (
+            fpr_youden is not None
+            and tpr_youden is not None
+            and 0 <= fpr_youden <= 1
+            and 0 <= tpr_youden <= 1
+        ):
+            ax.scatter(
+                [fpr_youden - offset],
+                [tpr_youden],
+                s=100,
+                color="green",
+                marker="o",
+                edgecolors="darkgreen",
+                linewidths=2,
+                label="Youden",
+                zorder=5,
+            )
+
+        # Plot spec_target marker
+        if (
+            fpr_alpha is not None
+            and tpr_alpha is not None
+            and 0 <= fpr_alpha <= 1
+            and 0 <= tpr_alpha <= 1
+        ):
+            ax.scatter(
+                [fpr_alpha + offset],
+                [tpr_alpha],
+                s=100,
+                color="orange",
+                marker="D",
+                edgecolors="darkorange",
+                linewidths=2,
+                label="Alpha threshold",
+                zorder=5,
+            )
 
     ax.set_xlabel("False Positive Rate")
     ax.set_ylabel("True Positive Rate")
@@ -217,8 +245,8 @@ def plot_pr_curve(
     out_path: Path,
     title: str,
     subtitle: str = "",
-    split_ids: Optional[np.ndarray] = None,
-    meta_lines: Optional[Sequence[str]] = None,
+    split_ids: np.ndarray | None = None,
+    meta_lines: Sequence[str] | None = None,
 ) -> None:
     """
     Plot Precision-Recall curve with optional split-wise confidence bands.

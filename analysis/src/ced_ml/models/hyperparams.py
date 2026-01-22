@@ -7,8 +7,6 @@ Provides:
 - Model-specific tuning ranges
 """
 
-from typing import Dict, List, Optional, Union
-
 import numpy as np
 
 from ..config import TrainingConfig
@@ -17,9 +15,9 @@ from ..config import TrainingConfig
 def get_param_distributions(
     model_name: str,
     config: TrainingConfig,
-    xgb_spw: Optional[float] = None,
-    grid_rng: Optional[np.random.Generator] = None,
-) -> Dict[str, List]:
+    xgb_spw: float | None = None,
+    grid_rng: np.random.Generator | None = None,
+) -> dict[str, list]:
     """
     Get parameter distribution for RandomizedSearchCV.
 
@@ -48,7 +46,7 @@ def get_param_distributions(
 
     # Model-specific parameters
     if model_name in ("LR_EN", "LR_L1"):
-        param_dists.update(_get_lr_params(config, randomize, grid_rng))
+        param_dists.update(_get_lr_params(config, randomize, grid_rng, model_name=model_name))
 
     elif model_name == "LinSVM_cal":
         param_dists.update(_get_svm_params(config, randomize, grid_rng))
@@ -63,9 +61,22 @@ def get_param_distributions(
 
 
 def _get_lr_params(
-    config: TrainingConfig, randomize: bool, rng: Optional[np.random.Generator]
-) -> Dict[str, List]:
-    """Logistic Regression hyperparameters."""
+    config: TrainingConfig,
+    randomize: bool,
+    rng: np.random.Generator | None,
+    model_name: str = "LR_EN",
+) -> dict[str, list]:
+    """Logistic Regression hyperparameters.
+
+    Args:
+        config: TrainingConfiguration object
+        randomize: Whether to perturb grids for sensitivity analysis
+        rng: Random number generator for perturbation
+        model_name: Model identifier (LR_EN or LR_L1)
+
+    Returns:
+        Dictionary mapping parameter names to value lists
+    """
     # C values (inverse regularization strength)
     C_grid = _make_logspace(
         config.lr.C_min,
@@ -74,10 +85,17 @@ def _get_lr_params(
         rng=rng if randomize else None,
     )
 
+    params = {"clf__C": C_grid}
+
+    # l1_ratio for ElasticNet (LR_EN only, not LR_L1)
+    if model_name == "LR_EN":
+        l1_grid = config.lr.l1_ratio.copy()
+        if randomize and rng:
+            l1_grid = _randomize_float_list(l1_grid, rng, min_val=0.0, max_val=1.0)
+        params["clf__l1_ratio"] = l1_grid
+
     # Class weights
     class_weight_options = _parse_class_weight_options(config.lr.class_weight_options)
-
-    params = {"clf__C": C_grid}
     if class_weight_options:
         params["clf__class_weight"] = class_weight_options
 
@@ -85,8 +103,8 @@ def _get_lr_params(
 
 
 def _get_svm_params(
-    config: TrainingConfig, randomize: bool, rng: Optional[np.random.Generator]
-) -> Dict[str, List]:
+    config: TrainingConfig, randomize: bool, rng: np.random.Generator | None
+) -> dict[str, list]:
     """Linear SVM hyperparameters (wrapped in CalibratedClassifierCV)."""
     # C values
     C_grid = _make_logspace(
@@ -110,8 +128,8 @@ def _get_svm_params(
 
 
 def _get_rf_params(
-    config: TrainingConfig, randomize: bool, rng: Optional[np.random.Generator]
-) -> Dict[str, List]:
+    config: TrainingConfig, randomize: bool, rng: np.random.Generator | None
+) -> dict[str, list]:
     """Random Forest hyperparameters."""
     n_estimators_grid = config.rf.n_estimators_grid.copy()
     max_depth_grid = config.rf.max_depth_grid.copy()
@@ -144,16 +162,22 @@ def _get_rf_params(
 
 def _get_xgb_params(
     config: TrainingConfig,
-    xgb_spw: Optional[float],
+    xgb_spw: float | None,
     randomize: bool,
-    rng: Optional[np.random.Generator],
-) -> Dict[str, List]:
+    rng: np.random.Generator | None,
+) -> dict[str, list]:
     """XGBoost hyperparameters."""
     n_estimators_grid = config.xgboost.n_estimators_grid.copy()
     max_depth_grid = config.xgboost.max_depth_grid.copy()
     learning_rate_grid = config.xgboost.learning_rate_grid.copy()
     subsample_grid = config.xgboost.subsample_grid.copy()
     colsample_grid = config.xgboost.colsample_bytree_grid.copy()
+
+    # Regularization parameters
+    min_child_weight_grid = config.xgboost.min_child_weight_grid.copy()
+    gamma_grid = config.xgboost.gamma_grid.copy()
+    reg_alpha_grid = config.xgboost.reg_alpha_grid.copy()
+    reg_lambda_grid = config.xgboost.reg_lambda_grid.copy()
 
     # Scale pos weight grid
     if xgb_spw is not None:
@@ -171,6 +195,11 @@ def _get_xgb_params(
         subsample_grid = _randomize_float_list(subsample_grid, rng, min_val=0.1, max_val=1.0)
         colsample_grid = _randomize_float_list(colsample_grid, rng, min_val=0.1, max_val=1.0)
         spw_grid = _randomize_float_list(spw_grid, rng, min_val=1e-3)
+        # Regularization params
+        min_child_weight_grid = _randomize_int_list(min_child_weight_grid, rng, min_val=1)
+        gamma_grid = _randomize_float_list(gamma_grid, rng, min_val=0.0)
+        reg_alpha_grid = _randomize_float_list(reg_alpha_grid, rng, min_val=0.0, log_scale=True)
+        reg_lambda_grid = _randomize_float_list(reg_lambda_grid, rng, min_val=0.1, log_scale=True)
 
     return {
         "clf__n_estimators": n_estimators_grid,
@@ -179,6 +208,11 @@ def _get_xgb_params(
         "clf__subsample": subsample_grid,
         "clf__colsample_bytree": colsample_grid,
         "clf__scale_pos_weight": spw_grid,
+        # Regularization parameters
+        "clf__min_child_weight": min_child_weight_grid,
+        "clf__gamma": gamma_grid,
+        "clf__reg_alpha": reg_alpha_grid,
+        "clf__reg_lambda": reg_lambda_grid,
     }
 
 
@@ -186,8 +220,8 @@ def _make_logspace(
     min_val: float,
     max_val: float,
     n_points: int,
-    rng: Optional[np.random.Generator] = None,
-) -> List[float]:
+    rng: np.random.Generator | None = None,
+) -> list[float]:
     """
     Create log-spaced grid.
 
@@ -217,7 +251,7 @@ def _make_logspace(
     return grid
 
 
-def _parse_class_weight_options(options_str: str) -> List:
+def _parse_class_weight_options(options_str: str) -> list:
     """
     Parse class_weight options string.
 
@@ -275,11 +309,11 @@ def _parse_class_weight_options(options_str: str) -> List:
 
 
 def _randomize_int_list(
-    values: List[int],
+    values: list[int],
     rng: np.random.Generator,
     min_val: int = 1,
     unique: bool = False,
-) -> List[int]:
+) -> list[int]:
     """
     Perturb integer grid values for sensitivity analysis.
 
@@ -317,12 +351,12 @@ def _randomize_int_list(
 
 
 def _randomize_float_list(
-    values: List[Union[str, float]],
+    values: list[str | float],
     rng: np.random.Generator,
     min_val: float = 0.0,
     max_val: float = np.inf,
     log_scale: bool = False,
-) -> List[Union[str, float]]:
+) -> list[str | float]:
     """
     Perturb float grid values for sensitivity analysis.
 
@@ -372,8 +406,8 @@ def _randomize_float_list(
 def get_param_distributions_optuna(
     model_name: str,
     config: TrainingConfig,
-    xgb_spw: Optional[float] = None,
-) -> Dict[str, Dict]:
+    xgb_spw: float | None = None,
+) -> dict[str, dict]:
     """
     Convert sklearn param distributions to Optuna suggest specs.
 
@@ -406,7 +440,7 @@ def get_param_distributions_optuna(
     return optuna_dists
 
 
-def _to_optuna_spec(name: str, values: List) -> Optional[Dict]:
+def _to_optuna_spec(name: str, values: list) -> dict | None:
     """
     Convert a single sklearn parameter grid to Optuna spec.
 
@@ -446,7 +480,7 @@ def _to_optuna_spec(name: str, values: List) -> Optional[Dict]:
     return {"type": "categorical", "choices": values}
 
 
-def _is_log_spaced(values: List) -> bool:
+def _is_log_spaced(values: list) -> bool:
     """
     Heuristically detect if values are log-spaced.
 

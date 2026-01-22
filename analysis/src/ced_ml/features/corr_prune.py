@@ -9,7 +9,7 @@ This module implements correlation-based redundancy removal for feature panels:
 All correlation analysis is performed on TRAIN data only to prevent test leakage.
 """
 
-from typing import Dict, List, Literal, Optional, Set, Tuple
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -18,7 +18,7 @@ from scipy import stats
 
 def compute_correlation_matrix(
     df: pd.DataFrame,
-    proteins: List[str],
+    proteins: list[str],
     method: Literal["pearson", "spearman"] = "pearson",
 ) -> pd.DataFrame:
     """Compute correlation matrix for protein features.
@@ -117,7 +117,7 @@ def find_high_correlation_pairs(
 def build_correlation_graph(
     corr_matrix: pd.DataFrame,
     threshold: float = 0.80,
-) -> Dict[str, Set[str]]:
+) -> dict[str, set[str]]:
     """Build adjacency graph of highly correlated proteins.
 
     Parameters
@@ -154,8 +154,8 @@ def build_correlation_graph(
 
 
 def find_connected_components(
-    adjacency: Dict[str, Set[str]],
-) -> List[List[str]]:
+    adjacency: dict[str, set[str]],
+) -> list[list[str]]:
     """Find connected components in correlation graph via DFS.
 
     Parameters
@@ -202,8 +202,8 @@ def find_connected_components(
 def compute_univariate_strength(
     df: pd.DataFrame,
     y: np.ndarray,
-    proteins: List[str],
-) -> Dict[str, Tuple[float, float]]:
+    proteins: list[str],
+) -> dict[str, tuple[float, float]]:
     """Compute univariate strength for proteins using Mann-Whitney U test.
 
     Parameters
@@ -274,10 +274,10 @@ def compute_univariate_strength(
 
 
 def select_component_representative(
-    component: List[str],
-    selection_freq: Optional[Dict[str, float]],
+    component: list[str],
+    selection_freq: dict[str, float] | None,
     tiebreak_method: Literal["freq", "freq_then_univariate"],
-    univariate_strength: Optional[Dict[str, Tuple[float, float]]] = None,
+    univariate_strength: dict[str, tuple[float, float]] | None = None,
 ) -> str:
     """Select one representative protein from a correlated component.
 
@@ -309,7 +309,7 @@ def select_component_representative(
     4. If all tied: alphabetical order (reproducible)
     """
 
-    def sort_key(protein: str) -> Tuple:
+    def sort_key(protein: str) -> tuple:
         # Primary: higher selection frequency
         freq = selection_freq.get(protein, np.nan) if selection_freq else np.nan
         freq_clean = freq if np.isfinite(freq) else 0.0
@@ -331,13 +331,13 @@ def select_component_representative(
 
 def prune_correlated_proteins(
     df: pd.DataFrame,
-    y: Optional[np.ndarray],
-    proteins: List[str],
-    selection_freq: Optional[Dict[str, float]],
+    y: np.ndarray | None,
+    proteins: list[str],
+    selection_freq: dict[str, float] | None,
     corr_threshold: float = 0.80,
     corr_method: Literal["pearson", "spearman"] = "pearson",
     tiebreak_method: Literal["freq", "freq_then_univariate"] = "freq",
-) -> Tuple[pd.DataFrame, List[str]]:
+) -> tuple[pd.DataFrame, list[str]]:
     """Collapse highly correlated proteins into components and select representatives.
 
     Parameters
@@ -446,13 +446,13 @@ def prune_correlated_proteins(
 
 def refill_panel_to_target_size(
     df: pd.DataFrame,
-    kept_proteins: List[str],
-    ranked_candidates: List[str],
+    kept_proteins: list[str],
+    ranked_candidates: list[str],
     target_size: int,
     corr_threshold: float = 0.80,
     corr_method: Literal["pearson", "spearman"] = "pearson",
     pool_limit: int = 3000,
-) -> List[str]:
+) -> list[str]:
     """Refill pruned panel to target size while avoiding high correlations.
 
     Parameters
@@ -529,15 +529,15 @@ def refill_panel_to_target_size(
 
 def prune_and_refill_panel(
     df: pd.DataFrame,
-    y: Optional[np.ndarray],
-    ranked_proteins: List[str],
-    selection_freq: Dict[str, float],
+    y: np.ndarray | None,
+    ranked_proteins: list[str],
+    selection_freq: dict[str, float],
     target_size: int,
     corr_threshold: float = 0.80,
     corr_method: Literal["pearson", "spearman"] = "pearson",
     tiebreak_method: Literal["freq", "freq_then_univariate"] = "freq",
     pool_limit: int = 3000,
-) -> Tuple[pd.DataFrame, List[str]]:
+) -> tuple[pd.DataFrame, list[str]]:
     """Build correlation-pruned panel of target size.
 
     This is the main entry point combining pruning and refilling:

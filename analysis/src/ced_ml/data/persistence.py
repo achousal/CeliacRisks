@@ -18,7 +18,7 @@ Behavioral equivalence:
 
 import json
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -33,9 +33,9 @@ from .splits import compute_split_id
 def validate_split_indices(
     train_idx: np.ndarray,
     test_idx: np.ndarray,
-    val_idx: Optional[np.ndarray] = None,
-    total_samples: Optional[int] = None,
-) -> Tuple[bool, str]:
+    val_idx: np.ndarray | None = None,
+    total_samples: int | None = None,
+) -> tuple[bool, str]:
     """Validate split indices for integrity.
 
     Args:
@@ -114,7 +114,7 @@ def check_split_files_exist(
     seed: int,
     has_val: bool = False,
     n_splits: int = 1,
-) -> Tuple[bool, List[str]]:
+) -> tuple[bool, list[str]]:
     """Check if split files already exist in output directory.
 
     Args:
@@ -127,7 +127,7 @@ def check_split_files_exist(
     Returns:
         Tuple of (files_exist, existing_paths)
     """
-    suffix = f"_seed{seed if seed is not None else 0}"
+    suffix = f"_{scenario}_seed{seed if seed is not None else 0}"
 
     expected_files = [
         os.path.join(outdir, f"train_idx{suffix}.csv"),
@@ -137,11 +137,84 @@ def check_split_files_exist(
         expected_files.append(os.path.join(outdir, f"val_idx{suffix}.csv"))
 
     # Also check metadata
-    expected_files.append(os.path.join(outdir, f"split_meta_seed{seed}.json"))
+    expected_files.append(os.path.join(outdir, f"split_meta_{scenario}_seed{seed}.json"))
 
     existing = [f for f in expected_files if os.path.exists(f)]
 
     return len(existing) > 0, existing
+
+
+def validate_existing_splits(
+    outdir: str,
+    scenario: str,
+    seed: int,
+    train_idx: np.ndarray,
+    test_idx: np.ndarray,
+    val_idx: np.ndarray | None = None,
+) -> tuple[bool, str]:
+    """Validate if existing split files match requested split configuration.
+
+    Checks if existing split files contain the same indices as the requested split.
+    This allows reusing splits when they match, avoiding unnecessary regeneration.
+
+    Args:
+        outdir: Output directory path
+        scenario: Scenario name (e.g., "IncidentOnly")
+        seed: Random seed
+        train_idx: Requested training set indices
+        test_idx: Requested test set indices
+        val_idx: Requested validation set indices (optional)
+
+    Returns:
+        Tuple of (is_match, message).
+        - is_match=True if files exist and match exactly
+        - message describes the result or mismatch
+    """
+    # Check if files exist
+    has_val = val_idx is not None and len(val_idx) > 0
+    files_exist, existing = check_split_files_exist(outdir, scenario, seed, has_val)
+
+    if not files_exist:
+        return False, "Split files do not exist"
+
+    # Check if all expected files exist
+    suffix = f"_{scenario}_seed{seed if seed is not None else 0}"
+    train_path = os.path.join(outdir, f"train_idx{suffix}.csv")
+    test_path = os.path.join(outdir, f"test_idx{suffix}.csv")
+    val_path = os.path.join(outdir, f"val_idx{suffix}.csv") if has_val else None
+
+    if not os.path.exists(train_path) or not os.path.exists(test_path):
+        return False, "Missing train or test split file"
+
+    if has_val and not os.path.exists(val_path):
+        return False, "Missing validation split file"
+
+    # Load existing indices
+    try:
+        existing_train = pd.read_csv(train_path)["idx"].values
+        existing_test = pd.read_csv(test_path)["idx"].values
+        existing_val = pd.read_csv(val_path)["idx"].values if has_val else None
+    except Exception as e:
+        return False, f"Failed to load existing split files: {e}"
+
+    # Compare indices (order-independent via sets)
+    train_match = set(existing_train) == set(train_idx)
+    test_match = set(existing_test) == set(test_idx)
+    val_match = True if not has_val else (set(existing_val) == set(val_idx))
+
+    if train_match and test_match and val_match:
+        return True, "Existing split files match requested configuration exactly"
+
+    # Build detailed mismatch message
+    mismatches = []
+    if not train_match:
+        mismatches.append(f"TRAIN ({len(existing_train)} vs {len(train_idx)} samples)")
+    if not test_match:
+        mismatches.append(f"TEST ({len(existing_test)} vs {len(test_idx)} samples)")
+    if has_val and not val_match:
+        mismatches.append(f"VAL ({len(existing_val)} vs {len(val_idx)} samples)")
+
+    return False, f"Split files differ: {', '.join(mismatches)}"
 
 
 # ============================================================================
@@ -155,10 +228,10 @@ def save_split_indices(
     seed: int,
     train_idx: np.ndarray,
     test_idx: np.ndarray,
-    val_idx: Optional[np.ndarray] = None,
+    val_idx: np.ndarray | None = None,
     n_splits: int = 1,
     overwrite: bool = False,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Save train/val/test indices to CSV files.
 
     Args:
@@ -191,14 +264,42 @@ def save_split_indices(
     # Check for existing files
     has_val = val_idx is not None and len(val_idx) > 0
     files_exist, existing = check_split_files_exist(outdir, scenario, seed, has_val, n_splits)
+
     if files_exist and not overwrite:
-        raise FileExistsError(
-            "Split files already exist. Use overwrite=True to replace:\n"
-            + "\n".join(f"  {p}" for p in existing)
+        # Validate if existing splits match requested configuration
+        is_match, match_msg = validate_existing_splits(
+            outdir, scenario, seed, train_idx, test_idx, val_idx
         )
 
-    # Build file paths
-    suffix = f"_seed{seed if seed is not None else 0}"
+        if is_match:
+            # Splits match - warn and skip regeneration
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Split files already exist and match requested configuration (seed={seed}, scenario={scenario}). "
+                f"Skipping regeneration. Set overwrite=True to force regeneration."
+            )
+            # Return existing paths
+            suffix = f"_{scenario}_seed{seed if seed is not None else 0}"
+            paths = {
+                "train": os.path.join(outdir, f"train_idx{suffix}.csv"),
+                "test": os.path.join(outdir, f"test_idx{suffix}.csv"),
+            }
+            if has_val:
+                paths["val"] = os.path.join(outdir, f"val_idx{suffix}.csv")
+            return paths
+        else:
+            # Splits differ - raise error
+            raise FileExistsError(
+                f"Split files already exist but DO NOT match requested configuration:\n"
+                f"  {match_msg}\n"
+                f"Existing files:\n" + "\n".join(f"  {p}" for p in existing) + "\n"
+                "Use overwrite=True to replace with new splits."
+            )
+
+    # Build file paths (include scenario to prevent overwrites in multi-scenario runs)
+    suffix = f"_{scenario}_seed{seed if seed is not None else 0}"
     paths = {
         "train": os.path.join(outdir, f"train_idx{suffix}.csv"),
         "test": os.path.join(outdir, f"test_idx{suffix}.csv"),
@@ -273,17 +374,17 @@ def save_split_metadata(
     test_idx: np.ndarray,
     y_train: np.ndarray,
     y_test: np.ndarray,
-    val_idx: Optional[np.ndarray] = None,
-    y_val: Optional[np.ndarray] = None,
+    val_idx: np.ndarray | None = None,
+    y_val: np.ndarray | None = None,
     split_type: str = "development",
-    strat_scheme: Optional[str] = None,
-    row_filter_stats: Optional[Dict[str, Any]] = None,
+    strat_scheme: str | None = None,
+    row_filter_stats: dict[str, Any] | None = None,
     index_space: str = "full",
     temporal_split: bool = False,
-    temporal_col: Optional[str] = None,
-    temporal_train_end: Optional[str] = None,
-    temporal_test_start: Optional[str] = None,
-    temporal_test_end: Optional[str] = None,
+    temporal_col: str | None = None,
+    temporal_train_end: str | None = None,
+    temporal_test_start: str | None = None,
+    temporal_test_end: str | None = None,
 ) -> str:
     """Save split metadata to JSON file.
 
@@ -337,7 +438,7 @@ def save_split_metadata(
             "temporal_test_end_value": str (optional)
         }
     """
-    meta: Dict[str, Any] = {
+    meta: dict[str, Any] = {
         "scenario": scenario,
         "seed": int(seed),
         "split_type": split_type,
@@ -383,8 +484,8 @@ def save_split_metadata(
         if temporal_test_end is not None:
             meta["temporal_test_end_value"] = temporal_test_end
 
-    # Save to file
-    meta_path = os.path.join(outdir, f"split_meta_seed{seed}.json")
+    # Save to file (include scenario to prevent overwrites)
+    meta_path = os.path.join(outdir, f"split_meta_{scenario}_seed{seed}.json")
     os.makedirs(outdir, exist_ok=True)
 
     with open(meta_path, "w") as f:
@@ -398,13 +499,13 @@ def save_holdout_metadata(
     scenario: str,
     holdout_idx: np.ndarray,
     y_holdout: np.ndarray,
-    strat_scheme: Optional[str] = None,
-    row_filter_stats: Optional[Dict[str, Any]] = None,
-    warning: Optional[str] = None,
+    strat_scheme: str | None = None,
+    row_filter_stats: dict[str, Any] | None = None,
+    warning: str | None = None,
     temporal_split: bool = False,
-    temporal_col: Optional[str] = None,
-    temporal_start: Optional[str] = None,
-    temporal_end: Optional[str] = None,
+    temporal_col: str | None = None,
+    temporal_start: str | None = None,
+    temporal_end: str | None = None,
 ) -> str:
     """Save holdout set metadata to JSON file.
 
@@ -424,7 +525,7 @@ def save_holdout_metadata(
     Returns:
         Path to saved JSON metadata file
     """
-    meta: Dict[str, Any] = {
+    meta: dict[str, Any] = {
         "scenario": scenario,
         "split_type": "holdout",
         "seed": 42,  # Fixed seed for holdout

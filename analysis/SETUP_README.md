@@ -10,7 +10,7 @@ This guide covers environment setup for both local development and HPC productio
 
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.10+
 - Git (for version tracking)
 - ~2 GB disk space for dependencies
 - Input data file: `../data/Celiac_dataset_proteomics_w_demo.parquet`
@@ -128,7 +128,7 @@ bash scripts/hpc_setup.sh
 ```
 
 This script will:
-1. Check Python version (requires 3.8+)
+1. Check Python version (requires 3.10+)
 2. Create virtual environment in `venv/`
 3. Install package and dependencies
 4. Run optional test suite
@@ -474,7 +474,7 @@ python --version > python_version.txt
 If you encounter issues:
 
 1. Check this guide's troubleshooting section
-2. Verify Python version: `python --version` (requires 3.8+)
+2. Verify Python version: `python --version` (requires 3.10+)
 3. Check logs in `logs_local/` or `logs_a/`
 4. Run tests: `pytest tests/ -v`
 5. Contact: Andres Chousal

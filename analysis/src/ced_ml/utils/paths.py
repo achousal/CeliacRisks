@@ -3,10 +3,9 @@ Path utilities for standardized file/directory operations.
 """
 
 from pathlib import Path
-from typing import Union
 
 
-def ensure_dir(path: Union[str, Path]) -> Path:
+def ensure_dir(path: str | Path) -> Path:
     """Create directory if it doesn't exist, return Path object."""
     path = Path(path)
     path.mkdir(parents=True, exist_ok=True)
@@ -14,7 +13,7 @@ def ensure_dir(path: Union[str, Path]) -> Path:
 
 
 def get_run_dir(
-    base_dir: Union[str, Path],
+    base_dir: str | Path,
     scenario: str,
     model: str,
     cv_config: str,
@@ -47,21 +46,21 @@ def get_run_dir(
     return run_dir
 
 
-def get_core_dir(run_dir: Union[str, Path]) -> Path:
+def get_core_dir(run_dir: str | Path) -> Path:
     """Get core results directory."""
     return ensure_dir(Path(run_dir) / "core")
 
 
-def get_preds_dir(run_dir: Union[str, Path]) -> Path:
+def get_preds_dir(run_dir: str | Path) -> Path:
     """Get predictions directory."""
     return ensure_dir(Path(run_dir) / "preds")
 
 
-def get_diagnostics_dir(run_dir: Union[str, Path]) -> Path:
+def get_diagnostics_dir(run_dir: str | Path) -> Path:
     """Get diagnostics directory."""
     return ensure_dir(Path(run_dir) / "diagnostics")
 
 
-def get_reports_dir(run_dir: Union[str, Path]) -> Path:
+def get_reports_dir(run_dir: str | Path) -> Path:
     """Get reports directory."""
     return ensure_dir(Path(run_dir) / "reports")

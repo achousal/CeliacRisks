@@ -122,12 +122,13 @@ class TestPRAUC:
         assert pr < 0.5
 
     def test_single_class_all_positives(self):
-        """PR-AUC returns 1.0 for all positives (sklearn behavior)."""
+        """PR-AUC returns NaN for all positives (single-class guard)."""
         y_true = np.array([1, 1, 1, 1])
         y_pred = np.array([0.1, 0.2, 0.8, 0.9])
-        # sklearn returns 1.0 for all positives (precision always 1.0)
-        result = prauc(y_true, y_pred)
-        assert result == 1.0
+        # With single-class guard, returns NaN and warns
+        with pytest.warns(UserWarning, match="PR-AUC requires both classes"):
+            result = prauc(y_true, y_pred)
+        assert np.isnan(result)
 
     def test_matches_sklearn(self):
         """PR-AUC matches sklearn implementation."""
@@ -412,3 +413,77 @@ class TestNumericalStability:
 
         metrics = compute_discrimination_metrics(y_true, y_pred)
         assert all(0.0 <= v <= 1.0 for v in metrics.values())
+
+
+class TestSingleClassGuards:
+    """Test handling of single-class edge cases."""
+
+    def test_auroc_all_negatives(self):
+        """AUROC returns NaN when only negative class present."""
+        y_true = np.array([0, 0, 0, 0])
+        y_pred = np.array([0.1, 0.2, 0.3, 0.4])
+
+        with pytest.warns(UserWarning, match="AUROC requires both classes"):
+            result = auroc(y_true, y_pred)
+        assert np.isnan(result)
+
+    def test_auroc_all_positives(self):
+        """AUROC returns NaN when only positive class present."""
+        y_true = np.array([1, 1, 1, 1])
+        y_pred = np.array([0.6, 0.7, 0.8, 0.9])
+
+        with pytest.warns(UserWarning, match="AUROC requires both classes"):
+            result = auroc(y_true, y_pred)
+        assert np.isnan(result)
+
+    def test_prauc_all_negatives(self):
+        """PR-AUC returns NaN when only negative class present."""
+        y_true = np.array([0, 0, 0, 0])
+        y_pred = np.array([0.1, 0.2, 0.3, 0.4])
+
+        with pytest.warns(UserWarning, match="PR-AUC requires both classes"):
+            result = prauc(y_true, y_pred)
+        assert np.isnan(result)
+
+    def test_prauc_all_positives(self):
+        """PR-AUC returns NaN when only positive class present."""
+        y_true = np.array([1, 1, 1, 1])
+        y_pred = np.array([0.6, 0.7, 0.8, 0.9])
+
+        with pytest.warns(UserWarning, match="PR-AUC requires both classes"):
+            result = prauc(y_true, y_pred)
+        assert np.isnan(result)
+
+    def test_youden_all_negatives(self):
+        """Youden's J returns NaN when only negative class present."""
+        y_true = np.array([0, 0, 0, 0])
+        y_pred = np.array([0.1, 0.2, 0.3, 0.4])
+
+        with pytest.warns(UserWarning, match="Youden's J requires both classes"):
+            result = youden_j(y_true, y_pred)
+        assert np.isnan(result)
+
+    def test_compute_discrimination_metrics_single_class(self):
+        """Aggregate function returns all NaN for single class."""
+        y_true = np.array([0, 0, 0, 0])
+        y_pred = np.array([0.1, 0.2, 0.3, 0.4])
+
+        with pytest.warns(
+            UserWarning, match="compute_discrimination_metrics requires both classes"
+        ):
+            metrics = compute_discrimination_metrics(y_true, y_pred)
+
+        assert np.isnan(metrics["AUROC"])
+        assert np.isnan(metrics["PR_AUC"])
+        assert np.isnan(metrics["Youden"])
+        assert np.isnan(metrics["Alpha"])
+
+    def test_brier_score_single_class_still_works(self):
+        """Brier score doesn't require both classes (it's calibration)."""
+        y_true = np.array([0, 0, 0, 0])
+        y_pred = np.array([0.1, 0.2, 0.3, 0.4])
+
+        # Should not warn or fail
+        result = compute_brier_score(y_true, y_pred)
+        assert np.isfinite(result)
+        assert result >= 0.0
