@@ -260,8 +260,8 @@ def fill_missing_categorical(
     """
     Fill missing values in categorical columns with explicit category.
 
-    Strategy: Convert to string and replace NaN/None representations with fill_value.
-    This is more robust than .fillna() for pandas string dtypes.
+    Strategy: Use fillna() to handle missing values, then convert to object dtype.
+    This works consistently across pandas versions.
 
     Args:
         df: DataFrame to process
@@ -284,8 +284,8 @@ def fill_missing_categorical(
         if col not in df.columns:
             logger.warning(f"Column '{col}' not found, skipping missing fill")
             continue
-        # Convert to string and replace nan/None representations
-        df[col] = df[col].astype(str).replace(["nan", "None"], fill_value)
+        # Fill missing values directly with fillna, then convert to object dtype
+        df[col] = df[col].fillna(fill_value).astype(object)
         logger.debug(f"Filled missing values in '{col}' with '{fill_value}'")
 
     return df

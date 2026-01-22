@@ -182,7 +182,8 @@ class TestCoerceNumericColumns:
         df = pd.DataFrame({"age": ["25", "30"]})
         result = coerce_numeric_columns(df, ["age"], inplace=False)
         assert id(result) != id(df)
-        assert df["age"].dtype == object  # Original unchanged
+        # Original unchanged (dtype may be object or StringDtype depending on pandas version)
+        assert not pd.api.types.is_numeric_dtype(df["age"])
         assert pd.api.types.is_numeric_dtype(result["age"])
 
     def test_skip_missing_columns(self):
