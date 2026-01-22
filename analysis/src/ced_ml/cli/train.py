@@ -5,7 +5,6 @@ Thin wrapper around existing celiacML_faith.py logic with new config system.
 """
 
 import json
-import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -402,31 +401,43 @@ def run_train(
     # Determine split seed (used for output subdirs and loading splits)
     seed = getattr(config, "split_seed", getattr(config, "seed", 0))
 
-    # Determine run_id (if provided)
+    # Determine run_id (if provided, otherwise generate timestamp-based)
     run_id = getattr(config, "run_id", None)
+    if run_id is None:
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # Step 4: Create output directories (with run-specific and split-specific subdirs)
     log_section(logger, "Setting Up Output Structure")
     outdirs = OutputDirectories.create(config.outdir, exist_ok=True, split_seed=seed, run_id=run_id)
     logger.info(f"Output root: {outdirs.root}")
     logger.info(f"Split seed: {seed}")
-    if run_id:
-        logger.info(f"Run ID: {run_id}")
+    logger.info(f"Run ID: {run_id}")
+
+    # File logging disabled - using shell tee instead for live log streaming
+    # (see run_hpc.sh: stdout → tee → .live.log)
+    # outdir_path = Path(config.outdir).resolve()
+    # logs_base = outdir_path.parent.parent / "logs"
+    # logs_dir = logs_base / run_id
+    # logs_dir.mkdir(parents=True, exist_ok=True)
+    #
+    # log_filename = f"CeD_{config.model}_seed{seed}.log"
+    # log_file = logs_dir / log_filename
+    #
+    # live_log_file = log_file.with_suffix(".live")
+    # file_handler = logging.FileHandler(live_log_file, mode="a")
+    # file_handler.setLevel(log_level)
+    # file_handler.setFormatter(
+    #     logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+    # )
+    # file_handler._final_log_path = log_file
+    # file_handler._live_log_path = live_log_file
+    # logger.addHandler(file_handler)
+    # logger.info(f"Logging to: {live_log_file} (will become {log_file} on completion)")
 
     # Save resolved config to run-specific directory
     config_path = Path(outdirs.root) / "training_config.yaml"
     save_config(config, config_path)
     logger.info(f"Saved resolved config to: {config_path}")
-
-    # Add file handler for run.log in run-specific directory
-    log_file = Path(outdirs.root) / "run.log"
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(log_level)
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
-    )
-    logger.addHandler(file_handler)
-    logger.info(f"Logging to: {log_file}")
 
     # Log config summary
     logger.info(f"Model: {config.model}")
@@ -1536,3 +1547,6 @@ def run_train(
 
     log_section(logger, "Training Complete")
     logger.info(f"All results saved to: {config.outdir}")
+
+    # File logging disabled (using shell tee for live logs)
+    # finalize_live_log(logger)

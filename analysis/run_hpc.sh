@@ -116,6 +116,10 @@ SEED_START=$(grep "^seed_start:" "${SPLITS_CONFIG}" | awk '{print $2}')
 # Generate run ID (timestamp-based)
 RUN_ID=$(date +"%Y%m%d_%H%M%S")
 
+# Create timestamped log directory for this run
+RUN_LOGS_DIR="${LOGS_DIR}/${RUN_ID}"
+mkdir -p "${RUN_LOGS_DIR}"
+
 log "============================================"
 log "CeD-ML Pipeline (HPC, Config-Driven)"
 log "============================================"
@@ -124,6 +128,7 @@ log "Run ID: ${RUN_ID}"
 log "Input: ${INFILE}"
 log "Splits: ${SPLITS_DIR} (${N_SPLITS} splits, seeds ${SEED_START}-$((SEED_START + N_SPLITS - 1)))"
 log "Results: ${RESULTS_DIR}"
+log "Logs: ${RUN_LOGS_DIR}"
 log "Models: ${RUN_MODELS}"
 log "HPC: ${PROJECT} / ${QUEUE} / ${WALLTIME} / ${CORES}c / ${MEM}MB"
 log "Dry run: ${DRY_RUN}"
@@ -186,7 +191,8 @@ else
       else
         log "Submitting ${MODEL} (seed ${SEED})..."
 
-        LOG_BASE="${LOGS_DIR}/${JOB_NAME}.%J"
+        LOG_ERR="${RUN_LOGS_DIR}/${JOB_NAME}.%J.err"
+        LIVE_LOG="${RUN_LOGS_DIR}/${JOB_NAME}.live.log"
 
         BSUB_OUT=$(bsub \
           -P "${PROJECT}" \
@@ -195,26 +201,32 @@ else
           -n ${CORES} \
           -W "${WALLTIME}" \
           -R "span[hosts=1] rusage[mem=${MEM}]" \
-          -oo "${LOG_BASE}.out.live" \
-          -eo "${LOG_BASE}.err.live" \
-          -env "MODEL=${MODEL},SEED=${SEED},BASE_DIR=${BASE_DIR},INFILE=${INFILE},SPLITS_DIR=${SPLITS_DIR},RESULTS_DIR=${RESULTS_DIR},TRAINING_CONFIG=${TRAINING_CONFIG},LOG_BASE=${LOG_BASE},RUN_ID=${RUN_ID}" \
-          bash -c "
-            set -euo pipefail
-            source \"\${VENV_PATH}\"
+          -oo /dev/null \
+          -eo "${LOG_ERR}" \
+          <<EOF
+#!/bin/bash
+set -euo pipefail
 
-            ced train --config \"\${TRAINING_CONFIG}\" --model \"\${MODEL}\" --infile \"\${INFILE}\" --split-dir \"\${SPLITS_DIR}\" --outdir \"\${RESULTS_DIR}/\${MODEL}\" --split-seed \"\${SEED}\" --override run_id=\"\${RUN_ID}\"
-            EXIT_CODE=\$?
+# Force unbuffered output and colors for live logging
+export PYTHONUNBUFFERED=1
+export FORCE_COLOR=1
 
-            if [[ -f \"\${LOG_BASE}.out.live\" ]]; then
-              mv \"\${LOG_BASE}.out.live\" \"\${LOG_BASE}.out\"
-            fi
-            if [[ -f \"\${LOG_BASE}.err.live\" ]]; then
-              mv \"\${LOG_BASE}.err.live\" \"\${LOG_BASE}.err\"
-            fi
+source "${VENV_PATH}"
 
-            exit \$EXIT_CODE
-          " \
-          2>&1)
+# Stream to both LSF logs and live log with line buffering
+stdbuf -oL -eL ced train \
+  --config "${TRAINING_CONFIG}" \
+  --model "${MODEL}" \
+  --infile "${INFILE}" \
+  --split-dir "${SPLITS_DIR}" \
+  --outdir "${RESULTS_DIR}/${MODEL}" \
+  --split-seed "${SEED}" \
+  --override run_id="${RUN_ID}" \
+  2>&1 | tee -a "${LIVE_LOG}"
+
+exit \${PIPESTATUS[0]}
+EOF
+        )
 
         JOB_ID=$(echo "${BSUB_OUT}" | grep -oE 'Job <[0-9]+>' | head -n1 | tr -cd '0-9')
 
@@ -322,12 +334,15 @@ log "============================================"
 log "Run ID: ${RUN_ID}"
 log "Monitor jobs:"
 log "  bjobs -w | grep CeD_"
-log "  ls ${LOGS_DIR}/*.live  # Running jobs"
 log ""
+log "Live logs (real-time):"
+log "  tail -f ${RUN_LOGS_DIR}/*.live.log"
+log ""
+log "Error logs (post-completion):"
+log "  cat ${RUN_LOGS_DIR}/*.err"
+log ""
+log "Logs: ${RUN_LOGS_DIR}"
 log "Results: ${RESULTS_DIR}"
-log ""
-log "Cleanup stale .live logs (if jobs crashed):"
-log "  for f in ${LOGS_DIR}/*.live; do mv \"\$f\" \"\${f%.live}\"; done"
 log ""
 log "Aggregate after all jobs complete:"
 log "  ced aggregate-splits --results-dir ${RESULTS_DIR}/<model>/run_${RUN_ID}"
