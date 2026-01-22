@@ -74,4 +74,4 @@ Use **nested CV structure: 5 outer folds × 10 repeats × 5 inner folds**.
 
 - Supports: [ADR-006: Hybrid Feature Selection](ADR-006-hybrid-feature-selection.md) (provides CV folds for stability)
 - Supports: [ADR-007: Stability Panel](ADR-007-stability-panel.md) (50 folds for stability extraction)
-- Depends on: [ADR-004: Brier Optimization](ADR-004-brier-optimization.md) (optimization metric)
+- Depends on: [ADR-004: AUROC Optimization](ADR-004-auroc-optimization.md) (optimization metric)

@@ -354,17 +354,33 @@ After setup, you should have:
 ```
 analysis/
 ├── venv/                  # Virtual environment (if using hpc_setup.sh)
+├── src/ced_ml/            # Core package
+│   ├── cli/               # CLI entrypoints
+│   ├── data/              # Data loading, splits, preprocessing
+│   ├── features/          # Feature selection
+│   ├── models/            # Model training, Optuna integration
+│   ├── evaluation/        # Calibration, metrics, bootstrapping
+│   ├── metrics/           # DCA, ROC/PR, thresholds
+│   ├── plotting/          # Visualizations
+│   └── utils/             # Logging, config, reproducibility
+├── tests/                 # Pytest tests
 ├── configs/               # YAML configuration files
 │   ├── pipeline_local.yaml     # Local pipeline config
 │   ├── pipeline_hpc.yaml       # HPC pipeline config
 │   ├── splits_config.yaml      # CV split settings
 │   └── training_config.yaml    # Model training settings
-├── logs/                  # Run logs (local/HPC)
-├── results/               # Model results and outputs
-├── splits/                # CV split indices
+├── docs/                  # Documentation
+│   ├── ARCHITECTURE.md    # Technical architecture
+│   ├── adr/               # Architecture Decision Records
+│   └── reference/         # API and CLI reference
+├── scripts/               # Automation scripts
+│   ├── hpc_setup.sh       # Automated setup script
+│   └── aggregate_results.py    # Post-processing
+├── splits/                # CV split indices (generated)
+├── results/               # Model results and outputs (generated)
+├── logs/                  # Run logs (generated)
 ├── run_local.sh           # Local pipeline runner
 ├── run_hpc.sh             # HPC pipeline runner
-├── scripts/hpc_setup.sh   # Automated setup script
 ├── SETUP_README.md        # This file
 └── pyproject.toml         # Package configuration
 ```

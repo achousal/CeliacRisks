@@ -1,291 +1,91 @@
 # Contributing to CeliacRiskML
 
-Thank you for your interest in contributing to CeliacRiskML. This document provides guidelines for contributing to the project.
-
-## Code of Conduct
-
-This project follows standard scientific collaboration principles:
-- Prioritize correctness and scientific validity
-- Ensure reproducibility
-- Maintain clear documentation
-- Respect intellectual property and data privacy
-
 ## Non-Negotiables
 
-Before contributing, ensure you understand these mandatory requirements:
+1. No secrets in code (API keys, passwords, credentials)
+2. No emojis in code, comments, or docs
+3. Tests pass before commit
+4. No debug artifacts (console.log, print(), browser())
+5. Reproducibility: fixed seeds, documented parameters
 
-1. **No secrets in code**: Never commit API keys, passwords, credentials, or sensitive data
-2. **No emojis**: Code, comments, strings, and documentation must not contain emojis
-3. **Test before commit**: All tests must pass before submitting PR
-4. **No debug artifacts**: Remove console.log (JS), print() (Python), browser() (R) before commit
-5. **Reproducibility**: All analyses must be reproducible with fixed seeds
-
-## Development Setup
-
-### Local Environment
+## Quick Start
 
 ```bash
-# Clone repository
-git clone git@github.com:achousal/CeliacRiskML.git
-cd CeliacRiskML/analysis
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install in development mode
+# Setup
+cd analysis/
 pip install -e ".[dev]"
 
-# Run tests
+# Test
 pytest tests/ -v
+
+# Format/lint
+black src/ tests/
+ruff check src/ tests/
 ```
 
-### Pre-commit Hooks
+## Workflow
 
-Install pre-commit hooks to catch issues early:
-
-```bash
-pip install pre-commit
-pre-commit install
-```
-
-## Branching Strategy
-
-- `main`: Stable, production-ready code
-- `develop`: Integration branch for features
-- `feature/*`: New features
-- `fix/*`: Bug fixes
-- `refactor/*`: Code improvements without behavior changes
-
-### Workflow
-
-1. Create branch from `develop`:
+1. Branch from `main`:
    ```bash
-   git checkout develop
-   git pull origin develop
-   git checkout -b feature/your-feature-name
+   git checkout -b feature/your-feature
    ```
 
-2. Make changes and commit:
-   ```bash
-   git add .
-   git commit -m "feat(module): brief description"
+2. Commit with conventional format:
    ```
-
-3. Push and create PR:
-   ```bash
-   git push origin feature/your-feature-name
+   type(scope): summary
    ```
+   Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`
 
-## Commit Message Convention
-
-Follow conventional commits format:
-
-```
-type(scope): summary
-
-[optional body]
-
-[optional footer]
-```
-
-**Types:**
-- `feat`: New feature
-- `fix`: Bug fix
-- `refactor`: Code restructuring (no behavior change)
-- `test`: Adding or updating tests
-- `docs`: Documentation changes
-- `chore`: Maintenance tasks
-- `perf`: Performance improvements
-
-**Examples:**
-```
-feat(models): add support for XGBoost GPU training
-fix(metrics): correct Brier score calculation for imbalanced data
-refactor(features): extract correlation pruning into separate module
-test(data): add tests for split generation edge cases
-docs(readme): update installation instructions for HPC
-```
+3. Push and create PR
 
 ## Testing Requirements
 
-### Minimum Requirements
-- All new features must include tests
-- Bug fixes must include regression tests
-- Test coverage must remain >= 80% for core modules
-- All tests must pass before PR approval
-
-### Running Tests
+- New features require tests
+- Bug fixes require regression tests
+- Target: >=80% coverage for core modules
+- All tests must pass
 
 ```bash
-# All tests
-pytest tests/ -v
-
-# Specific module
-pytest tests/test_models_training.py -v
-
-# With coverage
-pytest tests/ -v --cov=src/ced_ml --cov-report=term
-
-# Skip slow tests
-pytest tests/ -v -m "not slow"
-```
-
-### Writing Tests
-
-```python
-# tests/test_example.py
-import pytest
-from ced_ml.models import train_model
-
-def test_train_model_basic():
-    """Test basic model training workflow."""
-    # Arrange
-    X, y = create_toy_data()
-
-    # Act
-    model = train_model(X, y, model_type='LR_EN')
-
-    # Assert
-    assert model is not None
-    assert hasattr(model, 'predict_proba')
+pytest tests/ -v                     # All tests
+pytest tests/ --cov=src/ced_ml       # With coverage
+pytest tests/ -m "not slow"          # Skip slow tests
 ```
 
 ## Code Style
 
-### Python
-
-- Follow PEP 8
-- Use Black for formatting (line length: 88)
-- Use Ruff for linting
+**Python**:
+- Black (line length 88), Ruff linting
 - Type hints for public functions
-- F-strings for formatting
-- Pathlib for file paths
-- Logging instead of print()
+- F-strings, pathlib, logging (not print)
 
-**Example:**
-```python
-from pathlib import Path
-import logging
-
-logger = logging.getLogger(__name__)
-
-def load_data(file_path: Path) -> pd.DataFrame:
-    """Load dataset from CSV file.
-
-    Args:
-        file_path: Path to CSV file
-
-    Returns:
-        DataFrame with loaded data
-
-    Raises:
-        FileNotFoundError: If file does not exist
-    """
-    if not file_path.exists():
-        raise FileNotFoundError(f"Data file not found: {file_path}")
-
-    logger.info(f"Loading data from {file_path}")
-    return pd.read_csv(file_path)
-```
-
-### R
-
-- Use explicit namespacing (dplyr::mutate)
-- Avoid setwd() in scripts
-- Use message()/warning()/stop() for output
+**R**:
+- Explicit namespacing (dplyr::mutate)
+- No setwd(), use message()/warning()/stop()
 - Call set.seed() when using RNG
-- Use styler for formatting
 
 ## Scientific Validity
 
-### When Changes Affect Results
+If changes affect results:
+1. Document scientific rationale
+2. Validate before/after metrics
+3. Add regression tests
+4. Update [CLAUDE.md](.claude/CLAUDE.md)
 
-If your change modifies model outputs, metrics, or data processing:
+## PR Checklist
 
-1. **Document the change**: Explain scientific rationale
-2. **Validate results**: Compare before/after metrics
-3. **Update tests**: Add regression tests
-4. **Update documentation**: Note impact in CLAUDE.md
+- [ ] Tests pass locally
+- [ ] Code formatted (black, ruff)
+- [ ] No secrets committed
+- [ ] [CLAUDE.md](.claude/CLAUDE.md) updated (if user-facing changes)
 
-### Reproducibility Checklist
-
-- [ ] Random seeds are fixed and documented
-- [ ] Configuration files updated
-- [ ] Results validated against baseline
-- [ ] Run metadata recorded (parameters, versions)
-- [ ] No manual steps in pipeline
-
-## Pull Request Process
-
-### Before Submitting
-
-1. **All tests pass locally**
-   ```bash
-   pytest tests/ -v
-   ```
-
-2. **Code is formatted**
-   ```bash
-   black src/ tests/
-   ruff check src/ tests/
-   ```
-
-3. **No secrets committed**
-   ```bash
-   git diff | grep -i "password\|secret\|key\|token"  # Should return nothing
-   ```
-
-4. **CLAUDE.md updated** (if user-facing changes)
-
-### PR Template
-
-The PR template will guide you through required information:
-- Description of changes
-- Type of change
-- Scientific impact
-- Testing completed
-- Reproducibility checks
-
-### Review Process
-
-1. Automated checks must pass (tests, lint, security)
-2. Code review by maintainer
-3. Scientific validation (if results changed)
-4. Approval and merge
-
-## Documentation
-
-### When to Update Docs
-
-- New features: Add to README and CLAUDE.md
-- API changes: Update docstrings and examples
-- Configuration changes: Update config documentation
-- Workflow changes: Update CONTRIBUTING.md
-
-### Documentation Style
-
-- Clear, concise language
-- Code examples for usage
-- Links to relevant papers/references
-- No emojis
-
-## HPC Considerations
-
-When contributing HPC-related code:
+## HPC Code
 
 - No interactive prompts
 - Deterministic behavior
-- Portable across schedulers (LSF, Slurm, PBS)
-- Clear resource requirements documented
-- Resumable jobs when feasible
+- Portable across schedulers
+- Clear resource requirements
 
-## Getting Help
+## Help
 
-- Open an issue for bugs or questions
-- Use GitHub Discussions for general questions
+- Open an issue for bugs/questions
 - Tag @achousal for urgent issues
-
-## License
-
-By contributing, you agree that your contributions will be licensed under the same license as the project (see LICENSE file).

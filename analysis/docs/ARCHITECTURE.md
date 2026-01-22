@@ -1,8 +1,8 @@
 # CeliacRisks Architecture
 
-**Version:** 1.2
+**Version:** 1.3
 **Date:** 2026-01-21
-**Status:** Current-state documentation (updated with Optuna integration, split-specific outputs, and aggregation workflow)
+**Status:** Current-state documentation (updated with Optuna integration, split-specific outputs, aggregation workflow, and holdout mode)
 
 ---
 
@@ -85,20 +85,20 @@ See [docs/adr/](adr/) for complete list.
 
 ```
 analysis/
-  src/ced_ml/           # Python package (20,819 lines)
-    cli/                # Command-line interface
-    config/             # Configuration system
-    data/               # Data I/O, splits, persistence
-    features/           # Feature selection pipeline
-    models/             # Model training, calibration
-    metrics/            # Performance metrics
-    evaluation/         # Prediction & reporting
-    plotting/           # Visualization
-    utils/              # Shared utilities
-  tests/                # 770 tests, 63% coverage (lower % due to expanded codebase)
+  src/ced_ml/           # Python package (~21,300 lines)
+    cli/                # Command-line interface (6 modules, 3,476 lines)
+    config/             # Configuration system (5 modules, 1,620 lines)
+    data/               # Data I/O, splits, persistence (6 modules, 3,008 lines)
+    features/           # Feature selection pipeline (5 modules, 2,298 lines)
+    models/             # Model training, calibration (7 modules, 3,752 lines)
+    metrics/            # Performance metrics (6 modules, 2,180 lines)
+    evaluation/         # Prediction & reporting (3 modules, 1,599 lines)
+    plotting/           # Visualization (8 modules, 4,759 lines)
+    utils/              # Shared utilities (6 modules, 1,631 lines)
+  tests/                # 814 tests across 34 test modules
   docs/                 # Documentation
     ARCHITECTURE.md     # This file
-    adr/                # Architecture Decision Records
+    adr/                # Architecture Decision Records (19 ADRs)
     reference/          # Reference documentation (parameters, knobs)
 splits/          # Persisted split indices
 results/         # Training outputs
@@ -248,29 +248,38 @@ See [ADR-009: Threshold on VAL](adr/ADR-009-threshold-on-val.md), [ADR-010: Fixe
 **Purpose:** Generate reproducible train/val/test split indices and save to CSV files.
 
 **Inputs:**
-- Raw data CSV (`--infile`)
+- Raw data CSV or Parquet (`--infile`)
 - Splits configuration (YAML or CLI args)
 
 **Outputs:**
 - Split index CSV files: `{scenario}_{split}_idx_seed{N}.csv`
 - Resolved config: `splits_config.yaml`
 
+**Modes:**
+- `--mode development` (default): 3-way split (TRAIN/VAL/TEST)
+- `--mode holdout`: 4-way split (TRAIN/VAL/TEST/HOLDOUT) for final validation
+
+**Key Options:**
+- `--train-control-per-case`: Control downsampling ratio for TRAIN (default: 5.0)
+- `--eval-control-per-case`: Separate control downsampling for VAL/TEST (optional, defaults to train ratio)
+- `--prevalent-train-frac`: Fraction of prevalent cases to add to TRAIN (default: 0.5)
+- `--scenarios`: Comma-separated list of scenarios to generate (default: IncidentOnly,IncidentPlusPrevalent)
+
 **Flow:**
 1. Load splits configuration
 2. Load raw data (minimal columns: ID, target, scenario columns)
 3. For each scenario:
    a. Filter rows by scenario definition
-   b. Downsample controls (1:5 ratio)
-   c. Stratified 3-way split (50/25/25)
+   b. Downsample controls (1:5 ratio for TRAIN, configurable for VAL/TEST)
+   c. Stratified 3-way or 4-way split (50/25/25 or 50/20/15/15)
    d. Add prevalent cases to TRAIN (50% sample)
    e. Save indices as CSV
 4. Save resolved config
 
 **Where in code:**
 - [cli/save_splits.py](../src/ced_ml/cli/save_splits.py) - CLI entry point
-- [data/splits.py:375-439](../src/ced_ml/data/splits.py#L375-L439) - `stratified_train_val_test_split`
-- [data/splits.py:326-366](../src/ced_ml/data/splits.py#L326-L366) - `add_prevalent_to_train`
-- [data/splits.py:193-250](../src/ced_ml/data/splits.py#L193-L250) - `downsample_controls`
+- [cli/main.py](../src/ced_ml/cli/main.py) - CLI options definition
+- [data/splits.py](../src/ced_ml/data/splits.py) - Split logic (`stratified_train_val_test_split`, `add_prevalent_to_train`, `downsample_controls`)
 - [data/persistence.py](../src/ced_ml/data/persistence.py) - `save_split_indices`
 
 **See ADRs:**

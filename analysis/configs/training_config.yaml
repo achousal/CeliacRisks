@@ -20,7 +20,7 @@ cv:
 
 # Optuna hyperparameter optimization (optional alternative to RandomizedSearchCV)
 optuna:
-  enabled: false  # Set to true to use Optuna instead of RandomizedSearchCV
+  enabled: true  # Set to true to use Optuna instead of RandomizedSearchCV
   n_trials: 3  # Number of hyperparameter trials
   timeout: null  # Optional timeout in seconds (null = no limit)
   sampler: tpe  # Options: tpe, random, cmaes, grid

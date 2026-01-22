@@ -312,31 +312,71 @@ def plot_risk_distribution(
 
     # Add threshold lines (without labels - will be added to legend separately)
     # Note: Thresholds are pre-normalized to [0, 1] via _normalize_threshold()
+
+    # Detect overlapping thresholds and apply offsets so all lines are visible
+    # Overlap threshold: 1% of x-range (0.01 for [0,1] range)
+    overlap_eps = 0.01
+    offset_amount = 0.003  # Tiny offset when lines overlap (just enough to see both)
+
+    def _thresholds_overlap(t1: float | None, t2: float | None) -> bool:
+        """Check if two thresholds are close enough to visually overlap."""
+        if t1 is None or t2 is None:
+            return False
+        return abs(t1 - t2) < overlap_eps
+
+    # Compute offsets for each threshold to avoid overlap
+    spec95_offset = 0.0
+    youden_offset = 0.0
+    dca_offset = 0.0
+
+    # Check spec95 vs youden overlap
+    if _thresholds_overlap(spec95_threshold, youden_threshold):
+        spec95_offset = -offset_amount  # Shift spec95 left
+        youden_offset = offset_amount  # Shift youden right
+
+    # Check spec95 vs dca overlap (if not already offset)
+    if _thresholds_overlap(spec95_threshold, dca_threshold):
+        if spec95_offset == 0.0:
+            spec95_offset = -offset_amount
+        dca_offset = offset_amount * 1.5  # Shift dca further right
+
+    # Check youden vs dca overlap
+    if _thresholds_overlap(youden_threshold, dca_threshold):
+        if youden_offset == 0.0:
+            youden_offset = -offset_amount
+        if dca_offset == 0.0:
+            dca_offset = offset_amount
+
+    # Draw threshold lines with z-order to ensure visibility
+    # Higher zorder = drawn on top
     if spec95_threshold is not None:
         ax_main.axvline(
-            spec95_threshold,
+            spec95_threshold + spec95_offset,
             color="red",
             linestyle="--",
             linewidth=2,
             alpha=0.7,
+            zorder=10,  # Red (spec95) on top
         )
 
     if youden_threshold is not None:
         ax_main.axvline(
-            youden_threshold,
+            youden_threshold + youden_offset,
             color="green",
             linestyle="--",
             linewidth=2,
             alpha=0.7,
+            zorder=9,  # Green (youden) middle
         )
 
     if dca_threshold is not None:
         ax_main.axvline(
-            dca_threshold,
+            dca_threshold + dca_offset,
             color="purple",
             linestyle="--",
             linewidth=2,
             alpha=0.7,
+            zorder=8,  # Purple (dca) bottom
         )
 
     # Create comprehensive legend with threshold metrics
@@ -454,27 +494,34 @@ def plot_risk_distribution(
                     edgecolor="white",
                 )
 
-        # Add threshold lines (no labels)
+        # Add threshold lines (no labels) with same offsets as main plot
         # Note: Thresholds are pre-normalized to [0, 1] via _normalize_threshold()
         if spec95_threshold is not None:
             ax_incident.axvline(
-                spec95_threshold, color="red", linestyle="--", linewidth=1.5, alpha=0.5
+                spec95_threshold + spec95_offset,
+                color="red",
+                linestyle="--",
+                linewidth=1.5,
+                alpha=0.5,
+                zorder=10,
             )
         if youden_threshold is not None:
             ax_incident.axvline(
-                youden_threshold,
+                youden_threshold + youden_offset,
                 color="green",
                 linestyle="--",
                 linewidth=1.5,
                 alpha=0.5,
+                zorder=9,
             )
         if dca_threshold is not None:
             ax_incident.axvline(
-                dca_threshold,
+                dca_threshold + dca_offset,
                 color="purple",
                 linestyle="--",
                 linewidth=1.5,
                 alpha=0.5,
+                zorder=8,
             )
 
         ax_incident.set_xlim(0, 1)
@@ -524,27 +571,34 @@ def plot_risk_distribution(
                     edgecolor="white",
                 )
 
-        # Add threshold lines (no labels)
+        # Add threshold lines (no labels) with same offsets as main plot
         # Note: Thresholds are pre-normalized to [0, 1] via _normalize_threshold()
         if spec95_threshold is not None:
             ax_prevalent.axvline(
-                spec95_threshold, color="red", linestyle="--", linewidth=1.5, alpha=0.5
+                spec95_threshold + spec95_offset,
+                color="red",
+                linestyle="--",
+                linewidth=1.5,
+                alpha=0.5,
+                zorder=10,
             )
         if youden_threshold is not None:
             ax_prevalent.axvline(
-                youden_threshold,
+                youden_threshold + youden_offset,
                 color="green",
                 linestyle="--",
                 linewidth=1.5,
                 alpha=0.5,
+                zorder=9,
             )
         if dca_threshold is not None:
             ax_prevalent.axvline(
-                dca_threshold,
+                dca_threshold + dca_offset,
                 color="purple",
                 linestyle="--",
                 linewidth=1.5,
                 alpha=0.5,
+                zorder=8,
             )
 
         ax_prevalent.set_xlim(0, 1)

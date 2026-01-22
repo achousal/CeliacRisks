@@ -193,8 +193,8 @@ See [analysis/CLAUDE.md](analysis/CLAUDE.md) for the complete case study.
 | [analysis/CLAUDE.md](analysis/CLAUDE.md) | Primary project documentation with case study |
 | [analysis/docs/ARCHITECTURE.md](analysis/docs/ARCHITECTURE.md) | Technical architecture with code pointers |
 | [analysis/docs/adr/](analysis/docs/adr/) | Architecture Decision Records (19 decisions) |
-| [analysis/docs/HYPERPARAMETER_TUNING.md](analysis/docs/HYPERPARAMETER_TUNING.md) | Hyperparameter tuning guide |
-| [analysis/docs/METRICS_REFERENCE.md](analysis/docs/METRICS_REFERENCE.md) | Metrics behavior reference |
+| [analysis/docs/reference/HYPERPARAMETER_TUNING.md](analysis/docs/HYPERPARAMETER_TUNING.md) | Hyperparameter tuning guide |
+| [analysis/docs/reference/METRICS_REFERENCE.md](analysis/docs/reference/METRICS_REFERENCE.md) | Metrics behavior reference |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
 
 ---

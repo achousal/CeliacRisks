@@ -80,5 +80,5 @@ Wrap final model in `PrevalenceAdjustedModel` to apply adjustment automatically 
 ## Related ADRs
 
 - Depends on: [ADR-003: Control Downsampling](ADR-003-control-downsampling.md)
-- Depends on: [ADR-004: Brier Optimization](ADR-004-brier-optimization.md) (calibration-focused)
+- Depends on: [ADR-004: AUROC Optimization](ADR-004-auroc-optimization.md) (discrimination-first approach)
 - Supports: [ADR-011: PrevalenceAdjustedModel Wrapper](ADR-011-prevalence-wrapper.md)
