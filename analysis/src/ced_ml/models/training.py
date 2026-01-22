@@ -12,7 +12,7 @@ Provides:
 import json
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -24,6 +24,9 @@ from sklearn.pipeline import Pipeline
 
 from ..config import TrainingConfig
 from ..metrics.scorers import get_scorer
+
+if TYPE_CHECKING:
+    from .calibration import OOFCalibrator
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +59,7 @@ def _convert_numpy_types(obj: Any) -> Any:
     """Convert numpy types to native Python types for JSON serialization."""
     if isinstance(obj, dict):
         return {k: _convert_numpy_types(v) for k, v in obj.items()}
-    elif isinstance(obj, (list, tuple)):
+    elif isinstance(obj, list | tuple):
         return [_convert_numpy_types(v) for v in obj]
     elif isinstance(obj, np.integer):
         return int(obj)
@@ -76,7 +79,7 @@ def oof_predictions_with_nested_cv(
     config: TrainingConfig,
     random_state: int,
     grid_rng: np.random.Generator | None = None,
-) -> tuple[np.ndarray, float, pd.DataFrame, pd.DataFrame]:
+) -> tuple[np.ndarray, float, pd.DataFrame, pd.DataFrame, "OOFCalibrator | None"]:
     """
     Generate out-of-fold predictions using nested cross-validation.
 
@@ -95,15 +98,21 @@ def oof_predictions_with_nested_cv(
 
     Returns:
         preds: OOF predictions (n_repeats x N) - each row is one repeat's predictions
+               If calibration strategy is "oof_posthoc", predictions are calibrated.
         elapsed_sec: Training time in seconds
         best_params_df: DataFrame with best hyperparameters per fold
         selected_proteins_df: DataFrame with selected proteins per fold
+        oof_calibrator: OOFCalibrator instance if strategy is "oof_posthoc", else None.
+                        Use this calibrator for val/test predictions.
 
     Raises:
         RuntimeError: If any repeat has missing OOF predictions (CV split bug)
     """
+    from .calibration import OOFCalibrator
+
     n_splits = config.cv.folds
     n_repeats = config.cv.repeats
+    calibration_strategy = config.calibration.get_strategy_for_model(model_name)
 
     if n_repeats < 1:
         raise ValueError(f"cv.repeats must be >= 1, got {n_repeats}")
@@ -176,7 +185,8 @@ def oof_predictions_with_nested_cv(
             best_params = search.best_params_
             best_score = float(search.best_score_)
 
-        # Optional post-hoc calibration (LR/RF only, SVM already calibrated)
+        # Optional post-hoc calibration (only for per_fold strategy)
+        # For oof_posthoc, calibration happens after CV loop completes
         fitted_model = _maybe_apply_calibration(
             fitted_model,
             model_name,
@@ -244,11 +254,28 @@ def oof_predictions_with_nested_cv(
         if np.isnan(preds[r]).any():
             raise RuntimeError(f"Repeat {r} has missing OOF predictions. Check CV splitting logic.")
 
+    # Handle oof_posthoc calibration: fit calibrator on pooled OOF predictions
+    oof_calibrator = None
+    if calibration_strategy == "oof_posthoc":
+        logger.info(
+            f"Fitting OOF calibrator (method={config.calibration.method}) on pooled OOF predictions..."
+        )
+        # Use mean across repeats for calibration fitting
+        mean_oof_preds = np.nanmean(preds, axis=0)
+        oof_calibrator = OOFCalibrator(method=config.calibration.method)
+        oof_calibrator.fit(mean_oof_preds, y)
+        logger.info("OOF calibrator fitted successfully")
+
+        # Apply calibration to OOF predictions for consistent reporting
+        for r in range(n_repeats):
+            preds[r] = oof_calibrator.transform(preds[r])
+
     return (
         preds,
         elapsed_sec,
         pd.DataFrame(best_params_rows),
         pd.DataFrame(selected_proteins_rows),
+        oof_calibrator,
     )
 
 
@@ -486,11 +513,17 @@ def _maybe_apply_calibration(
     random_state: int,
 ):
     """
-    Apply optional post-hoc probability calibration.
+    Apply optional post-hoc probability calibration (per-fold strategy only).
+
+    This function is called during the CV loop. It only applies calibration
+    when the strategy is "per_fold". For "oof_posthoc" and "none" strategies,
+    it returns the estimator unchanged.
 
     Rules:
-    - LinSVM_cal: Already calibrated (skip)
-    - LR/RF/XGBoost: Apply CalibratedClassifierCV if config.calibration.enabled=True
+    - strategy="none": Return estimator unchanged
+    - strategy="oof_posthoc": Return estimator unchanged (calibration happens post-CV)
+    - strategy="per_fold": Apply CalibratedClassifierCV (current behavior)
+    - LinSVM_cal: Already calibrated (skip regardless of strategy)
     - Already wrapped: Skip double-calibration
 
     Args:
@@ -504,9 +537,14 @@ def _maybe_apply_calibration(
     Returns:
         Calibrated or original estimator
     """
-    if not config.calibration.enabled:
+    # Get effective strategy for this model
+    strategy = config.calibration.get_strategy_for_model(model_name)
+
+    # For none or oof_posthoc, return unchanged
+    if strategy in ("none", "oof_posthoc"):
         return estimator
 
+    # per_fold strategy: apply CalibratedClassifierCV
     # SVM is already calibrated
     if model_name == "LinSVM_cal":
         return estimator

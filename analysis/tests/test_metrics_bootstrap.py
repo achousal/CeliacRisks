@@ -44,7 +44,7 @@ class TestSafeMetric:
         y_pred = np.array([np.inf, 0.2, 0.8, np.nan])
         result = _safe_metric(roc_auc_score, y_true, y_pred)
         # May fail due to invalid predictions
-        assert isinstance(result, (float, np.floating))
+        assert isinstance(result, float | np.floating)
 
 
 class TestStratifiedBootstrapCI:

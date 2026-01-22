@@ -309,6 +309,79 @@ def eval_holdout(ctx, **kwargs):
     run_eval_holdout(**kwargs, verbose=ctx.obj.get("verbose", 0))
 
 
+@cli.command("train-ensemble")
+@click.option(
+    "--config",
+    "-c",
+    type=click.Path(exists=True),
+    help="Path to YAML configuration file (uses ensemble section)",
+)
+@click.option(
+    "--results-dir",
+    type=click.Path(exists=True),
+    required=True,
+    help="Directory containing base model results (e.g., results/)",
+)
+@click.option(
+    "--base-models",
+    type=str,
+    default=None,
+    help="Comma-separated list of base models (e.g., LR_EN,RF,XGBoost)",
+)
+@click.option(
+    "--split-seed",
+    type=int,
+    default=0,
+    help="Split seed for identifying model outputs",
+)
+@click.option(
+    "--outdir",
+    type=click.Path(),
+    default=None,
+    help="Output directory (default: results_dir/ENSEMBLE/split_{seed})",
+)
+@click.option(
+    "--meta-penalty",
+    type=click.Choice(["l2", "l1", "elasticnet", "none"]),
+    default=None,
+    help="Meta-learner regularization penalty",
+)
+@click.option(
+    "--meta-C",
+    type=float,
+    default=None,
+    help="Meta-learner regularization strength (inverse)",
+)
+@click.pass_context
+def train_ensemble(ctx, config, base_models, **kwargs):
+    """Train stacking ensemble from base model OOF predictions.
+
+    This command collects out-of-fold (OOF) predictions from previously trained
+    base models and trains a meta-learner (Logistic Regression) to combine them.
+
+    Requirements:
+        - Base models must be trained first using 'ced train'
+        - OOF predictions must exist in results_dir/{model}/split_{seed}/preds/train_oof/
+
+    Example:
+        ced train-ensemble --results-dir results/ --base-models LR_EN,RF,XGBoost
+        ced train-ensemble --config configs/training_config.yaml --results-dir results/
+    """
+    from ced_ml.cli.train_ensemble import run_train_ensemble
+
+    # Parse base models from comma-separated string
+    base_model_list = None
+    if base_models:
+        base_model_list = [m.strip() for m in base_models.split(",")]
+
+    run_train_ensemble(
+        config_file=config,
+        base_models=base_model_list,
+        **kwargs,
+        verbose=ctx.obj.get("verbose", 0),
+    )
+
+
 @cli.group("config")
 @click.pass_context
 def config_group(ctx):

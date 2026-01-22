@@ -5,6 +5,27 @@ Shared pytest fixtures for CeD-ML tests.
 from types import SimpleNamespace
 
 
+class MockCalibrationConfig:
+    """Mock calibration config for tests."""
+
+    def __init__(
+        self, enabled=True, method="isotonic", strategy="oof_posthoc", per_model=None, cv=3
+    ):
+        self.enabled = enabled
+        self.method = method
+        self.strategy = strategy
+        self.per_model = per_model or {}
+        self.cv = cv
+
+    def get_strategy_for_model(self, model_name: str) -> str:
+        """Get the effective calibration strategy for a specific model."""
+        if not self.enabled:
+            return "none"
+        if self.per_model and model_name in self.per_model:
+            return self.per_model[model_name]
+        return self.strategy
+
+
 def make_mock_config(**overrides):
     """
     Create a mock config object for testing.
@@ -41,7 +62,6 @@ def make_mock_config(**overrides):
             rf_perm_repeats=3,
             rf_perm_min_importance=0.0,
         ),
-        "calibration": SimpleNamespace(enabled=False, method="sigmoid", cv=3),
         "compute": SimpleNamespace(cpus=2, tune_n_jobs=None),
         # Model configs at top level (matching TrainingConfig schema)
         "lr": SimpleNamespace(
@@ -52,9 +72,17 @@ def make_mock_config(**overrides):
             solver="saga",
             max_iter=1000,
             class_weight_options="None,balanced",
+            # Optuna-specific ranges (None = derive from grid)
+            optuna_C=None,
+            optuna_l1_ratio=None,
         ),
         "svm": SimpleNamespace(
-            C_min=0.01, C_max=100.0, C_points=5, class_weight_options="balanced"
+            C_min=0.01,
+            C_max=100.0,
+            C_points=5,
+            class_weight_options="balanced",
+            # Optuna-specific ranges
+            optuna_C=None,
         ),
         "rf": SimpleNamespace(
             n_estimators_grid=[100, 200],
@@ -63,6 +91,12 @@ def make_mock_config(**overrides):
             min_samples_leaf_grid=[1, 2],
             max_features_grid=[0.3, 0.5],
             class_weight_options="None,balanced",
+            # Optuna-specific ranges
+            optuna_n_estimators=None,
+            optuna_max_depth=None,
+            optuna_min_samples_split=None,
+            optuna_min_samples_leaf=None,
+            optuna_max_features=None,
         ),
         "xgboost": SimpleNamespace(
             n_estimators_grid=[100, 200],
@@ -72,8 +106,34 @@ def make_mock_config(**overrides):
             colsample_bytree_grid=[0.8, 1.0],
             scale_pos_weight=None,
             scale_pos_weight_grid=[1.0, 5.0],
+            min_child_weight_grid=[1, 3, 5],
+            gamma_grid=[0.0, 0.1, 0.3],
+            reg_alpha_grid=[0.0, 0.01, 0.1],
+            reg_lambda_grid=[1.0, 2.0, 5.0],
+            # Optuna-specific ranges
+            optuna_n_estimators=None,
+            optuna_max_depth=None,
+            optuna_learning_rate=None,
+            optuna_min_child_weight=None,
+            optuna_gamma=None,
+            optuna_subsample=None,
+            optuna_colsample_bytree=None,
+            optuna_reg_alpha=None,
+            optuna_reg_lambda=None,
         ),
         "optuna": SimpleNamespace(enabled=False),
+        "calibration": MockCalibrationConfig(
+            enabled=True,
+            method="isotonic",
+            strategy="oof_posthoc",
+            per_model={},
+        ),
+        "thresholds": SimpleNamespace(
+            objective="youden",
+            fixed_spec=0.95,
+            fbeta=1.0,
+            fixed_ppv=0.5,
+        ),
     }
 
     # Deep merge overrides

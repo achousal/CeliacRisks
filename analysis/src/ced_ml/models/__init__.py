@@ -9,12 +9,16 @@ This package contains model-related functionality including:
 """
 
 from .calibration import (
+    OOFCalibratedModel,
+    OOFCalibrator,
     PrevalenceAdjustedModel,
     adjust_probabilities_for_prevalence,
+    apply_oof_calibrator,
     calib_intercept_metric,
     calib_slope_metric,
     calibration_intercept_slope,
     expected_calibration_error,
+    fit_oof_calibrator,
     get_calibrated_cv_param_name,
     get_calibrated_estimator_param_name,
     maybe_calibrate_estimator,
@@ -53,6 +57,10 @@ __all__ = [
     "get_calibrated_estimator_param_name",
     "get_calibrated_cv_param_name",
     "maybe_calibrate_estimator",
+    "OOFCalibrator",
+    "OOFCalibratedModel",
+    "fit_oof_calibrator",
+    "apply_oof_calibrator",
     # Prevalence (aliases)
     "adjust_prevalence",
     "PrevalenceModel",

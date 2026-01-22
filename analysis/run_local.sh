@@ -51,6 +51,34 @@ get_yaml_list() {
   fi
 }
 
+# Get nested YAML value (e.g., "ensemble" "enabled")
+get_yaml_nested() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  awk -v section="${section}:" -v key="  ${key}:" '
+    $0 ~ "^"section { in_section=1; next }
+    in_section && /^[a-zA-Z]/ { in_section=0 }
+    in_section && $0 ~ key { gsub(/^[^:]*: */, ""); gsub(/ *#.*/, ""); gsub(/["'"'"']/, ""); print; exit }
+  ' "${file}"
+}
+
+# Get nested YAML list (e.g., "ensemble" "base_models")
+get_yaml_nested_list() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local line
+  line=$(get_yaml_nested "${file}" "${section}" "${key}")
+
+  # Handle inline array format: [item1, item2]
+  if [[ "${line}" =~ ^\[.*\]$ ]]; then
+    echo "${line}" | tr -d '[]' | tr -d ' '
+  else
+    echo ""
+  fi
+}
+
 # Read paths
 INFILE=$(get_yaml "${PIPELINE_CONFIG}" "infile")
 SPLITS_DIR=$(get_yaml "${PIPELINE_CONFIG}" "splits_dir")
@@ -82,10 +110,19 @@ OVERWRITE_SPLITS="${OVERWRITE_SPLITS:-${OVERWRITE_SPLITS_CFG}}"
 POSTPROCESS_ONLY="${POSTPROCESS_ONLY:-${POSTPROCESS_ONLY_CFG}}"
 RUN_MODELS="${RUN_MODELS:-${MODELS_STR}}"
 
-# Convert true/false to 1/0
-[[ "${DRY_RUN}" == "true" ]] && DRY_RUN=1 || DRY_RUN=0
-[[ "${OVERWRITE_SPLITS}" == "true" ]] && OVERWRITE_SPLITS=1 || OVERWRITE_SPLITS=0
-[[ "${POSTPROCESS_ONLY}" == "true" ]] && POSTPROCESS_ONLY=1 || POSTPROCESS_ONLY=0
+# Convert true/false/1/0 to normalized 1/0
+normalize_bool() {
+  local val="${1:-}"
+  val="$(printf '%s' "${val}" | tr '[:upper:]' '[:lower:]')"
+  case "${val}" in
+    1|true|yes|y) echo 1 ;;
+    0|false|no|n|'') echo 0 ;;
+    *) echo 0 ;;
+  esac
+}
+DRY_RUN="$(normalize_bool "${DRY_RUN}")"
+OVERWRITE_SPLITS="$(normalize_bool "${OVERWRITE_SPLITS}")"
+POSTPROCESS_ONLY="$(normalize_bool "${POSTPROCESS_ONLY}")"
 
 #==============================================================
 # ENVIRONMENT DETECTION
@@ -116,6 +153,11 @@ mkdir -p "${LOGS_DIR}" "${RESULTS_DIR}" "${SPLITS_DIR}"
 N_SPLITS=$(grep "^n_splits:" "${SPLITS_CONFIG}" | awk '{print $2}')
 SEED_START=$(grep "^seed_start:" "${SPLITS_CONFIG}" | awk '{print $2}')
 
+# Extract ensemble settings from training config
+ENSEMBLE_ENABLED=$(get_yaml_nested "${TRAINING_CONFIG}" "ensemble" "enabled")
+ENSEMBLE_BASE_MODELS=$(get_yaml_nested_list "${TRAINING_CONFIG}" "ensemble" "base_models")
+[[ "${ENSEMBLE_ENABLED}" == "true" ]] && ENSEMBLE_ENABLED=1 || ENSEMBLE_ENABLED=0
+
 # Generate run ID (timestamp-based)
 RUN_ID=$(date +"%Y%m%d_%H%M%S")
 
@@ -130,6 +172,7 @@ log "Splits: ${SPLITS_DIR} (${N_SPLITS} splits, seeds ${SEED_START}-$((SEED_STAR
 log "Results: ${RESULTS_DIR}"
 log "Models: ${RUN_MODELS}"
 log "Bootstrap: ${N_BOOT}"
+log "Ensemble: ${ENSEMBLE_ENABLED} (base: ${ENSEMBLE_BASE_MODELS:-none})"
 log "Dry run: ${DRY_RUN}"
 log "Postprocess only: ${POSTPROCESS_ONLY}"
 log "============================================"
@@ -216,6 +259,66 @@ log "Step 2/4: Train models (${N_SPLITS} splits)"
   done
 
   log "Completed ${#COMPLETED_RUNS[@]} run(s)"
+
+#==============================================================
+# STEP 2.5: TRAIN ENSEMBLE (if enabled)
+#==============================================================
+  if [[ ${ENSEMBLE_ENABLED} -eq 1 ]]; then
+    log "Step 2.5/4: Train ensemble (stacking)"
+
+    # Determine base models: use config or fall back to trained models
+    if [[ -n "${ENSEMBLE_BASE_MODELS}" ]]; then
+      ENSEMBLE_MODELS="${ENSEMBLE_BASE_MODELS}"
+    else
+      ENSEMBLE_MODELS="${RUN_MODELS}"
+    fi
+
+    for SEED in $(seq ${SEED_START} ${SEED_END}); do
+      JOB_NAME="CeD_ENSEMBLE_seed${SEED}"
+
+      if [[ ${DRY_RUN} -eq 1 ]]; then
+        log "[DRY RUN] Would train ensemble (seed ${SEED}) with base models: ${ENSEMBLE_MODELS}"
+      else
+        log "Training ensemble (seed ${SEED})..."
+        START_TIME=$(date +%s)
+
+        LOG_FILE="${LOGS_DIR}/${JOB_NAME}_$(date +%Y%m%d_%H%M%S).log"
+
+        # Check if base models have OOF predictions
+        BASE_MODELS_READY=1
+        IFS=',' read -r -a ENSEMBLE_MODEL_ARRAY <<< "${ENSEMBLE_MODELS}"
+        for BASE_MODEL in "${ENSEMBLE_MODEL_ARRAY[@]}"; do
+          BASE_MODEL=$(echo "${BASE_MODEL}" | xargs)
+          OOF_PATH="${RESULTS_DIR}/${BASE_MODEL}/run_${RUN_ID}/split_seed${SEED}/preds/train_oof/train_oof__${BASE_MODEL}.csv"
+          if [[ ! -f "${OOF_PATH}" ]]; then
+            log "  [WARN] Missing OOF for ${BASE_MODEL} seed ${SEED}: ${OOF_PATH}"
+            BASE_MODELS_READY=0
+          fi
+        done
+
+        if [[ ${BASE_MODELS_READY} -eq 1 ]]; then
+          if ced train-ensemble \
+            --config "${TRAINING_CONFIG}" \
+            --results-dir "${RESULTS_DIR}" \
+            --base-models "${ENSEMBLE_MODELS}" \
+            --split-seed "${SEED}" \
+            --outdir "${RESULTS_DIR}/ENSEMBLE/run_${RUN_ID}/split_seed${SEED}" \
+            2>&1 | tee "${LOG_FILE}"; then
+
+            ELAPSED=$(($(date +%s) - START_TIME))
+            log "  [OK] ENSEMBLE seed ${SEED} (${ELAPSED}s)"
+            COMPLETED_RUNS+=("ENSEMBLE:${SEED}")
+          else
+            log "  [FAIL] ENSEMBLE seed ${SEED} (see ${LOG_FILE})"
+          fi
+        else
+          log "  [SKIP] ENSEMBLE seed ${SEED}: base model OOF predictions not ready"
+        fi
+      fi
+    done
+  else
+    log "Step 2.5/4: Ensemble training disabled (ensemble.enabled: false)"
+  fi
 fi
 
 #==============================================================
@@ -271,7 +374,13 @@ else
   log "Found ${COMPLETED_COUNT} completed split run(s)"
 
   if [[ ${COMPLETED_COUNT} -gt 0 ]]; then
-    IFS=',' read -r -a MODEL_ARRAY_AGG <<< "${RUN_MODELS}"
+    # Build list of models to aggregate (include ENSEMBLE if trained)
+    MODELS_TO_AGG="${RUN_MODELS}"
+    if [[ ${ENSEMBLE_ENABLED} -eq 1 ]]; then
+      MODELS_TO_AGG="${MODELS_TO_AGG},ENSEMBLE"
+    fi
+
+    IFS=',' read -r -a MODEL_ARRAY_AGG <<< "${MODELS_TO_AGG}"
     for MODEL in "${MODEL_ARRAY_AGG[@]}"; do
       MODEL=$(echo "${MODEL}" | xargs)
       [[ -z "${MODEL}" ]] && continue

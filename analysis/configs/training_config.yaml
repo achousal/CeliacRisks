@@ -18,6 +18,22 @@ cv:
   grid_randomize: true  # Randomize numeric grid values for more diverse search
   verbose: 1
 
+# Ensemble configuration (stacking multiple models)
+# When enabled, collects OOF predictions from base models and trains a meta-learner
+ensemble:
+  enabled: false  # Set to true to enable ensemble training
+  method: stacking  # Options: stacking, blending, weighted_avg (only stacking implemented)
+  base_models: [LR_EN, RF, XGBoost, LinSVM_cal]  # Models to combine
+  meta_model:
+    type: logistic_regression  # Meta-learner type
+    penalty: l2  # Regularization: l2, l1, elasticnet, none
+    C: 1.0  # Inverse regularization strength
+    max_iter: 1000  # Max iterations for convergence
+    solver: lbfgs  # Solver for logistic regression
+  use_probabilities: true  # Use probabilities (true) or logits (false)
+  passthrough: false  # Include original features in meta-learner (not yet implemented)
+  cv_for_meta: 5  # CV folds for meta-model calibration
+
 # Optuna hyperparameter optimization (optional alternative to RandomizedSearchCV)
 optuna:
   enabled: true  # Set to true to use Optuna instead of RandomizedSearchCV
@@ -71,6 +87,10 @@ lr:
   l1_ratio: [0.1, 0.5, 0.9] # ElasticNet mixing (0=L2, 1=L1) - tuned for LR_EN only
   class_weight_options: "balanced"  # Options: "None", "balanced", "{0:1,1:5}"
 
+  # Optuna-specific ranges (optional, override C_min/C_max):
+  # optuna_C: [1.0e-5, 100.0]                 # (min, max) for C (log-scale sampling)
+  # optuna_l1_ratio: [0.0, 1.0]               # (min, max) for l1_ratio (continuous)
+
   # Fixed parameters (used as baseline for all trials):
   solver: saga              # Solver supporting L1/ElasticNet
   max_iter: 5000            # Max iterations for convergence (increase if seeing warnings)
@@ -85,6 +105,9 @@ svm:
   C_max: 10.0               # Max regularization
   C_points: 4               # Number of C values
   class_weight_options: "balanced"
+
+  # Optuna-specific ranges (optional, override C_min/C_max):
+  # optuna_C: [1.0e-3, 100.0]                 # (min, max) for C (log-scale sampling)
 
   # Fixed parameters (used as baseline for all trials):
   max_iter: 5000            # SVM convergence iterations (increase if seeing warnings)
@@ -101,6 +124,14 @@ rf:
   min_samples_leaf_grid: [1, 2, 4]            # Min samples in leaf
   max_features_grid: ["sqrt", "log2", 0.5]    # Features per split
   class_weight_options: "balanced"
+
+  # Optuna-specific ranges (optional, override grid-derived ranges)
+  # Uncomment to enable wider continuous search with Optuna:
+  # optuna_n_estimators: [50, 500]            # (min, max) for n_estimators
+  # optuna_max_depth: [3, 20]                 # (min, max) for max_depth
+  # optuna_min_samples_split: [2, 20]         # (min, max) for min_samples_split
+  # optuna_min_samples_leaf: [1, 10]          # (min, max) for min_samples_leaf
+  # optuna_max_features: [0.1, 1.0]           # (min, max) fraction for max_features
 
   # Search algorithm settings:
   n_iter: 2                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
@@ -119,13 +150,43 @@ xgboost:
   reg_alpha_grid: [0.0, 0.01, 0.1]            # L1 regularization
   reg_lambda_grid: [1.0, 2.0, 5.0]            # L2 regularization
 
+  # Optuna-specific ranges (optional, override grid-derived ranges)
+  # These enable wider continuous search with proper log-scale sampling.
+  # Uncomment to customize ranges (defaults are used if not specified):
+  # optuna_n_estimators: [50, 500]            # (min, max) for n_estimators
+  # optuna_max_depth: [2, 12]                 # (min, max) for max_depth
+  # optuna_learning_rate: [0.001, 0.3]        # (min, max) for learning_rate (log-scale)
+  # optuna_min_child_weight: [0.1, 10.0]      # (min, max) for min_child_weight (log-scale)
+  # optuna_gamma: [0.0, 1.0]                  # (min, max) for gamma
+  # optuna_subsample: [0.5, 1.0]              # (min, max) for subsample
+  # optuna_colsample_bytree: [0.5, 1.0]       # (min, max) for colsample_bytree
+  # optuna_reg_alpha: [1.0e-8, 1.0]           # (min, max) for reg_alpha (log-scale)
+  # optuna_reg_lambda: [1.0e-8, 10.0]         # (min, max) for reg_lambda (log-scale)
+
   # Fixed parameters (used as baseline for all trials):
   tree_method: hist                            # Algorithm: hist (fast), exact, approx
 
   # Search algorithm settings:
   n_iter: 2                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
 
-# Calibration and thresholding
+# Probability calibration
+# Controls how model probabilities are calibrated for better reliability
+calibration:
+  enabled: true  # Whether to apply any calibration
+  strategy: per_fold  # Options: per_fold (default), oof_posthoc, none
+  # - per_fold: Apply CalibratedClassifierCV inside each CV fold (current behavior, simple)
+  # - oof_posthoc: Fit calibrator on pooled OOF predictions after CV (eliminates ~0.5-1% bias)
+  # - none: No calibration applied
+  method: isotonic  # Options: isotonic (nonparametric), sigmoid (Platt scaling)
+  cv: 5  # CV folds for per_fold strategy
+  ensemble: false  # Whether to use ensemble for CalibratedClassifierCV
+  # Per-model overrides (optional):
+  # per_model:
+  #   LR_EN: oof_posthoc  # Use oof_posthoc for logistic regression
+  #   RF: per_fold        # Keep per_fold for random forest
+  #   XGBoost: none       # No calibration for XGBoost
+
+# Thresholding
 thresholds:
   objective: fixed_spec  # "max_f1", "max_fbeta", "youden", "fixed_spec", "fixed_ppv"
   fixed_spec: 0.95  # Target 95% specificity

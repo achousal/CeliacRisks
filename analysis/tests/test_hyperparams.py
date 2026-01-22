@@ -528,3 +528,262 @@ def test_get_model_n_iter_unknown_model():
 
     # Unknown model falls back to global
     assert get_model_n_iter("UnknownModel", config) == 42
+
+
+# ==================== Optuna Parameter Distribution Tests ====================
+
+
+def test_get_optuna_params_xgboost_default_ranges():
+    """Test XGBoost Optuna params use wider default ranges."""
+    from ced_ml.models.hyperparams import get_param_distributions_optuna
+
+    config = make_mock_config()
+    params = get_param_distributions_optuna("XGBoost", config)
+
+    # Check learning_rate uses log scale
+    assert params["clf__learning_rate"]["type"] == "float"
+    assert params["clf__learning_rate"]["log"] is True
+    assert params["clf__learning_rate"]["low"] == 0.001
+    assert params["clf__learning_rate"]["high"] == 0.3
+
+    # Check regularization params use log scale
+    assert params["clf__reg_alpha"]["log"] is True
+    assert params["clf__reg_lambda"]["log"] is True
+
+    # Check min_child_weight uses log scale
+    assert params["clf__min_child_weight"]["log"] is True
+
+    # Check subsample does NOT use log scale
+    assert params["clf__subsample"]["log"] is False
+
+
+def test_get_optuna_params_xgboost_custom_ranges():
+    """Test XGBoost Optuna params can be customized via config."""
+    from types import SimpleNamespace
+
+    from ced_ml.models.hyperparams import get_param_distributions_optuna
+
+    config = make_mock_config()
+    # Override with custom Optuna ranges
+    config.xgboost = SimpleNamespace(
+        n_estimators_grid=[100, 200],
+        max_depth_grid=[3, 5],
+        learning_rate_grid=[0.01, 0.1],
+        subsample_grid=[0.8, 1.0],
+        colsample_bytree_grid=[0.8, 1.0],
+        scale_pos_weight_grid=[1.0, 5.0],
+        min_child_weight_grid=[1, 3, 5],
+        gamma_grid=[0.0, 0.1, 0.3],
+        reg_alpha_grid=[0.0, 0.01, 0.1],
+        reg_lambda_grid=[1.0, 2.0, 5.0],
+        # Custom Optuna ranges
+        optuna_n_estimators=(100, 1000),  # Wider than default
+        optuna_max_depth=(3, 15),
+        optuna_learning_rate=(0.0001, 0.5),  # Custom range
+        optuna_min_child_weight=None,  # Use default
+        optuna_gamma=None,
+        optuna_subsample=(0.6, 0.95),
+        optuna_colsample_bytree=None,
+        optuna_reg_alpha=(1e-10, 10.0),  # Custom range
+        optuna_reg_lambda=None,
+    )
+
+    params = get_param_distributions_optuna("XGBoost", config)
+
+    # Check custom ranges are used
+    assert params["clf__n_estimators"]["low"] == 100
+    assert params["clf__n_estimators"]["high"] == 1000
+    assert params["clf__max_depth"]["low"] == 3
+    assert params["clf__max_depth"]["high"] == 15
+    assert params["clf__learning_rate"]["low"] == 0.0001
+    assert params["clf__learning_rate"]["high"] == 0.5
+    assert params["clf__subsample"]["low"] == 0.6
+    assert params["clf__subsample"]["high"] == 0.95
+    assert params["clf__reg_alpha"]["low"] == 1e-10
+    assert params["clf__reg_alpha"]["high"] == 10.0
+
+
+def test_get_optuna_params_rf_default_ranges():
+    """Test RF Optuna params use appropriate ranges."""
+    from ced_ml.models.hyperparams import get_param_distributions_optuna
+
+    config = make_mock_config()
+    params = get_param_distributions_optuna("RF", config)
+
+    # Check n_estimators is int
+    assert params["clf__n_estimators"]["type"] == "int"
+    assert params["clf__n_estimators"]["log"] is False
+
+    # Check max_depth is int
+    assert params["clf__max_depth"]["type"] == "int"
+
+    # Check min_samples params
+    assert params["clf__min_samples_split"]["type"] == "int"
+    assert params["clf__min_samples_leaf"]["type"] == "int"
+
+
+def test_get_optuna_params_rf_custom_ranges():
+    """Test RF Optuna params can be customized via config."""
+    from types import SimpleNamespace
+
+    from ced_ml.models.hyperparams import get_param_distributions_optuna
+
+    config = make_mock_config()
+    config.rf = SimpleNamespace(
+        n_estimators_grid=[100, 200],
+        max_depth_grid=[5, 10],
+        min_samples_split_grid=[2, 5],
+        min_samples_leaf_grid=[1, 2],
+        max_features_grid=[0.3, 0.5],
+        class_weight_options="balanced",
+        # Custom Optuna ranges
+        optuna_n_estimators=(50, 1000),
+        optuna_max_depth=(5, 30),
+        optuna_min_samples_split=(2, 50),
+        optuna_min_samples_leaf=(1, 20),
+        optuna_max_features=(0.05, 0.9),
+    )
+
+    params = get_param_distributions_optuna("RF", config)
+
+    assert params["clf__n_estimators"]["low"] == 50
+    assert params["clf__n_estimators"]["high"] == 1000
+    assert params["clf__max_depth"]["low"] == 5
+    assert params["clf__max_depth"]["high"] == 30
+    assert params["clf__min_samples_split"]["low"] == 2
+    assert params["clf__min_samples_split"]["high"] == 50
+    assert params["clf__max_features"]["low"] == 0.05
+    assert params["clf__max_features"]["high"] == 0.9
+
+
+def test_get_optuna_params_lr_log_scale():
+    """Test LR Optuna params use log scale for C."""
+    from ced_ml.models.hyperparams import get_param_distributions_optuna
+
+    config = make_mock_config()
+    params = get_param_distributions_optuna("LR_EN", config)
+
+    # C should use log scale
+    assert params["clf__C"]["type"] == "float"
+    assert params["clf__C"]["log"] is True
+
+    # l1_ratio should NOT use log scale (it's a proportion)
+    assert params["clf__l1_ratio"]["type"] == "float"
+    assert params["clf__l1_ratio"]["log"] is False
+
+
+def test_get_optuna_params_lr_custom_c_range():
+    """Test LR Optuna C range can be customized."""
+    from types import SimpleNamespace
+
+    from ced_ml.models.hyperparams import get_param_distributions_optuna
+
+    config = make_mock_config()
+    config.lr = SimpleNamespace(
+        C_min=0.01,
+        C_max=100.0,
+        C_points=5,
+        l1_ratio=[0.1, 0.5, 0.9],
+        class_weight_options="balanced",
+        # Custom Optuna ranges
+        optuna_C=(1e-6, 1000.0),
+        optuna_l1_ratio=(0.0, 1.0),
+    )
+
+    params = get_param_distributions_optuna("LR_EN", config)
+
+    assert params["clf__C"]["low"] == 1e-6
+    assert params["clf__C"]["high"] == 1000.0
+    assert params["clf__l1_ratio"]["low"] == 0.0
+    assert params["clf__l1_ratio"]["high"] == 1.0
+
+
+def test_get_optuna_params_svm_log_scale():
+    """Test SVM Optuna params use log scale for C."""
+    from ced_ml.models.hyperparams import get_param_distributions_optuna
+
+    config = make_mock_config()
+    params = get_param_distributions_optuna("LinSVM_cal", config)
+
+    # C should use log scale
+    assert params["clf__estimator__C"]["type"] == "float"
+    assert params["clf__estimator__C"]["log"] is True
+
+
+def test_get_optuna_params_with_kbest():
+    """Test Optuna params include k_grid as categorical."""
+    from ced_ml.models.hyperparams import get_param_distributions_optuna
+
+    config = make_mock_config()
+    config.features.feature_select = "kbest"
+    config.features.k_grid = [25, 50, 100, 200]
+
+    params = get_param_distributions_optuna("LR_EN", config)
+
+    assert "sel__k" in params
+    assert params["sel__k"]["type"] == "categorical"
+    assert params["sel__k"]["choices"] == [25, 50, 100, 200]
+
+
+def test_get_optuna_params_xgboost_with_spw():
+    """Test XGBoost Optuna params with custom scale_pos_weight."""
+    from ced_ml.models.hyperparams import get_param_distributions_optuna
+
+    config = make_mock_config()
+    params = get_param_distributions_optuna("XGBoost", config, xgb_spw=10.0)
+
+    # Should use spw +/- 30% as range
+    assert params["clf__scale_pos_weight"]["type"] == "float"
+    assert params["clf__scale_pos_weight"]["low"] == pytest.approx(7.0, rel=0.01)
+    assert params["clf__scale_pos_weight"]["high"] == pytest.approx(13.0, rel=0.01)
+
+
+def test_get_optuna_params_all_models_have_specs():
+    """Test that all standard models return Optuna specs."""
+    from ced_ml.models.hyperparams import get_param_distributions_optuna
+
+    config = make_mock_config()
+    models = ["LR_EN", "LR_L1", "LinSVM_cal", "RF", "XGBoost"]
+
+    for model in models:
+        params = get_param_distributions_optuna(model, config)
+        assert len(params) > 0, f"Model {model} has no Optuna parameters"
+
+        # Check all specs have required fields
+        for name, spec in params.items():
+            assert "type" in spec, f"Param {name} missing 'type'"
+            if spec["type"] in ("int", "float"):
+                assert "low" in spec, f"Param {name} missing 'low'"
+                assert "high" in spec, f"Param {name} missing 'high'"
+                assert "log" in spec, f"Param {name} missing 'log'"
+            elif spec["type"] == "categorical":
+                assert "choices" in spec, f"Param {name} missing 'choices'"
+
+
+def test_optuna_default_ranges_are_wider():
+    """Test that Optuna default ranges are wider than grid-derived ranges."""
+    from ced_ml.models.hyperparams import (
+        DEFAULT_OPTUNA_RANGES,
+        get_param_distributions,
+        get_param_distributions_optuna,
+    )
+
+    config = make_mock_config()
+
+    # XGBoost learning_rate
+    sklearn_params = get_param_distributions("XGBoost", config)
+    optuna_params = get_param_distributions_optuna("XGBoost", config)
+
+    # Optuna default should be wider
+    sklearn_lr_range = max(sklearn_params["clf__learning_rate"]) - min(
+        sklearn_params["clf__learning_rate"]
+    )
+    optuna_lr_range = (
+        optuna_params["clf__learning_rate"]["high"] - optuna_params["clf__learning_rate"]["low"]
+    )
+    assert optuna_lr_range >= sklearn_lr_range
+
+    # Check the default constants exist and have expected values
+    assert "XGBoost" in DEFAULT_OPTUNA_RANGES
+    assert DEFAULT_OPTUNA_RANGES["XGBoost"]["learning_rate"]["log"] is True
+    assert DEFAULT_OPTUNA_RANGES["XGBoost"]["reg_alpha"]["log"] is True

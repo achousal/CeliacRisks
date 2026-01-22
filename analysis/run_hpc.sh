@@ -51,6 +51,34 @@ get_yaml_list() {
   grep -A10 "^  ${key}:" "${file}" | grep "^ *- " | sed 's/^ *- *//' | tr '\n' ',' | sed 's/,$//'
 }
 
+# Get nested YAML value (e.g., "ensemble" "enabled")
+get_yaml_nested() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  awk -v section="${section}:" -v key="  ${key}:" '
+    $0 ~ "^"section { in_section=1; next }
+    in_section && /^[a-zA-Z]/ { in_section=0 }
+    in_section && $0 ~ key { gsub(/^[^:]*: */, ""); gsub(/ *#.*/, ""); gsub(/["'"'"']/, ""); print; exit }
+  ' "${file}"
+}
+
+# Get nested YAML list (e.g., "ensemble" "base_models")
+get_yaml_nested_list() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local line
+  line=$(get_yaml_nested "${file}" "${section}" "${key}")
+
+  # Handle inline array format: [item1, item2]
+  if [[ "${line}" =~ ^\[.*\]$ ]]; then
+    echo "${line}" | tr -d '[]' | tr -d ' '
+  else
+    echo ""
+  fi
+}
+
 # Read paths
 INFILE=$(get_yaml "${PIPELINE_CONFIG}" "infile")
 SPLITS_DIR=$(get_yaml "${PIPELINE_CONFIG}" "splits_dir")
@@ -113,6 +141,11 @@ fi
 N_SPLITS=$(grep "^n_splits:" "${SPLITS_CONFIG}" | awk '{print $2}')
 SEED_START=$(grep "^seed_start:" "${SPLITS_CONFIG}" | awk '{print $2}')
 
+# Extract ensemble settings from training config
+ENSEMBLE_ENABLED=$(get_yaml_nested "${TRAINING_CONFIG}" "ensemble" "enabled")
+ENSEMBLE_BASE_MODELS=$(get_yaml_nested_list "${TRAINING_CONFIG}" "ensemble" "base_models")
+[[ "${ENSEMBLE_ENABLED}" == "true" ]] && ENSEMBLE_ENABLED=1 || ENSEMBLE_ENABLED=0
+
 # Generate run ID (timestamp-based)
 RUN_ID=$(date +"%Y%m%d_%H%M%S")
 
@@ -131,6 +164,7 @@ log "Results: ${RESULTS_DIR}"
 log "Logs: ${RUN_LOGS_DIR}"
 log "Models: ${RUN_MODELS}"
 log "HPC: ${PROJECT} / ${QUEUE} / ${WALLTIME} / ${CORES}c / ${MEM}MB"
+log "Ensemble: ${ENSEMBLE_ENABLED} (base: ${ENSEMBLE_BASE_MODELS:-none})"
 log "Dry run: ${DRY_RUN}"
 log "Postprocess only: ${POSTPROCESS_ONLY}"
 log "============================================"
@@ -241,7 +275,95 @@ EOF
     done
   done
 
-  log "Submitted ${#SUBMITTED_JOBS[@]} job(s)"
+  log "Submitted ${#SUBMITTED_JOBS[@]} base model job(s)"
+
+#==============================================================
+# STEP 2.5: SUBMIT ENSEMBLE JOBS (if enabled, with dependencies)
+#==============================================================
+  if [[ ${ENSEMBLE_ENABLED} -eq 1 ]]; then
+    log "Step 2.5/4: Submit ensemble jobs (with dependencies)"
+
+    # Determine base models: use config or fall back to trained models
+    if [[ -n "${ENSEMBLE_BASE_MODELS}" ]]; then
+      ENSEMBLE_MODELS="${ENSEMBLE_BASE_MODELS}"
+    else
+      ENSEMBLE_MODELS="${RUN_MODELS}"
+    fi
+
+    ENSEMBLE_JOBS=()
+
+    for SEED in $(seq ${SEED_START} ${SEED_END}); do
+      JOB_NAME="CeD_ENSEMBLE_seed${SEED}"
+
+      # Build dependency string: wait for all base model jobs for this seed
+      DEP_JOBS=""
+      IFS=',' read -r -a ENSEMBLE_MODEL_ARRAY <<< "${ENSEMBLE_MODELS}"
+      for BASE_MODEL in "${ENSEMBLE_MODEL_ARRAY[@]}"; do
+        BASE_MODEL=$(echo "${BASE_MODEL}" | xargs)
+        [[ -z "${BASE_MODEL}" ]] && continue
+        DEP_JOB_NAME="CeD_${BASE_MODEL}_seed${SEED}"
+        if [[ -n "${DEP_JOBS}" ]]; then
+          DEP_JOBS="${DEP_JOBS} && "
+        fi
+        DEP_JOBS="${DEP_JOBS}done(${DEP_JOB_NAME})"
+      done
+
+      if [[ ${DRY_RUN} -eq 1 ]]; then
+        log "[DRY RUN] Would submit: ${JOB_NAME} (depends on: ${ENSEMBLE_MODELS})"
+        ENSEMBLE_JOBS+=("DRYRUN_ENSEMBLE_${SEED}")
+      else
+        log "Submitting ${JOB_NAME} (depends on base models)..."
+
+        LOG_ERR="${RUN_LOGS_DIR}/${JOB_NAME}.%J.err"
+        LIVE_LOG="${RUN_LOGS_DIR}/${JOB_NAME}.live.log"
+
+        BSUB_OUT=$(bsub \
+          -P "${PROJECT}" \
+          -q "${QUEUE}" \
+          -J "${JOB_NAME}" \
+          -n ${CORES} \
+          -W "${WALLTIME}" \
+          -R "span[hosts=1] rusage[mem=${MEM}]" \
+          -w "${DEP_JOBS}" \
+          -oo /dev/null \
+          -eo "${LOG_ERR}" \
+          <<EOF
+#!/bin/bash
+set -euo pipefail
+
+export PYTHONUNBUFFERED=1
+export FORCE_COLOR=1
+
+source "${VENV_PATH}"
+
+stdbuf -oL -eL ced train-ensemble \
+  --config "${TRAINING_CONFIG}" \
+  --results-dir "${RESULTS_DIR}" \
+  --base-models "${ENSEMBLE_MODELS}" \
+  --split-seed "${SEED}" \
+  --outdir "${RESULTS_DIR}/ENSEMBLE/run_${RUN_ID}/split_seed${SEED}" \
+  2>&1 | tee -a "${LIVE_LOG}"
+
+exit \${PIPESTATUS[0]}
+EOF
+        )
+
+        JOB_ID=$(echo "${BSUB_OUT}" | grep -oE 'Job <[0-9]+>' | head -n1 | tr -cd '0-9')
+
+        if [[ -n "${JOB_ID}" ]]; then
+          log "  [OK] ENSEMBLE seed ${SEED}: Job ${JOB_ID} (depends on base models)"
+          ENSEMBLE_JOBS+=("${JOB_ID}")
+        else
+          log "  [FAIL] ENSEMBLE seed ${SEED}: Submission failed"
+          echo "${BSUB_OUT}"
+        fi
+      fi
+    done
+
+    log "Submitted ${#ENSEMBLE_JOBS[@]} ensemble job(s)"
+  else
+    log "Step 2.5/4: Ensemble training disabled (ensemble.enabled: false)"
+  fi
 fi
 
 #==============================================================
@@ -299,7 +421,13 @@ else
   log "Found ${COMPLETED_COUNT} completed split run(s)"
 
   if [[ ${COMPLETED_COUNT} -gt 0 ]]; then
-    IFS=',' read -r -a MODEL_ARRAY_AGG <<< "${RUN_MODELS}"
+    # Build list of models to aggregate (include ENSEMBLE if trained)
+    MODELS_TO_AGG="${RUN_MODELS}"
+    if [[ ${ENSEMBLE_ENABLED} -eq 1 ]]; then
+      MODELS_TO_AGG="${MODELS_TO_AGG},ENSEMBLE"
+    fi
+
+    IFS=',' read -r -a MODEL_ARRAY_AGG <<< "${MODELS_TO_AGG}"
     for MODEL in "${MODEL_ARRAY_AGG[@]}"; do
       MODEL=$(echo "${MODEL}" | xargs)
       [[ -z "${MODEL}" ]] && continue
@@ -315,8 +443,14 @@ else
     done
     log "[OK] Aggregation complete"
   else
+    # Build list of models for instructions (include ENSEMBLE if enabled)
+    MODELS_TO_AGG="${RUN_MODELS}"
+    if [[ ${ENSEMBLE_ENABLED} -eq 1 ]]; then
+      MODELS_TO_AGG="${MODELS_TO_AGG},ENSEMBLE"
+    fi
+
     log "No completed runs yet. Aggregate after jobs finish (per model):"
-    IFS=',' read -r -a MODEL_ARRAY_INFO <<< "${RUN_MODELS}"
+    IFS=',' read -r -a MODEL_ARRAY_INFO <<< "${MODELS_TO_AGG}"
     for MODEL in "${MODEL_ARRAY_INFO[@]}"; do
       MODEL=$(echo "${MODEL}" | xargs)
       [[ -z "${MODEL}" ]] && continue
@@ -334,6 +468,9 @@ log "============================================"
 log "Run ID: ${RUN_ID}"
 log "Monitor jobs:"
 log "  bjobs -w | grep CeD_"
+if [[ ${ENSEMBLE_ENABLED} -eq 1 ]]; then
+  log "  (Ensemble jobs will start after base models complete)"
+fi
 log ""
 log "Live logs (real-time):"
 log "  tail -f ${RUN_LOGS_DIR}/*.live.log"

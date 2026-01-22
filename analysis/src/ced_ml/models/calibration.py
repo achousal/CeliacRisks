@@ -35,6 +35,10 @@ __all__ = [
     "get_calibrated_estimator_param_name",
     "get_calibrated_cv_param_name",
     "maybe_calibrate_estimator",
+    "OOFCalibrator",
+    "fit_oof_calibrator",
+    "apply_oof_calibrator",
+    "OOFCalibratedModel",
 ]
 
 
@@ -213,3 +217,212 @@ def maybe_calibrate_estimator(
             "Returning original estimator without calibration."
         )
         return estimator
+
+
+class OOFCalibrator:
+    """
+    Post-hoc calibrator fitted on pooled out-of-fold predictions.
+
+    This calibrator is fit once on genuinely held-out OOF predictions
+    after the CV loop completes, avoiding the optimistic bias introduced
+    by per-fold CalibratedClassifierCV.
+
+    Attributes:
+        method: Calibration method ("isotonic" or "sigmoid").
+        calibrator_: Fitted sklearn calibrator (IsotonicRegression or LogisticRegression).
+        is_fitted: Whether the calibrator has been fitted.
+    """
+
+    def __init__(self, method: str = "isotonic"):
+        """
+        Initialize OOF calibrator.
+
+        Args:
+            method: Calibration method. "isotonic" for isotonic regression,
+                    "sigmoid" for Platt scaling via logistic regression.
+        """
+        if method not in ("isotonic", "sigmoid"):
+            raise ValueError(f"method must be 'isotonic' or 'sigmoid', got '{method}'")
+        self.method = method
+        self.calibrator_ = None
+        self.is_fitted = False
+
+    def fit(self, oof_preds: np.ndarray, y_true: np.ndarray) -> "OOFCalibrator":
+        """
+        Fit the calibrator on pooled OOF predictions.
+
+        Args:
+            oof_preds: Raw (uncalibrated) OOF predictions, shape (n_samples,).
+            y_true: True binary labels, shape (n_samples,).
+
+        Returns:
+            self (fitted calibrator).
+
+        Raises:
+            ValueError: If inputs have mismatched shapes or insufficient data.
+        """
+        oof_preds = np.asarray(oof_preds).ravel()
+        y_true = np.asarray(y_true).ravel()
+
+        if len(oof_preds) != len(y_true):
+            raise ValueError(
+                f"oof_preds and y_true must have same length, "
+                f"got {len(oof_preds)} and {len(y_true)}"
+            )
+
+        # Filter NaN values
+        mask = np.isfinite(oof_preds) & np.isfinite(y_true)
+        oof_clean = oof_preds[mask]
+        y_clean = y_true[mask].astype(int)
+
+        if len(oof_clean) < 10:
+            raise ValueError(
+                f"Need at least 10 valid samples for calibration, got {len(oof_clean)}"
+            )
+
+        if len(np.unique(y_clean)) < 2:
+            raise ValueError("Need both classes present for calibration")
+
+        if self.method == "isotonic":
+            from sklearn.isotonic import IsotonicRegression
+
+            self.calibrator_ = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip")
+            self.calibrator_.fit(oof_clean, y_clean)
+        else:
+            # Sigmoid (Platt scaling) via logistic regression on log-odds
+            eps = 1e-7
+            oof_clipped = np.clip(oof_clean, eps, 1 - eps)
+            log_odds = np.log(oof_clipped / (1 - oof_clipped))
+            self.calibrator_ = LogisticRegression(penalty=None, solver="lbfgs", max_iter=1000)
+            self.calibrator_.fit(log_odds.reshape(-1, 1), y_clean)
+
+        self.is_fitted = True
+        return self
+
+    def transform(self, predictions: np.ndarray) -> np.ndarray:
+        """
+        Apply calibration to predictions.
+
+        Args:
+            predictions: Raw predictions to calibrate, shape (n_samples,).
+
+        Returns:
+            Calibrated predictions, shape (n_samples,).
+
+        Raises:
+            RuntimeError: If calibrator is not fitted.
+        """
+        if not self.is_fitted:
+            raise RuntimeError("Calibrator must be fitted before calling transform")
+
+        predictions = np.asarray(predictions).ravel()
+
+        if self.method == "isotonic":
+            calibrated = self.calibrator_.predict(predictions)
+        else:
+            # Sigmoid: convert to log-odds, predict probability
+            eps = 1e-7
+            pred_clipped = np.clip(predictions, eps, 1 - eps)
+            log_odds = np.log(pred_clipped / (1 - pred_clipped))
+            calibrated = self.calibrator_.predict_proba(log_odds.reshape(-1, 1))[:, 1]
+
+        return np.clip(calibrated, 0.0, 1.0)
+
+    def __repr__(self) -> str:
+        status = "fitted" if self.is_fitted else "not fitted"
+        return f"OOFCalibrator(method='{self.method}', {status})"
+
+
+def fit_oof_calibrator(
+    oof_preds: np.ndarray, y_true: np.ndarray, method: str = "isotonic"
+) -> OOFCalibrator:
+    """
+    Fit an OOF calibrator on pooled out-of-fold predictions.
+
+    This is a convenience function that creates and fits an OOFCalibrator.
+
+    Args:
+        oof_preds: Raw (uncalibrated) OOF predictions, shape (n_samples,).
+        y_true: True binary labels, shape (n_samples,).
+        method: Calibration method ("isotonic" or "sigmoid").
+
+    Returns:
+        Fitted OOFCalibrator instance.
+    """
+    calibrator = OOFCalibrator(method=method)
+    calibrator.fit(oof_preds, y_true)
+    return calibrator
+
+
+def apply_oof_calibrator(calibrator: OOFCalibrator, predictions: np.ndarray) -> np.ndarray:
+    """
+    Apply a fitted OOF calibrator to predictions.
+
+    This is a convenience function that wraps OOFCalibrator.transform().
+
+    Args:
+        calibrator: Fitted OOFCalibrator instance.
+        predictions: Raw predictions to calibrate, shape (n_samples,).
+
+    Returns:
+        Calibrated predictions, shape (n_samples,).
+    """
+    return calibrator.transform(predictions)
+
+
+class OOFCalibratedModel:
+    """
+    Wrapper that applies OOF calibration to a base model's predictions.
+
+    This wrapper is used when calibration strategy is "oof_posthoc".
+    It combines a base sklearn model with a fitted OOFCalibrator.
+
+    Attributes:
+        base_model: The underlying sklearn model.
+        calibrator: Fitted OOFCalibrator instance.
+    """
+
+    def __init__(self, base_model, calibrator: OOFCalibrator):
+        """
+        Initialize OOF calibrated model wrapper.
+
+        Args:
+            base_model: Sklearn model with predict_proba method.
+            calibrator: Fitted OOFCalibrator instance.
+        """
+        if not hasattr(base_model, "predict_proba"):
+            raise ValueError("base_model must have predict_proba method")
+        if not calibrator.is_fitted:
+            raise ValueError("calibrator must be fitted")
+        self.base_model = base_model
+        self.calibrator = calibrator
+
+    def predict_proba(self, X):
+        """
+        Generate calibrated probability predictions.
+
+        Args:
+            X: Input features.
+
+        Returns:
+            Array of shape (n_samples, 2) with calibrated probabilities.
+        """
+        raw_proba = self.base_model.predict_proba(X)
+        calibrated = self.calibrator.transform(raw_proba[:, 1])
+        return np.column_stack([1 - calibrated, calibrated])
+
+    def predict(self, X):
+        """
+        Generate binary predictions using default threshold of 0.5.
+
+        Args:
+            X: Input features.
+
+        Returns:
+            Array of binary predictions.
+        """
+        proba = self.predict_proba(X)[:, 1]
+        return (proba >= 0.5).astype(int)
+
+    def __repr__(self) -> str:
+        return f"OOFCalibratedModel(base_model={type(self.base_model).__name__}, calibrator={self.calibrator})"

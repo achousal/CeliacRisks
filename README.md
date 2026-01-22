@@ -3,7 +3,7 @@
 **A production-ready machine learning pipeline for disease risk prediction from high-dimensional biomarker data**
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)
-![Tests](https://img.shields.io/badge/tests-810%20passing-success)
+![Tests](https://img.shields.io/badge/tests-921%20passing-success)
 ![Coverage](https://img.shields.io/badge/coverage-65%25-yellowgreen)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
@@ -15,9 +15,12 @@ CeliacRiskML is a modular, extensible machine learning framework for **disease r
 
 **Key capabilities:**
 - Multi-model comparison (Random Forest, XGBoost, Linear SVM, Logistic Regression)
+- **Model stacking ensemble** with OOF meta-learner for improved predictions
 - Rigorous nested cross-validation with feature selection
+- **OOF-posthoc calibration** for unbiased probability estimates
 - Calibration-optimized predictions with prevalence adjustment
-- Clinical decision curve analysis (DCA)
+- **Temporal validation** support for chronological splits
+- Clinical decision curve analysis (DCA) with auto-range
 - HPC-ready batch processing (LSF/Slurm)
 - Complete provenance tracking and reproducibility
 
@@ -34,15 +37,18 @@ CeliacRiskML is a modular, extensible machine learning framework for **disease r
 
 ### Production-Grade ML Pipeline
 - **Four battle-tested models**: Random Forest, XGBoost, Linear SVM, Logistic Regression
+- **Stacking ensemble**: L2 meta-learner combining base model OOF predictions (+2-5% AUROC)
 - **Nested cross-validation**: N-fold outer x N repeats x N-fold inner
 - **Smart feature selection**: Multi-stage screening (effect size, k-best, stability, correlation pruning)
-- **Automatic hyperparameter tuning**: N-iteration randomized search per model
+- **Optuna hyperparameter optimization**: Bayesian TPE with expanded search ranges
 - **Prevalence adjustment**: Recalibrate for deployment prevalence
+- **Temporal validation**: Chronological train/val/test splits for time-series data
 
 ### Comprehensive Evaluation
 - **Calibration metrics**: Brier score, calibration slope/intercept, calibration curves
+- **OOF-posthoc calibration**: Unbiased calibration strategy eliminating ~0.5-1% optimistic bias
 - **Discrimination metrics**: AUROC, PR-AUC, sensitivity/specificity at thresholds
-- **Clinical utility**: Decision curve analysis (DCA) with net benefit
+- **Clinical utility**: Decision curve analysis (DCA) with auto-configured threshold ranges
 - **Bootstrap confidence intervals**: Stratified resampling for robust estimates
 
 ### Rich Visualizations
@@ -104,12 +110,18 @@ ced save-splits --config configs/splits_config.yaml --infile data/your_dataset.c
 ced train --config configs/training_config.yaml --model LR_EN
 ```
 
-### 3. Aggregate Results
+### 3. Train Ensemble (Optional)
+```bash
+# After training base models on same split
+ced train-ensemble --base-models LR_EN,RF,XGBoost --split-seed 0
+```
+
+### 4. Aggregate Results
 ```bash
 ced aggregate-splits --config configs/aggregate_config.yaml
 ```
 
-### 4. Visualize
+### 5. Visualize
 ```bash
 Rscript scripts/compare_models.R --results_root results
 ```
@@ -154,6 +166,31 @@ thresholds:
   target_prevalence_source: test
 ```
 
+### 5. Configure Calibration Strategy
+```yaml
+calibration:
+  enabled: true
+  strategy: oof_posthoc  # Unbiased (or per_fold for legacy)
+  method: isotonic
+```
+
+### 6. Enable Stacking Ensemble
+```yaml
+ensemble:
+  enabled: true
+  base_models: [LR_EN, RF, XGBoost]
+  meta_model:
+    type: logistic_regression
+    penalty: l2
+```
+
+### 7. Enable Temporal Validation
+```yaml
+splits:
+  temporal_split: true
+  temporal_column: "sample_date"
+```
+
 For complete configuration options, see [analysis/CLAUDE.md](analysis/CLAUDE.md).
 
 ---
@@ -180,9 +217,12 @@ See [analysis/CLAUDE.md](analysis/CLAUDE.md) for the complete case study.
 
 1. **Discrimination-First with Post-Hoc Calibration** - Optimize AUROC, then calibrate with isotonic regression and prevalence adjustment
 2. **Rigorous Validation** - Nested CV, no leakage, three-way split with thresholds on VAL
-3. **Prevalence-Aware** - Models calibrated to deployment prevalence
-4. **Reproducible** - Fixed seeds, YAML configs, complete provenance tracking
-5. **HPC-Ready** - Non-interactive, resumable, LSF/Slurm array job support
+3. **Unbiased Calibration** - OOF-posthoc strategy eliminates calibration data leakage
+4. **Ensemble Learning** - Stacking meta-learner combines diverse base models for improved predictions
+5. **Prevalence-Aware** - Models calibrated to deployment prevalence
+6. **Temporal-Aware** - Optional chronological splits prevent future data leakage
+7. **Reproducible** - Fixed seeds, YAML configs, complete provenance tracking
+8. **HPC-Ready** - Non-interactive, resumable, LSF/Slurm array job support
 
 ---
 
@@ -207,7 +247,7 @@ pytest tests/ -v                    # Run all tests
 pytest tests/ --cov=src/ced_ml     # With coverage
 ```
 
-**Stats:** 810 tests, 65% coverage
+**Stats:** 921 tests, 65% coverage
 
 ---
 

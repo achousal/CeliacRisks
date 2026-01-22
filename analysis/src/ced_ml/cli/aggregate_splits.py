@@ -88,6 +88,172 @@ def discover_split_dirs(results_dir: Path) -> list[Path]:
     return [d for d in split_dirs if d.is_dir()]
 
 
+def discover_ensemble_dirs(results_dir: Path) -> list[Path]:
+    """
+    Discover ENSEMBLE model split directories.
+
+    The ensemble model outputs to a model-specific directory structure:
+    results/ENSEMBLE/split_{seed}/ or results/ENSEMBLE/split_seed{seed}/
+
+    Args:
+        results_dir: Base results directory
+
+    Returns:
+        List of ensemble split subdirectory paths, sorted by seed number
+    """
+    ensemble_base = results_dir / "ENSEMBLE"
+    if not ensemble_base.exists():
+        return []
+
+    # Try both naming conventions: split_{seed} and split_seed{seed}
+    split_dirs = []
+
+    for d in ensemble_base.glob("split_*"):
+        if d.is_dir():
+            name = d.name
+            if name.startswith("split_seed"):
+                # split_seed{X} format
+                try:
+                    seed = int(name.replace("split_seed", ""))
+                    split_dirs.append((seed, d))
+                except ValueError:
+                    pass
+            elif name.startswith("split_"):
+                # split_{X} format
+                try:
+                    seed = int(name.replace("split_", ""))
+                    split_dirs.append((seed, d))
+                except ValueError:
+                    pass
+
+    # Sort by seed number
+    split_dirs.sort(key=lambda x: x[0])
+    return [d for _, d in split_dirs]
+
+
+def collect_ensemble_predictions(
+    ensemble_dirs: list[Path],
+    pred_type: str,
+    logger: logging.Logger | None = None,
+) -> pd.DataFrame:
+    """
+    Collect predictions from ENSEMBLE model directories.
+
+    Args:
+        ensemble_dirs: List of ensemble split directories
+        pred_type: One of "test", "val", "train_oof"
+        logger: Optional logger instance
+
+    Returns:
+        DataFrame with pooled ensemble predictions
+    """
+    pred_subdir_map = {
+        "test": "preds/test_preds",
+        "val": "preds/val_preds",
+        "train_oof": "preds/train_oof",
+    }
+
+    if pred_type not in pred_subdir_map:
+        raise ValueError(
+            f"Unknown pred_type: {pred_type}. Must be one of {list(pred_subdir_map.keys())}"
+        )
+
+    subdir = pred_subdir_map[pred_type]
+    all_preds = []
+
+    for ensemble_dir in ensemble_dirs:
+        # Extract seed from directory name (handles both split_X and split_seedX)
+        name = ensemble_dir.name
+        if name.startswith("split_seed"):
+            seed = int(name.replace("split_seed", ""))
+        else:
+            seed = int(name.replace("split_", ""))
+
+        pred_dir = ensemble_dir / subdir
+
+        if not pred_dir.exists():
+            if logger:
+                logger.debug(f"No {pred_type} predictions dir in ENSEMBLE/{ensemble_dir.name}")
+            continue
+
+        csv_files = list(pred_dir.glob("*__ENSEMBLE.csv"))
+        if not csv_files:
+            if logger:
+                logger.debug(f"No ENSEMBLE CSV files in {pred_dir}")
+            continue
+
+        for csv_path in csv_files:
+            try:
+                df = pd.read_csv(csv_path)
+                df["split_seed"] = seed
+                df["source_file"] = csv_path.name
+                df["model"] = "ENSEMBLE"
+                all_preds.append(df)
+            except Exception as e:
+                if logger:
+                    logger.warning(f"Failed to read {csv_path}: {e}")
+
+    if not all_preds:
+        return pd.DataFrame()
+
+    return pd.concat(all_preds, ignore_index=True)
+
+
+def collect_ensemble_metrics(
+    ensemble_dirs: list[Path],
+    logger: logging.Logger | None = None,
+) -> pd.DataFrame:
+    """
+    Collect metrics from ENSEMBLE model directories.
+
+    Args:
+        ensemble_dirs: List of ensemble split directories
+        logger: Optional logger instance
+
+    Returns:
+        DataFrame with ensemble metrics from all splits
+    """
+    all_metrics = []
+
+    for ensemble_dir in ensemble_dirs:
+        # Extract seed from directory name
+        name = ensemble_dir.name
+        if name.startswith("split_seed"):
+            seed = int(name.replace("split_seed", ""))
+        else:
+            seed = int(name.replace("split_", ""))
+
+        # Try JSON metrics first (ENSEMBLE uses JSON format)
+        metrics_path = ensemble_dir / "core" / "metrics.json"
+        if metrics_path.exists():
+            try:
+                with open(metrics_path) as f:
+                    metrics_data = json.load(f)
+
+                # Flatten nested test/val metrics into a single row
+                row = {"split_seed": seed, "model": "ENSEMBLE"}
+
+                # Extract test metrics
+                if "test" in metrics_data:
+                    for key, value in metrics_data["test"].items():
+                        row[f"test_{key}"] = value
+
+                # Extract val metrics
+                if "val" in metrics_data:
+                    for key, value in metrics_data["val"].items():
+                        row[f"val_{key}"] = value
+
+                all_metrics.append(row)
+            except Exception as e:
+                if logger:
+                    logger.warning(f"Failed to read ensemble metrics from {metrics_path}: {e}")
+
+    if not all_metrics:
+        return pd.DataFrame()
+
+    return pd.DataFrame(all_metrics)
+
+
 def collect_metrics(
     split_dirs: list[Path],
     metrics_file: str = "core/test_metrics.csv",
@@ -1187,6 +1353,99 @@ def generate_aggregated_plots(
                 # Generate controls-only risk distribution if available
 
 
+def generate_model_comparison_report(
+    pooled_test_metrics: dict[str, dict[str, float]],
+    pooled_val_metrics: dict[str, dict[str, float]],
+    threshold_info: dict[str, dict[str, Any]],
+    out_dir: Path,
+    logger: logging.Logger | None = None,
+) -> pd.DataFrame:
+    """
+    Generate a model comparison report comparing all models including ENSEMBLE.
+
+    Args:
+        pooled_test_metrics: Dict mapping model name to test metrics
+        pooled_val_metrics: Dict mapping model name to val metrics
+        threshold_info: Dict mapping model name to threshold information
+        out_dir: Output directory for the report
+        logger: Optional logger instance
+
+    Returns:
+        DataFrame with model comparison data
+    """
+    if not pooled_test_metrics:
+        return pd.DataFrame()
+
+    rows = []
+    for model_name in sorted(pooled_test_metrics.keys()):
+        test_metrics = pooled_test_metrics.get(model_name, {})
+        val_metrics = pooled_val_metrics.get(model_name, {})
+        model_threshold = threshold_info.get(model_name, {})
+
+        row = {
+            "model": model_name,
+            "is_ensemble": model_name == "ENSEMBLE",
+            # Test metrics
+            "test_AUROC": test_metrics.get("AUROC"),
+            "test_PR_AUC": test_metrics.get("PR_AUC"),
+            "test_Brier": test_metrics.get("Brier"),
+            "test_n_samples": test_metrics.get("n_samples"),
+            "test_n_positive": test_metrics.get("n_positive"),
+            "test_prevalence": test_metrics.get("prevalence"),
+            # Calibration
+            "test_calib_slope": test_metrics.get("calib_slope"),
+            # Val metrics
+            "val_AUROC": val_metrics.get("AUROC"),
+            "val_PR_AUC": val_metrics.get("PR_AUC"),
+            "val_Brier": val_metrics.get("Brier"),
+            # Thresholds
+            "youden_threshold": model_threshold.get("youden_threshold"),
+            "alpha_threshold": model_threshold.get("alpha_threshold"),
+            "dca_threshold": model_threshold.get("dca_threshold"),
+        }
+
+        # Add multi-target specificity metrics if present
+        for key in test_metrics:
+            if key.startswith("sens_ctrl_") or key.startswith("prec_ctrl_"):
+                row[f"test_{key}"] = test_metrics[key]
+
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+
+    # Sort by test AUROC descending
+    if "test_AUROC" in df.columns:
+        df = df.sort_values("test_AUROC", ascending=False)
+
+    # Save to reports directory
+    reports_dir = out_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+
+    report_path = reports_dir / "model_comparison.csv"
+    df.to_csv(report_path, index=False)
+
+    if logger:
+        logger.info(f"Model comparison report saved: {report_path}")
+
+        # Log summary of comparison
+        if "ENSEMBLE" in df["model"].values:
+            ensemble_row = df[df["model"] == "ENSEMBLE"].iloc[0]
+            best_base = df[df["model"] != "ENSEMBLE"].iloc[0] if len(df) > 1 else None
+
+            if best_base is not None:
+                ensemble_auroc = ensemble_row.get("test_AUROC")
+                best_base_auroc = best_base.get("test_AUROC")
+                if ensemble_auroc is not None and best_base_auroc is not None:
+                    improvement = (ensemble_auroc - best_base_auroc) * 100
+                    logger.info(
+                        f"ENSEMBLE vs best base ({best_base['model']}): "
+                        f"AUROC {ensemble_auroc:.4f} vs {best_base_auroc:.4f} "
+                        f"({improvement:+.2f} pp)"
+                    )
+
+    return df
+
+
 def run_aggregate_splits(
     results_dir: str,
     stability_threshold: float = 0.75,
@@ -1245,12 +1504,19 @@ def run_aggregate_splits(
     split_dirs = discover_split_dirs(results_path)
     logger.info(f"Found {len(split_dirs)} split directories")
 
-    if not split_dirs:
+    # Also discover ENSEMBLE model directories (stored separately)
+    ensemble_dirs = discover_ensemble_dirs(results_path)
+    if ensemble_dirs:
+        logger.info(f"Found {len(ensemble_dirs)} ENSEMBLE split directories")
+
+    if not split_dirs and not ensemble_dirs:
         logger.warning("No split_seedX directories found. Nothing to aggregate.")
         return {"status": "no_splits_found"}
 
     for sd in split_dirs:
         logger.info(f"  {sd.name}")
+    for ed in ensemble_dirs:
+        logger.info(f"  ENSEMBLE/{ed.name}")
 
     agg_dir = results_path / "aggregated"
     agg_dir.mkdir(parents=True, exist_ok=True)
@@ -1274,6 +1540,26 @@ def run_aggregate_splits(
     pooled_test_df = collect_predictions(split_dirs, "test", logger)
     pooled_val_df = collect_predictions(split_dirs, "val", logger)
     pooled_train_oof_df = collect_predictions(split_dirs, "train_oof", logger)
+
+    # Collect ENSEMBLE predictions if available and merge with other model predictions
+    if ensemble_dirs:
+        ensemble_test_df = collect_ensemble_predictions(ensemble_dirs, "test", logger)
+        ensemble_val_df = collect_ensemble_predictions(ensemble_dirs, "val", logger)
+        ensemble_oof_df = collect_ensemble_predictions(ensemble_dirs, "train_oof", logger)
+
+        if not ensemble_test_df.empty:
+            pooled_test_df = pd.concat([pooled_test_df, ensemble_test_df], ignore_index=True)
+            logger.info(f"Merged ENSEMBLE test predictions: {len(ensemble_test_df)} samples")
+
+        if not ensemble_val_df.empty:
+            pooled_val_df = pd.concat([pooled_val_df, ensemble_val_df], ignore_index=True)
+            logger.info(f"Merged ENSEMBLE val predictions: {len(ensemble_val_df)} samples")
+
+        if not ensemble_oof_df.empty:
+            pooled_train_oof_df = pd.concat(
+                [pooled_train_oof_df, ensemble_oof_df], ignore_index=True
+            )
+            logger.info(f"Merged ENSEMBLE OOF predictions: {len(ensemble_oof_df)} samples")
 
     if not pooled_test_df.empty:
         test_preds_dir = preds_dir / "test_preds"
@@ -1401,6 +1687,16 @@ def run_aggregate_splits(
             pd.DataFrame(metrics_rows).to_csv(core_dir / "pooled_val_metrics.csv", index=False)
             for model_name, metrics in pooled_val_metrics.items():
                 logger.info(f"Pooled val [{model_name}] AUROC: {metrics.get('AUROC', 'N/A'):.4f}")
+
+    # Generate model comparison report (includes ENSEMBLE if available)
+    log_section(logger, "Generating Model Comparison Report")
+    _ = generate_model_comparison_report(
+        pooled_test_metrics=pooled_test_metrics,
+        pooled_val_metrics=pooled_val_metrics,
+        threshold_info=threshold_info,
+        out_dir=agg_dir,
+        logger=logger,
+    )
 
     log_section(logger, "Aggregating Per-Split Metrics")
 

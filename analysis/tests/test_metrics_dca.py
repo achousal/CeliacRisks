@@ -25,6 +25,7 @@ from ced_ml.metrics.dca import (
     net_benefit_treat_all,
     parse_dca_report_points,
     save_dca_results,
+    threshold_dca_zero_crossing,
 )
 
 # =============================================================================
@@ -670,3 +671,163 @@ def test_cross_model_dca_comparison(binary_classification_data):
     for threshold in dca_table["threshold"].unique():
         df_t = dca_table[dca_table["threshold"] == threshold]
         assert len(df_t) == 5
+
+
+# =============================================================================
+# Test: DCA Auto-Range Configuration
+# =============================================================================
+
+
+def test_generate_dca_thresholds_auto_range_low_prevalence():
+    """Test auto-range with low prevalence (0.003 = 0.3%)."""
+    prevalence = 0.003  # 0.3% like Celiac disease
+
+    thresholds = generate_dca_thresholds(prevalence=prevalence)
+
+    # Expected: min_thr = max(0.0001, 0.003 / 10) = 0.0003
+    # Expected: max_thr = min(0.5, 0.003 * 10) = 0.03
+    assert thresholds[0] == pytest.approx(0.0003, abs=1e-6)
+    assert thresholds[-1] == pytest.approx(0.03, abs=1e-3)
+
+
+def test_generate_dca_thresholds_auto_range_medium_prevalence():
+    """Test auto-range with medium prevalence (0.01 = 1%)."""
+    prevalence = 0.01
+
+    thresholds = generate_dca_thresholds(prevalence=prevalence)
+
+    # Expected: min_thr = max(0.0001, 0.01 / 10) = 0.001
+    # Expected: max_thr = min(0.5, 0.01 * 10) = 0.10
+    assert thresholds[0] == pytest.approx(0.001, abs=1e-6)
+    assert thresholds[-1] == pytest.approx(0.10, abs=1e-3)
+
+
+def test_generate_dca_thresholds_auto_range_high_prevalence():
+    """Test auto-range with high prevalence (0.10 = 10%)."""
+    prevalence = 0.10
+
+    thresholds = generate_dca_thresholds(prevalence=prevalence)
+
+    # Expected: min_thr = max(0.0001, 0.10 / 10) = 0.01
+    # Expected: max_thr = min(0.5, 0.10 * 10) = 0.5
+    assert thresholds[0] == pytest.approx(0.01, abs=1e-6)
+    assert thresholds[-1] == pytest.approx(0.5, abs=1e-3)
+
+
+def test_generate_dca_thresholds_auto_range_capped_at_05():
+    """Test auto-range with very high prevalence caps at 0.5."""
+    prevalence = 0.20  # 20% prevalence
+
+    thresholds = generate_dca_thresholds(prevalence=prevalence)
+
+    # Expected: max_thr = min(0.5, 0.20 * 10) = 0.5 (capped)
+    assert thresholds[-1] == pytest.approx(0.5, abs=1e-3)
+
+
+def test_generate_dca_thresholds_auto_range_minimum_floor():
+    """Test auto-range with very low prevalence respects 0.0001 floor."""
+    prevalence = 0.0001  # 0.01% prevalence
+
+    thresholds = generate_dca_thresholds(prevalence=prevalence)
+
+    # Expected: min_thr = max(0.0001, 0.0001 / 10) = 0.0001 (floor)
+    assert thresholds[0] == pytest.approx(0.0001, abs=1e-6)
+
+
+def test_generate_dca_thresholds_backward_compatibility():
+    """Test default behavior unchanged when prevalence not specified."""
+    thresholds_default = generate_dca_thresholds()
+    thresholds_none = generate_dca_thresholds(prevalence=None)
+
+    # Should produce same results
+    np.testing.assert_array_almost_equal(thresholds_default, thresholds_none)
+
+    # Check default range 0.001 to 0.10
+    assert thresholds_default[0] >= 0.001
+    assert thresholds_default[-1] <= 0.10
+
+
+def test_generate_dca_thresholds_explicit_overrides_prevalence():
+    """Test explicit min/max thresholds are used when prevalence not provided."""
+    thresholds = generate_dca_thresholds(min_thr=0.05, max_thr=0.50, step=0.01)
+
+    assert thresholds[0] >= 0.05
+    assert thresholds[-1] <= 0.50
+
+
+def test_decision_curve_analysis_with_prevalence_auto_range():
+    """Test DCA auto-configures range when prevalence is provided."""
+    y_true = np.array([0] * 997 + [1] * 3)  # 0.3% prevalence
+    y_pred = np.random.RandomState(42).beta(2, 8, size=1000)
+
+    # Without prevalence: default range 0.001 to 0.10
+    dca_default = decision_curve_analysis(y_true, y_pred)
+    assert dca_default["threshold"].min() >= 0.001
+    assert dca_default["threshold"].max() <= 0.10
+
+    # With prevalence: auto-configures range
+    dca_auto = decision_curve_analysis(y_true, y_pred, prevalence=0.003)
+    # Range should be 0.0003 to 0.03 for 0.3% prevalence
+    assert dca_auto["threshold"].min() >= 0.0003
+    assert dca_auto["threshold"].max() <= 0.03
+
+
+def test_decision_curve_analysis_prevalence_backward_compatible():
+    """Test existing calls without prevalence work unchanged."""
+    y_true = np.array([0] * 80 + [1] * 20)
+    y_pred = np.random.RandomState(42).beta(2, 8, size=100)
+
+    # These should all work and produce consistent results
+    dca1 = decision_curve_analysis(y_true, y_pred)
+    _ = decision_curve_analysis(y_true, y_pred, thresholds=None)
+    _ = decision_curve_analysis(y_true, y_pred, prevalence_adjustment=None)
+
+    # Check structure is preserved
+    assert "threshold" in dca1.columns
+    assert "net_benefit_model" in dca1.columns
+    assert len(dca1) > 0
+
+
+def test_save_dca_results_with_prevalence(binary_classification_data, tmp_path):
+    """Test save_dca_results records auto-range prevalence in summary."""
+    y_true, y_pred = binary_classification_data
+
+    summary = save_dca_results(
+        y_true,
+        y_pred,
+        out_dir=str(tmp_path),
+        prefix="auto_range__",
+        prevalence=0.003,
+    )
+
+    # Check that auto_range_prevalence is recorded
+    assert summary.get("auto_range_prevalence") == 0.003
+    assert summary["dca_computed"] is True
+
+    # Verify threshold range is appropriate for 0.3% prevalence
+    dca_df = pd.read_csv(tmp_path / "auto_range__dca_curve.csv")
+    assert dca_df["threshold"].min() >= 0.0003 - 1e-6
+    assert dca_df["threshold"].max() <= 0.03 + 1e-3
+
+
+def test_threshold_dca_zero_crossing_with_prevalence():
+    """Test zero-crossing detection with auto-ranged thresholds."""
+    # Create data where model has positive net benefit at low thresholds
+    y_true = np.array([0] * 990 + [1] * 10)  # 1% prevalence
+    # High-risk predictions for cases, low for controls
+    y_pred = np.concatenate(
+        [
+            np.random.RandomState(42).uniform(0, 0.3, size=990),
+            np.random.RandomState(42).uniform(0.5, 1.0, size=10),
+        ]
+    )
+
+    # Without prevalence: may miss relevant thresholds
+    crossing_default = threshold_dca_zero_crossing(y_true, y_pred)
+
+    # With prevalence: auto-ranges to relevant thresholds
+    crossing_auto = threshold_dca_zero_crossing(y_true, y_pred, prevalence=0.01)
+
+    # Both should return valid results (or None if no crossing)
+    assert crossing_default is None or isinstance(crossing_default, float)
+    assert crossing_auto is None or isinstance(crossing_auto, float)

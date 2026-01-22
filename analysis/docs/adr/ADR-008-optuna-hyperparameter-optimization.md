@@ -1,4 +1,4 @@
-# ADR-018: Optuna Hyperparameter Optimization
+# ADR-008: Optuna Hyperparameter Optimization
 
 **Status:** Accepted
 **Date:** 2026-01-20
@@ -127,6 +127,5 @@ OptunaSearchCV (TPE + MedianPruner):
 
 ## Related ADRs
 
-- Depends on: [ADR-008: Nested CV Structure](ADR-008-nested-cv.md) - Inner CV where Optuna is applied
-- Related to: [ADR-004: AUROC Optimization](ADR-004-auroc-optimization.md) - Optimization objective
-- Complements: [ADR-012: Pydantic Config Schema](ADR-012-pydantic-config.md) - OptunaConfig parameters
+- Depends on: [ADR-006: Nested CV Structure](ADR-006-nested-cv.md) - Inner CV where Optuna is applied
+- Related to: [ADR-007: AUROC Optimization](ADR-007-auroc-optimization.md) - Optimization objective

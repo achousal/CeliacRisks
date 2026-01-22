@@ -89,6 +89,7 @@ def decision_curve_analysis(
     y_pred_prob: np.ndarray,
     thresholds: np.ndarray | None = None,
     prevalence_adjustment: float | None = None,
+    prevalence: float | None = None,
 ) -> pd.DataFrame:
     """
     Compute Decision Curve Analysis across threshold range.
@@ -99,8 +100,17 @@ def decision_curve_analysis(
     Args:
         y_true: True binary labels (0/1)
         y_pred_prob: Predicted probabilities
-        thresholds: Array of threshold probabilities (default: 0.001 to 0.10)
+        thresholds: Array of threshold probabilities. If None and prevalence
+            is provided, auto-configures range based on prevalence. Otherwise
+            defaults to 0.001 to 0.10.
         prevalence_adjustment: Optional prevalence for calibration adjustment
+            (affects treat-all net benefit calculation)
+        prevalence: Optional prevalence for auto-configuring threshold range.
+            When provided and thresholds is None, computes:
+            - min_thr = max(0.0001, prevalence / 10)
+            - max_thr = min(0.5, prevalence * 10)
+            This ensures the threshold range captures clinically relevant
+            decision points for low-prevalence scenarios.
 
     Returns:
         DataFrame with columns:
@@ -122,11 +132,13 @@ def decision_curve_analysis(
         return pd.DataFrame()
 
     if thresholds is None:
-        thresholds = generate_dca_thresholds(min_thr=0.001, max_thr=0.10, step=0.001)
+        thresholds = generate_dca_thresholds(
+            min_thr=0.001, max_thr=0.10, step=0.001, prevalence=prevalence
+        )
 
-    prevalence = np.mean(y)
+    observed_prevalence = np.mean(y)
     if prevalence_adjustment is not None:
-        prevalence = float(prevalence_adjustment)
+        observed_prevalence = float(prevalence_adjustment)
 
     results = []
     for t in thresholds:
@@ -145,7 +157,7 @@ def decision_curve_analysis(
         # Net benefit calculations
         odds = t / (1 - t)
         nb_model = (tp / n) - (fp / n) * odds
-        nb_all = prevalence - (1 - prevalence) * odds
+        nb_all = observed_prevalence - (1 - observed_prevalence) * odds
         nb_none = 0.0
 
         # Relative utility
@@ -180,6 +192,7 @@ def threshold_dca_zero_crossing(
     y_pred_prob: np.ndarray,
     thresholds: np.ndarray | None = None,
     prevalence_adjustment: float | None = None,
+    prevalence: float | None = None,
 ) -> float | None:
     """
     Find the threshold where model net benefit crosses zero.
@@ -191,14 +204,22 @@ def threshold_dca_zero_crossing(
     Args:
         y_true: True binary labels (0/1)
         y_pred_prob: Predicted probabilities
-        thresholds: Array of threshold probabilities (default: 0.001 to 0.10)
+        thresholds: Array of threshold probabilities. If None and prevalence
+            is provided, auto-configures range based on prevalence. Otherwise
+            defaults to 0.001 to 0.10.
         prevalence_adjustment: Optional prevalence for calibration adjustment
+        prevalence: Optional prevalence for auto-configuring threshold range.
+            When provided and thresholds is None, computes:
+            - min_thr = max(0.0001, prevalence / 10)
+            - max_thr = min(0.5, prevalence * 10)
 
     Returns:
         Threshold where net benefit crosses zero, or None if no crossing found
     """
     if thresholds is None:
-        thresholds = generate_dca_thresholds(min_thr=0.001, max_thr=0.10, step=0.001)
+        thresholds = generate_dca_thresholds(
+            min_thr=0.001, max_thr=0.10, step=0.001, prevalence=prevalence
+        )
 
     dca_df = decision_curve_analysis(
         y_true=y_true,
@@ -478,6 +499,7 @@ def save_dca_results(
     thresholds: np.ndarray | None = None,
     report_points: list[float] | None = None,
     prevalence_adjustment: float | None = None,
+    prevalence: float | None = None,
 ) -> dict[str, Any]:
     """
     Compute and save DCA results to files.
@@ -490,9 +512,15 @@ def save_dca_results(
         y_pred_prob: Predicted probabilities
         out_dir: Output directory
         prefix: Filename prefix (e.g., "RF__")
-        thresholds: Threshold array (default: 0.0005 to 0.20, step 0.001)
+        thresholds: Threshold array. If None and prevalence is provided,
+            auto-configures range based on prevalence. Otherwise defaults
+            to 0.0005 to 0.20, step 0.001.
         report_points: Key thresholds for summary (default: [0.005, 0.01, 0.02, 0.05])
         prevalence_adjustment: Optional prevalence for calibration
+        prevalence: Optional prevalence for auto-configuring threshold range.
+            When provided and thresholds is None, computes:
+            - min_thr = max(0.0001, prevalence / 10)
+            - max_thr = min(0.5, prevalence * 10)
 
     Returns:
         DCA summary dictionary with additional keys:
@@ -519,6 +547,7 @@ def save_dca_results(
         y_pred_prob,
         thresholds=thresholds,
         prevalence_adjustment=prevalence_adjustment,
+        prevalence=prevalence,
     )
 
     if dca_df.empty:
@@ -532,6 +561,8 @@ def save_dca_results(
     summary = compute_dca_summary(dca_df, report_points=report_points)
     if prevalence_adjustment is not None:
         summary["prevalence_adjustment"] = float(prevalence_adjustment)
+    if prevalence is not None:
+        summary["auto_range_prevalence"] = float(prevalence)
     summary["dca_csv_path"] = str(csv_path)
 
     # Save summary JSON
@@ -540,7 +571,7 @@ def save_dca_results(
         # Convert numpy types for JSON serialization
         json_summary = {}
         for k, v in summary.items():
-            if isinstance(v, (np.integer, np.floating)):
+            if isinstance(v, np.integer | np.floating):
                 json_summary[k] = float(v) if np.isfinite(v) else None
             else:
                 json_summary[k] = v
@@ -561,6 +592,7 @@ def generate_dca_thresholds(
     min_thr: float = 0.001,
     max_thr: float = 0.10,
     step: float = 0.001,
+    prevalence: float | None = None,
 ) -> np.ndarray:
     """
     Generate threshold array for DCA analysis.
@@ -569,6 +601,12 @@ def generate_dca_thresholds(
         min_thr: Minimum threshold (clamped to 0.0001, default: 0.001)
         max_thr: Maximum threshold (clamped to 0.999, default: 0.10)
         step: Step size between thresholds (minimum 0.0001, default: 0.001)
+        prevalence: Optional disease prevalence for auto-configuring threshold range.
+            When provided, min_thr and max_thr are computed as:
+            - min_thr = max(0.0001, prevalence / 10)
+            - max_thr = min(0.5, prevalence * 10)
+            This ensures the threshold range captures clinically relevant
+            decision points for low-prevalence scenarios.
 
     Returns:
         Array of threshold values for DCA computation
@@ -576,7 +614,20 @@ def generate_dca_thresholds(
     Note:
         Default range 0.1% to 10% covers clinically relevant thresholds
         for most prediction tasks while maintaining computational efficiency.
+        For low-prevalence conditions (e.g., 0.34%), the auto-range feature
+        ensures thresholds are not missed.
     """
+    # Auto-configure range based on prevalence if provided
+    if prevalence is not None:
+        prevalence = float(prevalence)
+        if prevalence > 0 and prevalence < 1:
+            min_thr = max(0.0001, prevalence / 10)
+            max_thr = min(0.5, prevalence * 10)
+            logger.debug(
+                f"Auto-configured DCA thresholds from prevalence {prevalence:.4f}: "
+                f"range [{min_thr:.4f}, {max_thr:.4f}]"
+            )
+
     min_thr = max(1e-4, float(min_thr))
     max_thr = min(0.999, float(max_thr))
     step = max(1e-4, float(step))

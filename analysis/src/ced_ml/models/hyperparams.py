@@ -378,7 +378,7 @@ def _randomize_float_list(
     perturbed = []
     for v in values:
         # Skip non-numeric values (e.g., "sqrt", "log2" for max_features)
-        if not isinstance(v, (int, float)):
+        if not isinstance(v, int | float):
             perturbed.append(v)
             continue
 
@@ -402,6 +402,37 @@ def _randomize_float_list(
 # Optuna Parameter Distribution Conversion
 # ============================================================================
 
+# Default Optuna ranges with wider search spaces and proper log-scale sampling
+# These are used when Optuna-specific config fields are not set
+
+DEFAULT_OPTUNA_RANGES = {
+    "XGBoost": {
+        "n_estimators": {"type": "int", "low": 50, "high": 500, "log": False},
+        "max_depth": {"type": "int", "low": 2, "high": 12, "log": False},
+        "learning_rate": {"type": "float", "low": 0.001, "high": 0.3, "log": True},
+        "min_child_weight": {"type": "float", "low": 0.1, "high": 10.0, "log": True},
+        "gamma": {"type": "float", "low": 0.0, "high": 1.0, "log": False},
+        "subsample": {"type": "float", "low": 0.5, "high": 1.0, "log": False},
+        "colsample_bytree": {"type": "float", "low": 0.5, "high": 1.0, "log": False},
+        "reg_alpha": {"type": "float", "low": 1e-8, "high": 1.0, "log": True},
+        "reg_lambda": {"type": "float", "low": 1e-8, "high": 10.0, "log": True},
+    },
+    "RF": {
+        "n_estimators": {"type": "int", "low": 50, "high": 500, "log": False},
+        "max_depth": {"type": "int", "low": 3, "high": 20, "log": False},
+        "min_samples_split": {"type": "int", "low": 2, "high": 20, "log": False},
+        "min_samples_leaf": {"type": "int", "low": 1, "high": 10, "log": False},
+        "max_features": {"type": "float", "low": 0.1, "high": 1.0, "log": False},
+    },
+    "LR": {
+        "C": {"type": "float", "low": 1e-5, "high": 100.0, "log": True},
+        "l1_ratio": {"type": "float", "low": 0.0, "high": 1.0, "log": False},
+    },
+    "SVM": {
+        "C": {"type": "float", "low": 1e-3, "high": 100.0, "log": True},
+    },
+}
+
 
 def get_param_distributions_optuna(
     model_name: str,
@@ -409,9 +440,14 @@ def get_param_distributions_optuna(
     xgb_spw: float | None = None,
 ) -> dict[str, dict]:
     """
-    Convert sklearn param distributions to Optuna suggest specs.
+    Build Optuna parameter distributions with native range specifications.
 
-    Optuna uses a different format for specifying search spaces:
+    This function builds Optuna suggest specs with:
+    - Wider search ranges than grid-based approaches
+    - Proper log-scale sampling for parameters spanning orders of magnitude
+    - Support for config-specified Optuna ranges (optuna_* fields)
+
+    Optuna spec format:
     - int: {"type": "int", "low": min, "high": max, "log": bool}
     - float: {"type": "float", "low": min, "high": max, "log": bool}
     - categorical: {"type": "categorical", "choices": [list]}
@@ -424,25 +460,271 @@ def get_param_distributions_optuna(
     Returns:
         Dictionary mapping parameter names to Optuna suggest specs
     """
-    # Get sklearn-style distributions first
-    sklearn_dists = get_param_distributions(model_name, config, xgb_spw=xgb_spw)
-
-    if not sklearn_dists:
-        return {}
-
-    # Convert each parameter
     optuna_dists = {}
-    for name, values in sklearn_dists.items():
-        spec = _to_optuna_spec(name, values)
-        if spec is not None:
-            optuna_dists[name] = spec
+
+    # Feature selection parameters (if applicable)
+    feature_select = config.features.feature_select
+    if feature_select in ("kbest", "hybrid"):
+        k_grid = config.features.k_grid
+        if k_grid:
+            # Use the k_grid as categorical for feature selection
+            optuna_dists["sel__k"] = {"type": "categorical", "choices": k_grid}
+
+    # Model-specific parameters with native Optuna ranges
+    if model_name in ("LR_EN", "LR_L1"):
+        optuna_dists.update(_get_lr_params_optuna(config, model_name=model_name))
+
+    elif model_name == "LinSVM_cal":
+        optuna_dists.update(_get_svm_params_optuna(config))
+
+    elif model_name == "RF":
+        optuna_dists.update(_get_rf_params_optuna(config))
+
+    elif model_name == "XGBoost":
+        optuna_dists.update(_get_xgb_params_optuna(config, xgb_spw))
 
     return optuna_dists
+
+
+def _get_lr_params_optuna(config: TrainingConfig, model_name: str = "LR_EN") -> dict[str, dict]:
+    """Build Optuna specs for Logistic Regression."""
+    defaults = DEFAULT_OPTUNA_RANGES["LR"]
+    params = {}
+
+    # C parameter (inverse regularization strength) - log scale
+    if config.lr.optuna_C is not None:
+        c_low, c_high = config.lr.optuna_C
+    else:
+        c_low, c_high = config.lr.C_min, config.lr.C_max
+    params["clf__C"] = {"type": "float", "low": c_low, "high": c_high, "log": True}
+
+    # l1_ratio for ElasticNet (LR_EN only)
+    if model_name == "LR_EN":
+        if config.lr.optuna_l1_ratio is not None:
+            l1_low, l1_high = config.lr.optuna_l1_ratio
+        else:
+            # Derive from list or use default range
+            l1_values = config.lr.l1_ratio
+            l1_low = min(l1_values) if l1_values else defaults["l1_ratio"]["low"]
+            l1_high = max(l1_values) if l1_values else defaults["l1_ratio"]["high"]
+        params["clf__l1_ratio"] = {"type": "float", "low": l1_low, "high": l1_high, "log": False}
+
+    # Class weights (categorical)
+    class_weight_options = _parse_class_weight_options(config.lr.class_weight_options)
+    if class_weight_options and len(class_weight_options) > 1:
+        params["clf__class_weight"] = {"type": "categorical", "choices": class_weight_options}
+
+    return params
+
+
+def _get_svm_params_optuna(config: TrainingConfig) -> dict[str, dict]:
+    """Build Optuna specs for Linear SVM."""
+    params = {}
+
+    # C parameter - log scale
+    if config.svm.optuna_C is not None:
+        c_low, c_high = config.svm.optuna_C
+    else:
+        c_low, c_high = config.svm.C_min, config.svm.C_max
+    params["clf__estimator__C"] = {"type": "float", "low": c_low, "high": c_high, "log": True}
+
+    # Class weights (categorical)
+    class_weight_options = _parse_class_weight_options(config.svm.class_weight_options)
+    if class_weight_options and len(class_weight_options) > 1:
+        params["clf__estimator__class_weight"] = {
+            "type": "categorical",
+            "choices": class_weight_options,
+        }
+
+    return params
+
+
+def _get_rf_params_optuna(config: TrainingConfig) -> dict[str, dict]:
+    """Build Optuna specs for Random Forest with wider ranges."""
+    defaults = DEFAULT_OPTUNA_RANGES["RF"]
+    params = {}
+
+    # n_estimators
+    if config.rf.optuna_n_estimators is not None:
+        low, high = config.rf.optuna_n_estimators
+    else:
+        grid = config.rf.n_estimators_grid
+        low = min(grid) if grid else defaults["n_estimators"]["low"]
+        high = max(grid) if grid else defaults["n_estimators"]["high"]
+        # Widen the range slightly beyond grid bounds
+        low = max(50, low - 50)
+        high = high + 100
+    params["clf__n_estimators"] = {"type": "int", "low": low, "high": high, "log": False}
+
+    # max_depth - handle None in grid (unlimited depth)
+    if config.rf.optuna_max_depth is not None:
+        low, high = config.rf.optuna_max_depth
+        params["clf__max_depth"] = {"type": "int", "low": low, "high": high, "log": False}
+    else:
+        # Check if grid contains only numeric values
+        grid = [v for v in config.rf.max_depth_grid if v is not None]
+        if grid:
+            low = min(grid)
+            high = max(grid) + 10  # Widen range
+            params["clf__max_depth"] = {"type": "int", "low": low, "high": high, "log": False}
+        else:
+            # All None or empty - use categorical with None
+            params["clf__max_depth"] = {
+                "type": "categorical",
+                "choices": config.rf.max_depth_grid or [None, 10, 20, 30],
+            }
+
+    # min_samples_split
+    if config.rf.optuna_min_samples_split is not None:
+        low, high = config.rf.optuna_min_samples_split
+    else:
+        grid = config.rf.min_samples_split_grid
+        low = min(grid) if grid else defaults["min_samples_split"]["low"]
+        high = max(grid) + 10 if grid else defaults["min_samples_split"]["high"]
+    params["clf__min_samples_split"] = {"type": "int", "low": low, "high": high, "log": False}
+
+    # min_samples_leaf
+    if config.rf.optuna_min_samples_leaf is not None:
+        low, high = config.rf.optuna_min_samples_leaf
+    else:
+        grid = config.rf.min_samples_leaf_grid
+        low = min(grid) if grid else defaults["min_samples_leaf"]["low"]
+        high = max(grid) + 6 if grid else defaults["min_samples_leaf"]["high"]
+    params["clf__min_samples_leaf"] = {"type": "int", "low": low, "high": high, "log": False}
+
+    # max_features - handle mixed string/float grid
+    if config.rf.optuna_max_features is not None:
+        low, high = config.rf.optuna_max_features
+        params["clf__max_features"] = {"type": "float", "low": low, "high": high, "log": False}
+    else:
+        # Check if grid has only numeric values
+        grid = config.rf.max_features_grid
+        numeric_vals = [v for v in grid if isinstance(v, int | float)]
+        if numeric_vals and len(numeric_vals) == len(grid):
+            # All numeric - use float range
+            low = min(numeric_vals)
+            high = min(1.0, max(numeric_vals) + 0.2)  # Cap at 1.0
+            params["clf__max_features"] = {"type": "float", "low": low, "high": high, "log": False}
+        else:
+            # Mixed or string values - use categorical
+            params["clf__max_features"] = {"type": "categorical", "choices": grid}
+
+    # Class weights (categorical)
+    class_weight_options = _parse_class_weight_options(config.rf.class_weight_options)
+    if class_weight_options and len(class_weight_options) > 1:
+        params["clf__class_weight"] = {"type": "categorical", "choices": class_weight_options}
+
+    return params
+
+
+def _get_xgb_params_optuna(config: TrainingConfig, xgb_spw: float | None = None) -> dict[str, dict]:
+    """Build Optuna specs for XGBoost with wider ranges and log-scale sampling."""
+    defaults = DEFAULT_OPTUNA_RANGES["XGBoost"]
+    params = {}
+
+    # n_estimators
+    if config.xgboost.optuna_n_estimators is not None:
+        low, high = config.xgboost.optuna_n_estimators
+    else:
+        grid = config.xgboost.n_estimators_grid
+        low = max(50, min(grid) - 50) if grid else defaults["n_estimators"]["low"]
+        high = max(grid) + 200 if grid else defaults["n_estimators"]["high"]
+    params["clf__n_estimators"] = {"type": "int", "low": low, "high": high, "log": False}
+
+    # max_depth
+    if config.xgboost.optuna_max_depth is not None:
+        low, high = config.xgboost.optuna_max_depth
+    else:
+        grid = config.xgboost.max_depth_grid
+        low = max(2, min(grid) - 1) if grid else defaults["max_depth"]["low"]
+        high = max(grid) + 2 if grid else defaults["max_depth"]["high"]
+    params["clf__max_depth"] = {"type": "int", "low": low, "high": high, "log": False}
+
+    # learning_rate - LOG SCALE (critical for XGBoost tuning)
+    if config.xgboost.optuna_learning_rate is not None:
+        low, high = config.xgboost.optuna_learning_rate
+    else:
+        # Use wider range than grid for better exploration
+        low = defaults["learning_rate"]["low"]
+        high = defaults["learning_rate"]["high"]
+    params["clf__learning_rate"] = {"type": "float", "low": low, "high": high, "log": True}
+
+    # min_child_weight - LOG SCALE
+    if config.xgboost.optuna_min_child_weight is not None:
+        low, high = config.xgboost.optuna_min_child_weight
+    else:
+        low = defaults["min_child_weight"]["low"]
+        high = defaults["min_child_weight"]["high"]
+    params["clf__min_child_weight"] = {"type": "float", "low": low, "high": high, "log": True}
+
+    # gamma
+    if config.xgboost.optuna_gamma is not None:
+        low, high = config.xgboost.optuna_gamma
+    else:
+        low = defaults["gamma"]["low"]
+        high = defaults["gamma"]["high"]
+    params["clf__gamma"] = {"type": "float", "low": low, "high": high, "log": False}
+
+    # subsample
+    if config.xgboost.optuna_subsample is not None:
+        low, high = config.xgboost.optuna_subsample
+    else:
+        low = defaults["subsample"]["low"]
+        high = defaults["subsample"]["high"]
+    params["clf__subsample"] = {"type": "float", "low": low, "high": high, "log": False}
+
+    # colsample_bytree
+    if config.xgboost.optuna_colsample_bytree is not None:
+        low, high = config.xgboost.optuna_colsample_bytree
+    else:
+        low = defaults["colsample_bytree"]["low"]
+        high = defaults["colsample_bytree"]["high"]
+    params["clf__colsample_bytree"] = {"type": "float", "low": low, "high": high, "log": False}
+
+    # reg_alpha (L1 regularization) - LOG SCALE
+    if config.xgboost.optuna_reg_alpha is not None:
+        low, high = config.xgboost.optuna_reg_alpha
+    else:
+        low = defaults["reg_alpha"]["low"]
+        high = defaults["reg_alpha"]["high"]
+    params["clf__reg_alpha"] = {"type": "float", "low": low, "high": high, "log": True}
+
+    # reg_lambda (L2 regularization) - LOG SCALE
+    if config.xgboost.optuna_reg_lambda is not None:
+        low, high = config.xgboost.optuna_reg_lambda
+    else:
+        low = defaults["reg_lambda"]["low"]
+        high = defaults["reg_lambda"]["high"]
+    params["clf__reg_lambda"] = {"type": "float", "low": low, "high": high, "log": True}
+
+    # scale_pos_weight
+    if xgb_spw is not None:
+        # Use fold-specific value +/- 30% as range
+        params["clf__scale_pos_weight"] = {
+            "type": "float",
+            "low": xgb_spw * 0.7,
+            "high": xgb_spw * 1.3,
+            "log": False,
+        }
+    else:
+        grid = config.xgboost.scale_pos_weight_grid
+        if grid:
+            params["clf__scale_pos_weight"] = {
+                "type": "float",
+                "low": min(grid),
+                "high": max(grid) * 1.5,
+                "log": False,
+            }
+
+    return params
 
 
 def _to_optuna_spec(name: str, values: list) -> dict | None:
     """
     Convert a single sklearn parameter grid to Optuna spec.
+
+    This is a fallback converter for parameters not handled by
+    the model-specific functions above.
 
     Args:
         name: Parameter name
@@ -468,7 +750,7 @@ def _to_optuna_spec(name: str, values: list) -> dict | None:
         }
 
     # Check if all values are numeric (int or float, but not all int)
-    if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in values):
+    if all(isinstance(v, int | float) and not isinstance(v, bool) for v in values):
         return {
             "type": "float",
             "low": float(min(values)),
@@ -497,7 +779,7 @@ def _is_log_spaced(values: list) -> bool:
         return False
 
     # Filter to positive values only
-    positive = [v for v in values if isinstance(v, (int, float)) and v > 0]
+    positive = [v for v in values if isinstance(v, int | float) and v > 0]
     if len(positive) < 3:
         return False
 
