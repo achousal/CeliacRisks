@@ -405,8 +405,22 @@ def evaluate_holdout(
     # Identify protein columns
     prot_cols = identify_protein_columns(df_filtered)
 
-    # Create feature matrix (proteins only for now)
-    X_all = df_filtered[prot_cols]
+    # Extract metadata columns from bundle config (if used during training)
+    config_dict = bundle.get("config", {})
+    numeric_meta = config_dict.get("numeric_metadata") or []
+    categorical_meta = config_dict.get("categorical_metadata") or []
+
+    # Build feature column list matching training
+    feature_cols = prot_cols.copy()
+    for col in numeric_meta:
+        if col in df_filtered.columns and col not in feature_cols:
+            feature_cols.append(col)
+    for col in categorical_meta:
+        if col in df_filtered.columns and col not in feature_cols:
+            feature_cols.append(col)
+
+    # Create feature matrix (proteins + metadata as used in training)
+    X_all = df_filtered[feature_cols]
 
     # Extract holdout subset
     df_holdout, X_holdout, y_holdout = extract_holdout_data(df_filtered, X_all, y_all, holdout_idx)

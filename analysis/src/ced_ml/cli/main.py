@@ -5,6 +5,7 @@ Provides subcommands:
   - ced save-splits: Generate train/val/test splits
   - ced train: Train ML models
   - ced aggregate-splits: Aggregate results across split seeds
+  - ced aggregate-all: Scan and aggregate all completed runs
   - ced eval-holdout: Evaluate on holdout set
 """
 
@@ -208,6 +209,73 @@ def train(ctx, config, **kwargs):
         overrides=overrides,
         verbose=ctx.obj.get("verbose", 0),
     )
+
+
+@cli.command("aggregate-all")
+@click.option(
+    "--results-root",
+    type=click.Path(exists=True),
+    required=True,
+    help="Root results directory to scan (e.g., ../results)",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Re-aggregate runs that are already aggregated",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be aggregated without doing it",
+)
+@click.option(
+    "--stability-threshold",
+    type=float,
+    default=0.75,
+    help="Feature stability threshold (default: 0.75)",
+)
+@click.option(
+    "--target-specificity",
+    type=float,
+    default=0.95,
+    help="Target specificity for thresholds (default: 0.95)",
+)
+@click.option(
+    "--n-boot",
+    type=int,
+    default=500,
+    help="Bootstrap iterations (default: 500)",
+)
+@click.option(
+    "--plot-formats",
+    multiple=True,
+    default=["png"],
+    help="Plot output formats",
+)
+@click.pass_context
+def aggregate_all(ctx, **kwargs):
+    """
+    Scan results directory and aggregate all completed runs.
+
+    Discovers model/run directories, checks for completed split_seed*
+    subdirectories, and runs aggregation on any that are complete but
+    not yet aggregated.
+
+    Expected structure:
+        results_root/
+            ModelA/run_YYYYMMDD_HHMMSS/split_seed0/...
+            ModelB/run_YYYYMMDD_HHMMSS/split_seed0/...
+
+    Example:
+        ced aggregate-all --results-root ../results
+        ced aggregate-all --results-root ../results --dry-run
+        ced aggregate-all --results-root ../results --force
+    """
+    from ced_ml.cli.aggregate_all import run_aggregate_all
+
+    kwargs["plot_formats"] = list(kwargs["plot_formats"]) if kwargs["plot_formats"] else ["png"]
+
+    run_aggregate_all(**kwargs, verbose=ctx.obj.get("verbose", 0))
 
 
 @cli.command("aggregate-splits")

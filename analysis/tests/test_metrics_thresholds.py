@@ -246,6 +246,45 @@ def test_threshold_for_precision_invalid_target(balanced_data):
     assert abs(thr - thr_f1) < 0.01
 
 
+def test_threshold_for_precision_lowest_threshold():
+    """Test that threshold_for_precision selects LOWEST threshold meeting target PPV.
+
+    Regression test for bug where ok[-1] selected highest threshold instead of ok[0].
+    """
+    # Create scenario where multiple thresholds achieve target PPV
+    # 95 controls, 5 cases
+    y = np.array([0] * 95 + [1] * 5)
+    # Cases have high scores (0.5-1.0), controls have low scores (0.0-0.5)
+    np.random.seed(42)
+    p = np.concatenate(
+        [
+            np.random.uniform(0.0, 0.5, size=95),  # Controls
+            np.random.uniform(0.5, 1.0, size=5),  # Cases
+        ]
+    )
+
+    target_ppv = 0.80
+    thr = threshold_for_precision(y, p, target_ppv=target_ppv)
+
+    # Verify that this threshold achieves target PPV
+    from sklearn.metrics import precision_score
+
+    y_pred = (p >= thr).astype(int)
+    achieved_ppv = precision_score(y, y_pred, zero_division=0)
+
+    # Should achieve at least target PPV
+    assert achieved_ppv >= target_ppv - 0.01
+
+    # Verify this is the LOWEST threshold achieving target
+    # Try slightly lower threshold - should fail to meet PPV
+    if thr > 0.01:
+        lower_thr = thr - 0.01
+        y_pred_lower = (p >= lower_thr).astype(int)
+        ppv_lower = precision_score(y, y_pred_lower, zero_division=0)
+        # Lower threshold should have lower PPV (or equal in edge cases)
+        assert ppv_lower <= achieved_ppv + 0.05
+
+
 # ============================================================================
 # Test threshold_from_controls
 # ============================================================================

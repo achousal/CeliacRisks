@@ -271,7 +271,7 @@ def threshold_for_precision(y_true: np.ndarray, p: np.ndarray, target_ppv: float
         return threshold_max_f1(y_true, p)
 
     # Want lowest threshold (most inclusive) among those achieving target
-    idx = int(ok[-1])  # in PR curve, thresholds typically increase with index
+    idx = int(ok[0])  # ok[0] gives lowest qualifying threshold
     th = float(thr_t[idx])
     if not np.isfinite(th):
         th = threshold_max_f1(y_true, p)

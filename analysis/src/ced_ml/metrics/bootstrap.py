@@ -2,13 +2,26 @@
 Stratified bootstrap confidence intervals for binary classification metrics.
 
 This module provides functions for computing bootstrap confidence intervals
-using stratified resampling to maintain case/control ratios. The percentile
-method is used for CI construction.
+using stratified resampling to maintain case/control ratios. Supports both
+percentile and BCa (bias-corrected and accelerated) methods.
 """
 
 from collections.abc import Callable
+from typing import Literal
 
 import numpy as np
+
+# Check for scipy.stats.bootstrap availability (scipy >= 1.7)
+try:
+    from scipy.stats import bootstrap as scipy_bootstrap
+
+    HAS_SCIPY_BOOTSTRAP = True
+except ImportError:
+    HAS_SCIPY_BOOTSTRAP = False
+
+
+# Type alias for CI method
+CIMethod = Literal["percentile", "bca"]
 
 
 def _safe_metric(metric_fn: Callable, y: np.ndarray, p: np.ndarray) -> float:
@@ -29,6 +42,74 @@ def _safe_metric(metric_fn: Callable, y: np.ndarray, p: np.ndarray) -> float:
         return np.nan
 
 
+def _percentile_ci(vals: list[float], alpha: float = 0.05) -> tuple[float, float]:
+    """Compute CI using simple percentile method."""
+    lower_pct = 100 * (alpha / 2)
+    upper_pct = 100 * (1 - alpha / 2)
+    return (float(np.percentile(vals, lower_pct)), float(np.percentile(vals, upper_pct)))
+
+
+def _bca_ci(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    metric_fn: Callable,
+    n_boot: int,
+    seed: int,
+    alpha: float = 0.05,
+) -> tuple[float, float]:
+    """
+    Compute BCa (bias-corrected and accelerated) bootstrap CI using scipy.
+
+    BCa provides better coverage than percentile method for small samples
+    and skewed distributions (Efron & Tibshirani, 1993).
+
+    Args:
+        y_true: True binary labels
+        y_pred: Predicted probabilities
+        metric_fn: Metric function
+        n_boot: Number of bootstrap iterations
+        seed: Random seed
+        alpha: Significance level (default: 0.05 for 95% CI)
+
+    Returns:
+        Tuple of (lower_bound, upper_bound)
+
+    Raises:
+        ImportError: If scipy >= 1.7 is not available
+    """
+    if not HAS_SCIPY_BOOTSTRAP:
+        raise ImportError(
+            "BCa bootstrap requires scipy >= 1.7. " "Install with: pip install 'scipy>=1.7'"
+        )
+
+    # scipy.stats.bootstrap expects data as tuple of arrays
+    # and a statistic function that takes resampled arrays
+    def statistic(*data_tuple, axis):
+        # data_tuple contains resampled (y_true, y_pred)
+        # axis=-1 means samples are along last axis
+        y_t, y_p = data_tuple
+        # Handle vectorized case (axis=-1)
+        if axis == -1 and y_t.ndim > 1:
+            # Compute metric for each bootstrap sample
+            results = []
+            for i in range(y_t.shape[0]):
+                results.append(metric_fn(y_t[i], y_p[i]))
+            return np.array(results)
+        return metric_fn(y_t, y_p)
+
+    rng = np.random.default_rng(seed)
+    result = scipy_bootstrap(
+        (y_true, y_pred),
+        statistic=statistic,
+        n_resamples=n_boot,
+        method="BCa",
+        confidence_level=1 - alpha,
+        random_state=rng,
+        paired=True,
+    )
+    return (float(result.confidence_interval.low), float(result.confidence_interval.high))
+
+
 def stratified_bootstrap_ci(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -36,12 +117,13 @@ def stratified_bootstrap_ci(
     n_boot: int = 1000,
     seed: int = 0,
     min_valid_frac: float = 0.1,
+    method: CIMethod = "percentile",
 ) -> tuple[float, float]:
     """
     Compute stratified bootstrap confidence interval for a metric.
 
     Performs stratified resampling (maintaining case/control ratio) and computes
-    95% CI using percentile method. If fewer than `max(20, n_boot * min_valid_frac)`
+    95% CI using the specified method. If fewer than `max(20, n_boot * min_valid_frac)`
     valid bootstrap samples are obtained, returns (NaN, NaN).
 
     Args:
@@ -51,6 +133,8 @@ def stratified_bootstrap_ci(
         n_boot: Number of bootstrap iterations (default: 1000)
         seed: Random seed for reproducibility (default: 0)
         min_valid_frac: Minimum fraction of valid samples required (default: 0.1)
+        method: CI method - "percentile" (default) or "bca" (bias-corrected).
+                BCa provides better coverage for small samples but requires scipy >= 1.7.
 
     Returns:
         Tuple of (lower_bound, upper_bound) for 95% CI, or (NaN, NaN) if insufficient
@@ -58,6 +142,8 @@ def stratified_bootstrap_ci(
 
     Raises:
         ValueError: If fewer than 2 cases or 2 controls in y_true
+        ValueError: If method is not "percentile" or "bca"
+        ImportError: If method="bca" but scipy >= 1.7 is not available
 
     Examples:
         >>> from sklearn.metrics import roc_auc_score
@@ -68,8 +154,14 @@ def stratified_bootstrap_ci(
         ... )
         >>> 0 <= ci_lower <= ci_upper <= 1
         True
+        >>> # Using BCa method (requires scipy >= 1.7)
+        >>> ci_lower, ci_upper = stratified_bootstrap_ci(
+        ...     y_true, y_pred, roc_auc_score, n_boot=100, seed=42, method="bca"
+        ... )
     """
-    rng = np.random.RandomState(seed)
+    if method not in ("percentile", "bca"):
+        raise ValueError(f"method must be 'percentile' or 'bca', got '{method}'")
+
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
 
@@ -87,10 +179,15 @@ def stratified_bootstrap_ci(
     if len(pos) < 2 or len(neg) < 2:
         raise ValueError(
             f"Insufficient samples for stratified bootstrap: "
-            f"{len(pos)} cases, {len(neg)} controls (need ≥2 each)"
+            f"{len(pos)} cases, {len(neg)} controls (need >= 2 each)"
         )
 
-    # Perform stratified bootstrap
+    # For BCa, use scipy's implementation (non-stratified but more accurate CI)
+    if method == "bca":
+        return _bca_ci(y_true, y_pred, metric_fn, n_boot, seed)
+
+    # Percentile method with stratified resampling
+    rng = np.random.RandomState(seed)
     vals = []
     for _ in range(n_boot):
         i_pos = rng.choice(pos, size=len(pos), replace=True)
@@ -105,8 +202,7 @@ def stratified_bootstrap_ci(
     if len(vals) < min_valid:
         return (np.nan, np.nan)
 
-    # Compute 95% CI using percentile method
-    return (float(np.percentile(vals, 2.5)), float(np.percentile(vals, 97.5)))
+    return _percentile_ci(vals)
 
 
 def stratified_bootstrap_diff_ci(
@@ -117,6 +213,7 @@ def stratified_bootstrap_diff_ci(
     n_boot: int = 500,
     seed: int = 0,
     min_valid_frac: float = 0.1,
+    method: CIMethod = "percentile",
 ) -> tuple[float, float, float]:
     """
     Compute stratified bootstrap CI for difference between two models.
@@ -133,6 +230,8 @@ def stratified_bootstrap_diff_ci(
         n_boot: Number of bootstrap iterations (default: 500)
         seed: Random seed for reproducibility (default: 0)
         min_valid_frac: Minimum fraction of valid samples required (default: 0.1)
+        method: CI method - "percentile" (default) or "bca" (bias-corrected).
+                BCa provides better coverage for small samples but requires scipy >= 1.7.
 
     Returns:
         Tuple of (diff_full, lower_bound, upper_bound) where:
@@ -145,6 +244,8 @@ def stratified_bootstrap_diff_ci(
     Raises:
         ValueError: If fewer than 2 cases or 2 controls in y_true, or if
                     array lengths don't match
+        ValueError: If method is not "percentile" or "bca"
+        ImportError: If method="bca" but scipy >= 1.7 is not available
 
     Examples:
         >>> from sklearn.metrics import roc_auc_score
@@ -157,7 +258,9 @@ def stratified_bootstrap_diff_ci(
         >>> isinstance(diff, float)
         True
     """
-    rng = np.random.RandomState(seed)
+    if method not in ("percentile", "bca"):
+        raise ValueError(f"method must be 'percentile' or 'bca', got '{method}'")
+
     y_true = np.asarray(y_true).astype(int)
     p1 = np.asarray(p1).astype(float)
     p2 = np.asarray(p2).astype(float)
@@ -176,10 +279,45 @@ def stratified_bootstrap_diff_ci(
     if len(pos) < 2 or len(neg) < 2:
         raise ValueError(
             f"Insufficient samples for stratified bootstrap: "
-            f"{len(pos)} cases, {len(neg)} controls (need ≥2 each)"
+            f"{len(pos)} cases, {len(neg)} controls (need >= 2 each)"
         )
 
-    # Perform stratified bootstrap on differences
+    # For BCa on difference, use scipy's implementation
+    if method == "bca":
+        if not HAS_SCIPY_BOOTSTRAP:
+            raise ImportError(
+                "BCa bootstrap requires scipy >= 1.7. " "Install with: pip install 'scipy>=1.7'"
+            )
+
+        def diff_statistic(*data_tuple, axis):
+            y_t, pred1, pred2 = data_tuple
+            if axis == -1 and y_t.ndim > 1:
+                results = []
+                for i in range(y_t.shape[0]):
+                    m1 = metric_fn(y_t[i], pred1[i])
+                    m2 = metric_fn(y_t[i], pred2[i])
+                    results.append(m1 - m2)
+                return np.array(results)
+            return metric_fn(y_t, pred1) - metric_fn(y_t, pred2)
+
+        rng = np.random.default_rng(seed)
+        result = scipy_bootstrap(
+            (y_true, p1, p2),
+            statistic=diff_statistic,
+            n_resamples=n_boot,
+            method="BCa",
+            confidence_level=0.95,
+            random_state=rng,
+            paired=True,
+        )
+        return (
+            diff_full,
+            float(result.confidence_interval.low),
+            float(result.confidence_interval.high),
+        )
+
+    # Percentile method with stratified resampling
+    rng = np.random.RandomState(seed)
     diffs = []
     for _ in range(n_boot):
         i_pos = rng.choice(pos, size=len(pos), replace=True)
@@ -196,9 +334,5 @@ def stratified_bootstrap_diff_ci(
     if len(diffs) < min_valid:
         return (diff_full, np.nan, np.nan)
 
-    # Compute 95% CI using percentile method
-    return (
-        diff_full,
-        float(np.percentile(diffs, 2.5)),
-        float(np.percentile(diffs, 97.5)),
-    )
+    ci_low, ci_high = _percentile_ci(diffs)
+    return (diff_full, ci_low, ci_high)

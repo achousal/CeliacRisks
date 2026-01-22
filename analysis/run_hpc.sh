@@ -288,41 +288,70 @@ EOF
 fi
 
 #==============================================================
-# STEP 4: POSTPROCESSING / AGGREGATION
+# STEP 4: SUBMIT AGGREGATION JOBS
 #==============================================================
-log "Step 4/4: Aggregate results (per model)"
+log "Step 4/4: Submit aggregation jobs (with dependencies)"
 
 if [[ ${DRY_RUN} -eq 1 ]]; then
-  log "[DRY RUN] Would run: ced aggregate-splits for each model"
+  log "[DRY RUN] Would submit aggregation jobs dependent on training jobs"
+elif [[ ${#SUBMITTED_JOBS[@]} -eq 0 ]]; then
+  log "[SKIP] No training jobs submitted, skipping aggregation"
+elif [[ ${POSTPROCESS_ONLY} -eq 1 ]]; then
+  # Run aggregation directly for postprocess-only mode
+  IFS=',' read -r -a MODEL_ARRAY_AGG <<< "${RUN_MODELS}"
+  for MODEL in "${MODEL_ARRAY_AGG[@]}"; do
+    MODEL=$(echo "${MODEL}" | xargs)
+    [[ -z "${MODEL}" ]] && continue
+    MODEL_DIR="${RESULTS_DIR}/${MODEL}/run_${RUN_ID}"
+    if [[ -d "${MODEL_DIR}" ]]; then
+      log "Aggregating ${MODEL}..."
+      ced aggregate-splits --results-dir "${MODEL_DIR}" --n-boot "${N_BOOT}"
+      log "  [OK] ${MODEL} aggregated"
+    fi
+  done
 else
-  COMPLETED_COUNT=$(find "${RESULTS_DIR}" -path "*/split_seed*/core/test_metrics.csv" 2>/dev/null | wc -l)
-  log "Found ${COMPLETED_COUNT} completed split run(s)"
+  # Build dependency string: done(JID1) && done(JID2) && ...
+  DEPS=""
+  for JID in "${SUBMITTED_JOBS[@]}"; do
+    [[ -n "${DEPS}" ]] && DEPS="${DEPS} && "
+    DEPS="${DEPS}done(${JID})"
+  done
 
-  if [[ ${COMPLETED_COUNT} -gt 0 ]]; then
-    IFS=',' read -r -a MODEL_ARRAY_AGG <<< "${RUN_MODELS}"
-    for MODEL in "${MODEL_ARRAY_AGG[@]}"; do
-      MODEL=$(echo "${MODEL}" | xargs)
-      [[ -z "${MODEL}" ]] && continue
+  IFS=',' read -r -a MODEL_ARRAY_AGG <<< "${RUN_MODELS}"
+  for MODEL in "${MODEL_ARRAY_AGG[@]}"; do
+    MODEL=$(echo "${MODEL}" | xargs)
+    [[ -z "${MODEL}" ]] && continue
 
-      MODEL_DIR="${RESULTS_DIR}/${MODEL}/run_${RUN_ID}"
-      if [[ -d "${MODEL_DIR}" ]]; then
-        log "Aggregating ${MODEL}..."
-        ced aggregate-splits --results-dir "${MODEL_DIR}" --n-boot "${N_BOOT}"
-        log "  [OK] ${MODEL} aggregated"
-      else
-        log "  [SKIP] ${MODEL} run directory not found: ${MODEL_DIR}"
-      fi
-    done
-    log "[OK] Aggregation complete"
-  else
-    log "No completed runs yet. Aggregate after jobs finish (per model):"
-    IFS=',' read -r -a MODEL_ARRAY_INFO <<< "${RUN_MODELS}"
-    for MODEL in "${MODEL_ARRAY_INFO[@]}"; do
-      MODEL=$(echo "${MODEL}" | xargs)
-      [[ -z "${MODEL}" ]] && continue
-      log "  ced aggregate-splits --results-dir ${RESULTS_DIR}/${MODEL}/run_${RUN_ID}"
-    done
-  fi
+    AGG_JOB_NAME="CeD_aggregate_${MODEL}"
+    MODEL_DIR="${RESULTS_DIR}/${MODEL}/run_${RUN_ID}"
+    AGG_LOG="${RUN_LOGS_DIR}/${AGG_JOB_NAME}.%J.log"
+    AGG_ERR="${RUN_LOGS_DIR}/${AGG_JOB_NAME}.%J.err"
+
+    AGG_BSUB_OUT=$(bsub \
+      -P "${PROJECT}" \
+      -q "${QUEUE}" \
+      -J "${AGG_JOB_NAME}" \
+      -n 1 \
+      -W "01:00" \
+      -R "rusage[mem=4000]" \
+      -w "${DEPS}" \
+      -oo "${AGG_LOG}" \
+      -eo "${AGG_ERR}" \
+      <<EOF
+#!/bin/bash
+set -euo pipefail
+source "${VENV_PATH}"
+ced aggregate-splits --results-dir "${MODEL_DIR}" --n-boot "${N_BOOT}"
+EOF
+    )
+
+    AGG_JOB_ID=$(echo "${AGG_BSUB_OUT}" | grep -oE 'Job <[0-9]+>' | head -n1 | tr -cd '0-9')
+    if [[ -n "${AGG_JOB_ID}" ]]; then
+      log "  [OK] ${MODEL} aggregation: Job ${AGG_JOB_ID} (depends on ${#SUBMITTED_JOBS[@]} jobs)"
+    else
+      log "  [FAIL] ${MODEL} aggregation submission failed"
+    fi
+  done
 fi
 
 #==============================================================
@@ -344,6 +373,6 @@ log ""
 log "Logs: ${RUN_LOGS_DIR}"
 log "Results: ${RESULTS_DIR}"
 log ""
-log "Aggregate after all jobs complete:"
-log "  ced aggregate-splits --results-dir ${RESULTS_DIR}/<model>/run_${RUN_ID}"
+log "Aggregation jobs will run automatically after training completes."
+log "Check aggregation status: bjobs -w | grep CeD_aggregate"
 log "============================================"

@@ -12,6 +12,7 @@ Covers:
 import numpy as np
 import pytest
 from ced_ml.metrics.bootstrap import (
+    HAS_SCIPY_BOOTSTRAP,
     _safe_metric,
     stratified_bootstrap_ci,
     stratified_bootstrap_diff_ci,
@@ -44,7 +45,7 @@ class TestSafeMetric:
         y_pred = np.array([np.inf, 0.2, 0.8, np.nan])
         result = _safe_metric(roc_auc_score, y_true, y_pred)
         # May fail due to invalid predictions
-        assert isinstance(result, (float, np.floating))
+        assert isinstance(result, float | np.floating)
 
 
 class TestStratifiedBootstrapCI:
@@ -364,3 +365,122 @@ class TestEdgeCases:
         assert isinstance(diff, float)
         assert isinstance(ci_lower, float)
         assert isinstance(ci_upper, float)
+
+
+class TestCIMethodSelection:
+    """Tests for CI method parameter (percentile vs BCa)."""
+
+    @pytest.fixture
+    def basic_data(self):
+        """Simple balanced dataset."""
+        np.random.seed(42)
+        y_true = np.array([0] * 50 + [1] * 50)
+        y_pred = np.random.rand(100)
+        return y_true, y_pred
+
+    def test_invalid_method_raises_error(self, basic_data):
+        """Should raise ValueError for invalid method."""
+        y_true, y_pred = basic_data
+        with pytest.raises(ValueError, match="method must be 'percentile' or 'bca'"):
+            stratified_bootstrap_ci(y_true, y_pred, roc_auc_score, n_boot=100, method="invalid")
+
+    def test_invalid_method_diff_raises_error(self, basic_data):
+        """Should raise ValueError for invalid method in diff_ci."""
+        y_true, y_pred = basic_data
+        with pytest.raises(ValueError, match="method must be 'percentile' or 'bca'"):
+            stratified_bootstrap_diff_ci(
+                y_true, y_pred, y_pred, roc_auc_score, n_boot=100, method="wrong"
+            )
+
+    def test_percentile_method_explicit(self, basic_data):
+        """Should work with explicit percentile method."""
+        y_true, y_pred = basic_data
+        ci_lower, ci_upper = stratified_bootstrap_ci(
+            y_true, y_pred, roc_auc_score, n_boot=100, seed=42, method="percentile"
+        )
+        assert isinstance(ci_lower, float)
+        assert isinstance(ci_upper, float)
+        assert 0 <= ci_lower <= ci_upper <= 1
+
+    @pytest.mark.skipif(not HAS_SCIPY_BOOTSTRAP, reason="scipy >= 1.7 required")
+    def test_bca_method_basic(self, basic_data):
+        """Should compute valid BCa CI bounds."""
+        y_true, y_pred = basic_data
+        ci_lower, ci_upper = stratified_bootstrap_ci(
+            y_true, y_pred, roc_auc_score, n_boot=100, seed=42, method="bca"
+        )
+        assert isinstance(ci_lower, float)
+        assert isinstance(ci_upper, float)
+        assert 0 <= ci_lower <= ci_upper <= 1
+
+    @pytest.mark.skipif(not HAS_SCIPY_BOOTSTRAP, reason="scipy >= 1.7 required")
+    def test_bca_reproducibility(self, basic_data):
+        """BCa should be reproducible with same seed."""
+        y_true, y_pred = basic_data
+        ci1 = stratified_bootstrap_ci(
+            y_true, y_pred, roc_auc_score, n_boot=100, seed=42, method="bca"
+        )
+        ci2 = stratified_bootstrap_ci(
+            y_true, y_pred, roc_auc_score, n_boot=100, seed=42, method="bca"
+        )
+        assert ci1[0] == pytest.approx(ci2[0], rel=1e-10)
+        assert ci1[1] == pytest.approx(ci2[1], rel=1e-10)
+
+    @pytest.mark.skipif(not HAS_SCIPY_BOOTSTRAP, reason="scipy >= 1.7 required")
+    def test_bca_diff_ci_basic(self):
+        """BCa should work for difference CI."""
+        np.random.seed(42)
+        y_true = np.array([0] * 50 + [1] * 50)
+        p1 = np.random.rand(100)
+        p2 = np.random.rand(100)
+
+        diff, ci_lower, ci_upper = stratified_bootstrap_diff_ci(
+            y_true, p1, p2, roc_auc_score, n_boot=100, seed=42, method="bca"
+        )
+        assert isinstance(diff, float)
+        assert isinstance(ci_lower, float)
+        assert isinstance(ci_upper, float)
+        assert ci_lower <= ci_upper
+
+    @pytest.mark.skipif(not HAS_SCIPY_BOOTSTRAP, reason="scipy >= 1.7 required")
+    def test_bca_vs_percentile_differ(self, basic_data):
+        """BCa and percentile methods should produce different results."""
+        y_true, y_pred = basic_data
+        ci_pct = stratified_bootstrap_ci(
+            y_true, y_pred, roc_auc_score, n_boot=500, seed=42, method="percentile"
+        )
+        ci_bca = stratified_bootstrap_ci(
+            y_true, y_pred, roc_auc_score, n_boot=500, seed=42, method="bca"
+        )
+        # CIs should be similar but not identical (different methods)
+        # Allow for some overlap but not exact match
+        assert ci_pct != ci_bca
+
+    @pytest.mark.skipif(not HAS_SCIPY_BOOTSTRAP, reason="scipy >= 1.7 required")
+    def test_bca_handles_perfect_predictions(self):
+        """BCa may return NaN for perfect predictions (zero variance)."""
+        y_true = np.array([0, 0, 0, 0, 1, 1, 1, 1])
+        y_pred = np.array([0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+
+        ci_lower, ci_upper = stratified_bootstrap_ci(
+            y_true, y_pred, roc_auc_score, n_boot=100, seed=42, method="bca"
+        )
+        # BCa cannot compute bias correction when all samples have same value
+        # This results in NaN CIs, which is acceptable behavior for this edge case
+        # (percentile method handles this better for zero-variance cases)
+        assert np.isnan(ci_lower) or ci_lower == pytest.approx(1.0, abs=0.01)
+        assert np.isnan(ci_upper) or ci_upper == pytest.approx(1.0, abs=0.01)
+
+    @pytest.mark.skipif(not HAS_SCIPY_BOOTSTRAP, reason="scipy >= 1.7 required")
+    def test_bca_imbalanced_data(self):
+        """BCa should handle imbalanced datasets."""
+        y_true = np.array([0] * 90 + [1] * 10)
+        np.random.seed(42)
+        y_pred = np.random.rand(100)
+
+        ci_lower, ci_upper = stratified_bootstrap_ci(
+            y_true, y_pred, roc_auc_score, n_boot=100, seed=42, method="bca"
+        )
+        assert isinstance(ci_lower, float)
+        assert isinstance(ci_upper, float)
+        assert 0 <= ci_lower <= ci_upper <= 1
