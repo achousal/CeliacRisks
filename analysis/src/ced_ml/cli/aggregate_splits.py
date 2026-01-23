@@ -403,6 +403,232 @@ def compute_summary_stats(
     return summary_df
 
 
+def collect_best_hyperparams(
+    split_dirs: list[Path],
+    optuna_file: str = "cv/optuna/best_params_optuna.csv",
+    logger: logging.Logger | None = None,
+) -> pd.DataFrame:
+    """
+    Collect best hyperparameters from all split directories.
+
+    Args:
+        split_dirs: List of split subdirectory paths
+        optuna_file: Relative path to best_params file within each split dir
+        logger: Optional logger instance
+
+    Returns:
+        DataFrame with all best hyperparameters, indexed by split_seed
+    """
+    all_params = []
+
+    for split_dir in split_dirs:
+        seed = int(split_dir.name.replace("split_seed", ""))
+        params_path = split_dir / optuna_file
+
+        if not params_path.exists():
+            if logger:
+                logger.debug(f"Best params file not found: {params_path}")
+            continue
+
+        try:
+            df = pd.read_csv(params_path)
+            df["split_seed"] = seed
+
+            # Parse JSON best_params column if present
+            if "best_params" in df.columns:
+                params_list = []
+                for _, row in df.iterrows():
+                    try:
+                        params_dict = json.loads(row["best_params"])
+                        row_data = {
+                            "split_seed": row["split_seed"],
+                            "model": row["model"],
+                            "repeat": row["repeat"],
+                            "outer_split": row["outer_split"],
+                            "best_score_inner": row.get("best_score_inner", np.nan),
+                        }
+                        # Flatten nested params dict
+                        for k, v in params_dict.items():
+                            row_data[k] = v
+                        params_list.append(row_data)
+                    except (json.JSONDecodeError, KeyError) as e:
+                        if logger:
+                            logger.warning(f"Failed to parse params in {split_dir.name}: {e}")
+                        continue
+
+                if params_list:
+                    df = pd.DataFrame(params_list)
+                    all_params.append(df)
+            else:
+                all_params.append(df)
+
+            if logger:
+                logger.debug(f"Loaded best params from {split_dir.name}/{optuna_file}")
+        except Exception as e:
+            if logger:
+                logger.warning(f"Failed to read {params_path}: {e}")
+
+    if not all_params:
+        if logger:
+            logger.debug(f"No hyperparameters collected from {optuna_file}")
+        return pd.DataFrame()
+
+    df_combined = pd.concat(all_params, ignore_index=True)
+    if logger:
+        logger.info(
+            f"Collected {len(df_combined)} hyperparameter sets from {len(all_params)} splits"
+        )
+
+    return df_combined
+
+
+def aggregate_hyperparams_summary(
+    params_df: pd.DataFrame,
+    logger: logging.Logger | None = None,
+) -> pd.DataFrame:
+    """
+    Compute summary statistics for hyperparameters across splits.
+
+    For each model and hyperparameter:
+    - Numeric params: mean, std, min, max
+    - Categorical params: mode, unique values
+
+    Args:
+        params_df: DataFrame with hyperparameters from all splits
+        logger: Optional logger instance
+
+    Returns:
+        DataFrame with aggregated hyperparameter statistics per model
+    """
+    if params_df.empty:
+        if logger:
+            logger.debug("No hyperparameters to aggregate (empty DataFrame)")
+        return pd.DataFrame()
+
+    # Identify parameter columns (exclude metadata)
+    metadata_cols = {
+        "split_seed",
+        "model",
+        "repeat",
+        "outer_split",
+        "best_score_inner",
+        "optuna_n_trials",
+        "optuna_sampler",
+        "optuna_pruner",
+    }
+    param_cols = [col for col in params_df.columns if col not in metadata_cols]
+
+    if not param_cols:
+        if logger:
+            logger.warning("No hyperparameter columns found to aggregate")
+        return pd.DataFrame()
+
+    summary_rows = []
+
+    # Group by model
+    for model_name, model_df in params_df.groupby("model"):
+        row = {"model": model_name, "n_cv_folds": len(model_df)}
+
+        for param in param_cols:
+            if param not in model_df.columns:
+                continue
+
+            values = model_df[param].dropna()
+            if len(values) == 0:
+                continue
+
+            # Check if numeric
+            if pd.api.types.is_numeric_dtype(values):
+                row[f"{param}_mean"] = values.mean()
+                row[f"{param}_std"] = values.std()
+                row[f"{param}_min"] = values.min()
+                row[f"{param}_max"] = values.max()
+            else:
+                # Categorical: get mode and unique count
+                mode_val = values.mode()
+                row[f"{param}_mode"] = mode_val[0] if len(mode_val) > 0 else None
+                row[f"{param}_n_unique"] = values.nunique()
+                # Include all unique values as comma-separated string
+                unique_vals = sorted(values.unique())
+                row[f"{param}_values"] = ", ".join(str(v) for v in unique_vals)
+
+        summary_rows.append(row)
+
+    summary_df = pd.DataFrame(summary_rows)
+
+    if logger:
+        logger.info(
+            f"Aggregated hyperparams for {len(summary_df)} models, " f"{len(param_cols)} parameters"
+        )
+
+    return summary_df
+
+
+def collect_ensemble_hyperparams(
+    ensemble_dirs: list[Path],
+    logger: logging.Logger | None = None,
+) -> pd.DataFrame:
+    """
+    Collect hyperparameters from ENSEMBLE split directories.
+
+    Args:
+        ensemble_dirs: List of ENSEMBLE split subdirectory paths
+        logger: Optional logger instance
+
+    Returns:
+        DataFrame with ENSEMBLE hyperparameters
+    """
+    all_params = []
+
+    for split_dir in ensemble_dirs:
+        seed = int(split_dir.name.replace("split_seed", ""))
+
+        # Ensemble meta-learner config is in config.yaml
+        config_path = split_dir / "config.yaml"
+        if not config_path.exists():
+            if logger:
+                logger.debug(f"No config file in {split_dir.name}")
+            continue
+
+        try:
+            import yaml
+
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+
+            # Extract ensemble settings
+            ensemble_config = config.get("ensemble", {})
+            meta_model = ensemble_config.get("meta_model", {})
+
+            row = {
+                "split_seed": seed,
+                "model": "ENSEMBLE",
+                "method": ensemble_config.get("method", "stacking"),
+                "base_models": ", ".join(ensemble_config.get("base_models", [])),
+                "meta_model_type": meta_model.get("type", "logistic_regression"),
+                "meta_model_penalty": meta_model.get("penalty", "l2"),
+                "meta_model_C": meta_model.get("C", 1.0),
+            }
+            all_params.append(row)
+
+            if logger:
+                logger.debug(f"Loaded ensemble config from {split_dir.name}")
+        except Exception as e:
+            if logger:
+                logger.warning(f"Failed to read {config_path}: {e}")
+
+    if not all_params:
+        if logger:
+            logger.debug("No ensemble hyperparameters collected")
+        return pd.DataFrame()
+
+    df_combined = pd.DataFrame(all_params)
+    if logger:
+        logger.info(f"Collected ensemble configs from {len(all_params)} splits")
+
+    return df_combined
+
+
 def collect_predictions(
     split_dirs: list[Path],
     pred_type: str,
@@ -1882,6 +2108,34 @@ def run_aggregate_splits(
             logger.info(f"CV summary saved: {cv_summary_path}")
     else:
         logger.info("No CV metrics found (optional)")
+
+    # Aggregate best hyperparameters
+    log_section(logger, "Aggregating Hyperparameters")
+
+    best_params = collect_best_hyperparams(split_dirs, logger=logger)
+    if not best_params.empty:
+        all_params_path = cv_dir / "all_best_params_per_split.csv"
+        best_params.to_csv(all_params_path, index=False)
+        logger.info(f"All best hyperparameters saved: {all_params_path}")
+        logger.info(
+            f"  {len(best_params)} hyperparameter sets from {best_params['split_seed'].nunique()} splits"
+        )
+
+        params_summary = aggregate_hyperparams_summary(best_params, logger=logger)
+        if not params_summary.empty:
+            params_summary_path = cv_dir / "hyperparams_summary.csv"
+            params_summary.to_csv(params_summary_path, index=False)
+            logger.info(f"Hyperparameters summary saved: {params_summary_path}")
+    else:
+        logger.info("No hyperparameters found (Optuna may not be enabled)")
+
+    # Aggregate ensemble hyperparameters if available
+    if ensemble_dirs:
+        ensemble_params = collect_ensemble_hyperparams(ensemble_dirs, logger=logger)
+        if not ensemble_params.empty:
+            ensemble_params_path = cv_dir / "ensemble_config_per_split.csv"
+            ensemble_params.to_csv(ensemble_params_path, index=False)
+            logger.info(f"Ensemble configurations saved: {ensemble_params_path}")
 
     log_section(logger, "Feature Stability Analysis")
 
