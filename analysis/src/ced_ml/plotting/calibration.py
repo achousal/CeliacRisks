@@ -17,6 +17,7 @@ References:
 """
 
 import logging
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -122,12 +123,18 @@ def _plot_prob_calibration_panel(
             counts_all.append(counts)
         curves = np.array(curves, dtype=float)
         counts_all = np.array(counts_all, dtype=float)
-        obs_mean = np.nanmean(curves, axis=0)
-        obs_sd = np.nanstd(curves, axis=0)
-        obs_lo = np.nanpercentile(curves, 2.5, axis=0)
-        obs_hi = np.nanpercentile(curves, 97.5, axis=0)
-        np.nanmean(counts_all, axis=0)
-        sum_counts = np.nansum(counts_all, axis=0)
+
+        # Suppress expected warnings when bins are empty across all splits
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Mean of empty slice")
+            warnings.filterwarnings("ignore", message="All-NaN slice encountered")
+            warnings.filterwarnings("ignore", message="Degrees of freedom <= 0")
+            obs_mean = np.nanmean(curves, axis=0)
+            obs_sd = np.nanstd(curves, axis=0)
+            obs_lo = np.nanpercentile(curves, 2.5, axis=0)
+            obs_hi = np.nanpercentile(curves, 97.5, axis=0)
+            np.nanmean(counts_all, axis=0)
+            sum_counts = np.nansum(counts_all, axis=0)
 
         ax.fill_between(
             bin_centers,
@@ -518,11 +525,16 @@ def _plot_logit_calibration_panel(
         bin_sizes_per_split = np.array(bin_sizes_per_split, dtype=int)
 
         # Aggregate predicted and observed probabilities across splits
-        prob_x_mean = np.nanmean(prob_x_bins, axis=0)
-        prob_y_mean = np.nanmean(prob_y_bins, axis=0)
-        prob_y_lo = np.nanpercentile(prob_y_bins, 2.5, axis=0)
-        prob_y_hi = np.nanpercentile(prob_y_bins, 97.5, axis=0)
-        np.nanstd(prob_y_bins, axis=0)
+        # Suppress expected warnings when bins are empty across all splits
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Mean of empty slice")
+            warnings.filterwarnings("ignore", message="All-NaN slice encountered")
+            warnings.filterwarnings("ignore", message="Degrees of freedom <= 0")
+            prob_x_mean = np.nanmean(prob_x_bins, axis=0)
+            prob_y_mean = np.nanmean(prob_y_bins, axis=0)
+            prob_y_lo = np.nanpercentile(prob_y_bins, 2.5, axis=0)
+            prob_y_hi = np.nanpercentile(prob_y_bins, 97.5, axis=0)
+            np.nanstd(prob_y_bins, axis=0)
 
         # Aggregate bin sizes across splits (use sum for consistency with prob-space)
         bin_sizes_sum = np.nansum(bin_sizes_per_split, axis=0)
@@ -545,7 +557,9 @@ def _plot_logit_calibration_panel(
         logit_curves_smooth = np.log(
             np.clip(prob_y_bins, eps, 1 - eps) / (1 - np.clip(prob_y_bins, eps, 1 - eps))
         )
-        logit_y_sd = np.nanstd(logit_curves_smooth, axis=0)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Degrees of freedom <= 0")
+            logit_y_sd = np.nanstd(logit_curves_smooth, axis=0)
 
         # Plot aggregated logit calibration bands
         valid_logit = ~np.isnan(logit_x_mean) & ~np.isnan(logit_y_mean)
