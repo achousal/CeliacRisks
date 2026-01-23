@@ -121,7 +121,7 @@ def run_train_ensemble(
     split_seed: int = 0,
     outdir: str | None = None,
     meta_penalty: str | None = None,
-    meta_C: float | None = None,
+    meta_c: float | None = None,
     verbose: int = 0,
 ) -> dict[str, Any]:
     """Run ensemble training from base model outputs.
@@ -140,7 +140,7 @@ def run_train_ensemble(
         split_seed: Split seed for identifying model outputs
         outdir: Output directory (overrides results_dir/ENSEMBLE/split_{seed})
         meta_penalty: Meta-learner regularization (overrides config)
-        meta_C: Meta-learner regularization strength (overrides config)
+        meta_c: Meta-learner regularization strength (overrides config)
         verbose: Verbosity level
 
     Returns:
@@ -181,10 +181,10 @@ def run_train_ensemble(
     # Determine meta-learner hyperparameters
     if meta_penalty is None:
         meta_penalty = config.ensemble.meta_model.penalty if config else "l2"
-    if meta_C is None:
-        meta_C = config.ensemble.meta_model.C if config else 1.0
+    if meta_c is None:
+        meta_c = config.ensemble.meta_model.C if config else 1.0
 
-    logger.info(f"Meta-learner: LogisticRegression(penalty={meta_penalty}, C={meta_C})")
+    logger.info(f"Meta-learner: LogisticRegression(penalty={meta_penalty}, C={meta_c})")
 
     # Check which base models have results (using flexible path discovery)
     available_models = []
@@ -245,7 +245,7 @@ def run_train_ensemble(
     ensemble = StackingEnsemble(
         base_model_names=available_models,
         meta_penalty=meta_penalty,
-        meta_C=meta_C,
+        meta_C=meta_c,
         calibrate_meta=calibrate_meta,
         random_state=random_state,
     )
@@ -265,7 +265,7 @@ def run_train_ensemble(
         "base_models": available_models,
         "split_seed": split_seed,
         "meta_penalty": meta_penalty,
-        "meta_C": meta_C,
+        "meta_C": meta_c,
         "meta_coef": coef,
         "random_state": random_state,
         "calibration_strategies": {name: info.strategy for name, info in calibration_info.items()},
@@ -349,7 +349,7 @@ def run_train_ensemble(
         "model_name": "ENSEMBLE",
         "base_models": available_models,
         "meta_penalty": meta_penalty,
-        "meta_C": meta_C,
+        "meta_C": meta_c,
         "meta_coef": coef,
         "split_seed": split_seed,
         "random_state": random_state,
@@ -404,7 +404,7 @@ def run_train_ensemble(
         "base_models": available_models,
         "split_seed": split_seed,
         "meta_penalty": meta_penalty,
-        "meta_C": meta_C,
+        "meta_C": meta_c,
         "timestamp": datetime.now().isoformat(),
     }
     if "val_metrics" in results:
@@ -423,7 +423,7 @@ def run_train_ensemble(
         "base_models": available_models,
         "split_seed": split_seed,
         "meta_penalty": meta_penalty,
-        "meta_C": meta_C,
+        "meta_C": meta_c,
         "meta_coef": coef,
         "n_train": len(y_train),
         "train_prevalence": float(y_train.mean()),
