@@ -176,7 +176,6 @@ calibration:
   # - none: No calibration applied
   method: isotonic  # Options: isotonic (nonparametric), sigmoid (Platt scaling)
   cv: 5  # CV folds for per_fold strategy
-  ensemble: false  # Whether to use ensemble for CalibratedClassifierCV
   # Per-model overrides (optional):
   # per_model:
   #   LR_EN: oof_posthoc  # Use oof_posthoc for logistic regression

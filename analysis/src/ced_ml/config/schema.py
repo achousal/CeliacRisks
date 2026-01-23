@@ -309,7 +309,6 @@ class CalibrationConfig(BaseModel):
             - "none": No calibration applied.
         method: Calibration method ("sigmoid" for Platt scaling, "isotonic" for isotonic regression).
         cv: Number of CV folds for per_fold calibration.
-        ensemble: Whether to use ensemble for CalibratedClassifierCV.
         per_model: Optional per-model strategy overrides. Keys are model names (e.g., "LR_EN"),
             values are strategy names ("per_fold", "oof_posthoc", "none").
     """
@@ -318,7 +317,6 @@ class CalibrationConfig(BaseModel):
     strategy: Literal["per_fold", "oof_posthoc", "none"] = "per_fold"
     method: Literal["sigmoid", "isotonic"] = "isotonic"
     cv: int = 5
-    ensemble: bool = False
     per_model: dict[str, Literal["per_fold", "oof_posthoc", "none"]] | None = None
 
     def get_strategy_for_model(self, model_name: str) -> str:

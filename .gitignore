@@ -154,3 +154,4 @@ data/**
 !/analysis/figures/
 !/analysis/figures/**
 .gitignore_global
+splits/
