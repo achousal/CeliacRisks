@@ -166,8 +166,11 @@ def build_training_pipeline(
     cat_cols: list[str],
     meta_num_cols: list[str],
 ) -> Pipeline:
-    """
-    Build complete training pipeline with preprocessing, feature selection, and classifier.
+    """Build complete training pipeline with preprocessing, feature selection, and classifier.
+
+    Two-stage feature selection (when enabled):
+    1. Screening: Univariate Mann-Whitney/F-test → keep top-N features
+    2. SelectKBest: Tuned k value (from k_grid) during CV
 
     Args:
         config: TrainingConfig object
@@ -177,27 +180,50 @@ def build_training_pipeline(
         meta_num_cols: List of numeric metadata column names
 
     Returns:
-        Pipeline with named steps: pre (preprocessing), sel (feature selection), clf (classifier)
+        Pipeline with named steps: pre, [screen], [sel], clf
 
-    Note:
-        Currently only uses kbest_max for SelectKBest feature selection.
-        Advanced config options (screen_top_n, stability_thresh, stable_corr_thresh,
-        kbest_scope) are logged for provenance but not wired into the pipeline.
-        See ADR-004-hybrid-feature-selection.md for the planned implementation.
+    Example:
+        Screening (top 1000 Mann-Whitney features) + SelectKBest tuning (k=25-800):
+        >>> config.features.feature_select = "kbest"
+        >>> config.features.screen_top_n = 1000
+        >>> config.features.k_grid = [25, 50, 100, 200, 400, 800]
+        Pipeline stages: pre → screen → sel → clf
     """
     logger = logging.getLogger(__name__)
     preprocessor = build_preprocessor(protein_cols, cat_cols, meta_num_cols)
 
     steps = [("pre", preprocessor)]
 
-    # Log warning if advanced feature selection configs are set but not used (H2 fix)
-    _log_unwired_feature_selection_settings(config, logger)
-
     if config.features.feature_select and config.features.feature_select != "none":
-        k_val = config.features.kbest_max if hasattr(config.features, "kbest_max") else 500
-        kbest = build_kbest_pipeline_step(k=k_val)
-        steps.append(("sel", kbest))
-        logger.debug(f"Feature selection: SelectKBest(k={k_val})")
+        # Stage 1: Screening (univariate feature pre-filtering)
+        screen_top_n = getattr(config.features, "screen_top_n", 0)
+        screen_method = getattr(config.features, "screen_method", "mannwhitney")
+
+        if screen_top_n > 0 and screen_method:
+            from ced_ml.features.kbest import ScreeningTransformer
+
+            screener = ScreeningTransformer(
+                method=screen_method,
+                top_n=screen_top_n,
+                protein_cols=protein_cols,
+            )
+            steps.append(("screen", screener))
+            logger.debug(f"Feature screening: {screen_method} → top {screen_top_n} features")
+
+        # Stage 2: SelectKBest with k_grid tuning
+        k_grid = getattr(config.features, "k_grid", None)
+        if k_grid:
+            # Use first k value as default (will be tuned during CV)
+            k_default = k_grid[0] if isinstance(k_grid, list | tuple) else k_grid
+            kbest = build_kbest_pipeline_step(k=k_default)
+            steps.append(("sel", kbest))
+            logger.debug(f"Feature selection: SelectKBest k_grid={k_grid}")
+        else:
+            # Fallback: use kbest_max as fixed k (no tuning)
+            k_val = getattr(config.features, "kbest_max", 500)
+            kbest = build_kbest_pipeline_step(k=k_val)
+            steps.append(("sel", kbest))
+            logger.debug(f"Feature selection: SelectKBest(k={k_val})")
 
     steps.append(("clf", classifier))
 
@@ -205,20 +231,27 @@ def build_training_pipeline(
 
 
 def _log_unwired_feature_selection_settings(config: Any, logger: logging.Logger) -> None:
-    """Log warning if advanced feature selection configs are set but not implemented."""
+    """Log warning if advanced feature selection configs are set but not implemented.
+
+    Note: Screening (screen_top_n + screen_method) is now wired into the pipeline.
+    """
     unwired = []
-    if getattr(config.features, "screen_top_n", 0) > 0:
-        unwired.append("screen_top_n")
-    if getattr(config.features, "stability_thresh", 0.70) != 0.70:
-        unwired.append("stability_thresh")
-    if getattr(config.features, "stable_corr_thresh", 0.80) != 0.80:
-        unwired.append("stable_corr_thresh")
+
+    # Stability threshold is post-hoc only (not used during training)
+    if getattr(config.features, "stability_thresh", 0.75) != 0.75:
+        unwired.append("stability_thresh (post-hoc panel building only)")
+
+    # Correlation threshold is post-hoc only
+    if getattr(config.features, "stable_corr_thresh", 0.85) != 0.85:
+        unwired.append("stable_corr_thresh (post-hoc panel building only)")
+
+    # Hybrid feature selection logic (not yet fully implemented)
     if getattr(config.features, "feature_select", "none") in ("l1_stability", "hybrid"):
-        unwired.append("advanced feature_select")
+        unwired.append("feature_select='hybrid' (partial implementation; using kbest only)")
 
     if unwired:
         logger.warning(
-            f"Feature selection options set but not wired: {', '.join(unwired)}. Pipeline uses SelectKBest only."
+            f"Feature selection options set but not used in training pipeline: {', '.join(unwired)}."
         )
 
 

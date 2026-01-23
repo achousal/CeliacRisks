@@ -349,3 +349,89 @@ def build_kbest_pipeline_step(k: int) -> Any:
         >>> pipe = Pipeline([("sel", kbest), ("clf", classifier)])
     """
     return SelectKBest(score_func=f_classif, k=k)
+
+
+class ScreeningTransformer:
+    """Univariate screening transformer for feature pre-filtering.
+
+    Wraps screen_proteins to work as an sklearn transformer.
+    Screens features using Mann-Whitney or F-statistic, keeping top-N.
+    """
+
+    def __init__(
+        self,
+        method: str = "mannwhitney",
+        top_n: int = 1000,
+        protein_cols: list[str] | None = None,
+    ):
+        """Initialize screening transformer.
+
+        Args:
+            method: "mannwhitney" or "f_classif"
+            top_n: Number of top features to keep
+            protein_cols: List of protein column names (set during fit)
+        """
+        self.method = method
+        self.top_n = top_n
+        self.protein_cols = protein_cols or []
+        self.selected_features_ = None
+
+    def fit(self, X: pd.DataFrame, y: np.ndarray = None):
+        """Fit screening transformer.
+
+        Args:
+            X: Feature matrix
+            y: Binary target vector
+
+        Returns:
+            self
+        """
+        if y is None:
+            raise ValueError("y must be provided for screening")
+
+        from ced_ml.features.screening import screen_proteins
+
+        # Determine protein columns if not set
+        if not self.protein_cols:
+            # Default: all numeric columns except likely metadata
+            numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
+            # Filter out metadata-like columns (might need adjustment)
+            self.protein_cols = numeric_cols
+
+        # Screen proteins
+        selected_prots, _ = screen_proteins(
+            X_train=X,
+            y_train=y,
+            protein_cols=self.protein_cols,
+            method=self.method,
+            top_n=self.top_n,
+        )
+
+        self.selected_features_ = selected_prots
+        return self
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Transform: keep only selected features.
+
+        Args:
+            X: Feature matrix
+
+        Returns:
+            Subset of X with only selected features
+        """
+        if self.selected_features_ is None:
+            raise ValueError("Must fit before transform")
+
+        # Keep only selected features (they should exist)
+        cols_to_keep = [c for c in self.selected_features_ if c in X.columns]
+        return X[cols_to_keep]
+
+    def fit_transform(self, X: pd.DataFrame, y: np.ndarray = None) -> pd.DataFrame:
+        """Fit and transform in one step."""
+        return self.fit(X, y).transform(X)
+
+    def get_feature_names_out(self, input_features=None):
+        """Get output feature names (for sklearn compatibility)."""
+        if self.selected_features_ is None:
+            return np.array([])
+        return np.array(self.selected_features_)

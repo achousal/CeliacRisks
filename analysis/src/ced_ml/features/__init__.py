@@ -12,6 +12,7 @@ from .corr_prune import (
     select_component_representative,
 )
 from .kbest import (
+    ScreeningTransformer,
     compute_f_classif_scores,
     compute_protein_statistics,
     extract_selected_proteins_from_kbest,
@@ -45,7 +46,8 @@ __all__ = [
     "prune_correlated_proteins",
     "refill_panel_to_target_size",
     "select_component_representative",
-    # K-best selection
+    # K-best selection and screening
+    "ScreeningTransformer",
     "compute_f_classif_scores",
     "compute_protein_statistics",
     "extract_selected_proteins_from_kbest",

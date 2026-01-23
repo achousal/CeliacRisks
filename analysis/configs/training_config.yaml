@@ -47,10 +47,10 @@ optuna:
 
 # Feature selection
 features:
-  feature_select: hybrid  # "none", "kbest", "l1_stability", "hybrid"
+  feature_select: kbest  # "none", "kbest", "l1_stability", "hybrid"
   kbest_scope: protein
-  kbest_max: 800
-  k_grid: [25, 50, 100, 200, 300, 400, 600, 800]
+  kbest_max: 100  # Fallback max k (if k_grid not provided)
+  k_grid: [25, 50, 100]  # Tuned k values during CV
   l1_c_min: 0.001  # For l1_stability method
   l1_c_max: 1.0
   l1_c_points: 4
@@ -58,9 +58,9 @@ features:
   hybrid_kbest_first: true
   hybrid_k_for_stability: 200
 
-  # Screening (pre-filter before k-best)
+  # Screening (two-stage: Mann-Whitney top-N, then k_grid tuning)
   screen_method: mannwhitney  # "mannwhitney" or "f_classif"
-  screen_top_n: 1000  # 0 = no screening
+  screen_top_n: 1000  # 0 = no screening. Stage 1: Mann-Whitney → keep top 1000
 
   # Stability selection
   stability_thresh: 0.75  # Minimum frequency across folds
