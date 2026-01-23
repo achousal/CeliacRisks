@@ -348,7 +348,7 @@ class OptunaConfig(BaseModel):
     pruner: Literal["median", "percentile", "hyperband", "none"] = "median"
     pruner_n_startup_trials: int = Field(default=5, ge=0)
     pruner_percentile: float = Field(default=25.0, ge=0, le=100)
-    n_jobs: int = Field(default=1, ge=1)
+    n_jobs: int = Field(default=1, ge=-1)  # -1 means use all available CPUs
     storage: str | None = None
     study_name: str | None = None
     load_if_exists: bool = False
@@ -514,7 +514,7 @@ class TrainingConfig(BaseModel):
     """Complete training configuration."""
 
     # Data
-    infile: Path
+    infile: Path | None = None
     split_dir: Path | None = None
     scenario: str = "IncidentOnly"
     split_seed: int = 0

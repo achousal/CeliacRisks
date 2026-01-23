@@ -114,6 +114,65 @@ def validate_probabilities(
     )
 
 
+def _collect_base_model_test_metrics(
+    results_path: Path,
+    base_models: list[str],
+    split_seed: int,
+) -> dict[str, dict[str, float]]:
+    """Load test metrics from base model split directories for comparison.
+
+    Reads metrics.json (or test_metrics.csv) from each base model's split
+    directory to build a comparison dict for the model comparison chart.
+
+    Args:
+        results_path: Root results directory.
+        base_models: List of base model names.
+        split_seed: Split seed for path resolution.
+
+    Returns:
+        Dict mapping model name to dict with AUROC, PR_AUC, Brier keys.
+    """
+    collected: dict[str, dict[str, float]] = {}
+
+    for model in base_models:
+        try:
+            model_dir = _find_model_split_dir(results_path, model, split_seed)
+
+            # Try JSON metrics first (consistent with ensemble format)
+            metrics_path = model_dir / "core" / "metrics.json"
+            if metrics_path.exists():
+                with open(metrics_path) as f:
+                    data = json.load(f)
+
+                # metrics.json may have test metrics nested or flat
+                test_data = data.get("test", data)
+                entry = {}
+                for key in ("AUROC", "PR_AUC", "Brier"):
+                    if key in test_data:
+                        entry[key] = float(test_data[key])
+                if entry:
+                    collected[model] = entry
+                    continue
+
+            # Fallback: try test_metrics.csv
+            csv_path = model_dir / "core" / "test_metrics.csv"
+            if csv_path.exists():
+                df = pd.read_csv(csv_path)
+                if not df.empty:
+                    row = df.iloc[0]
+                    entry = {}
+                    for key in ("AUROC", "PR_AUC", "Brier"):
+                        if key in row.index:
+                            entry[key] = float(row[key])
+                    if entry:
+                        collected[model] = entry
+
+        except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
+            logger.debug(f"Could not load metrics for {model}: {e}")
+
+    return collected
+
+
 def run_train_ensemble(
     config_file: str | None = None,
     results_dir: str | None = None,
@@ -433,6 +492,158 @@ def run_train_ensemble(
     with open(settings_path, "w") as f:
         json.dump(run_settings, f, indent=2)
     logger.info(f"Run settings saved: {settings_path}")
+
+    # ---- Generating Ensemble Plots ----
+    log_section(logger, "Generating Ensemble Plots")
+
+    diag_plots_dir = outdir / "diagnostics" / "plots"
+    diag_plots_dir.mkdir(parents=True, exist_ok=True)
+    ensemble_diag_dir = outdir / "diagnostics" / "ensemble"
+    ensemble_diag_dir.mkdir(parents=True, exist_ok=True)
+
+    plot_format = "png"
+
+    meta_lines_plot = [
+        f"Model: ENSEMBLE (base: {', '.join(available_models)})",
+        f"Split seed: {split_seed}",
+        f"Meta-learner: LR(penalty={meta_penalty}, C={meta_c})",
+        f"Train n={len(y_train)}, prevalence={y_train.mean():.4f}",
+    ]
+
+    try:
+        from ced_ml.metrics.thresholds import compute_threshold_bundle
+        from ced_ml.plotting.calibration import plot_calibration_curve
+        from ced_ml.plotting.dca import plot_dca_curve
+        from ced_ml.plotting.ensemble import plot_meta_learner_weights, plot_model_comparison
+        from ced_ml.plotting.risk_dist import plot_risk_distribution
+        from ced_ml.plotting.roc_pr import plot_pr_curve, plot_roc_curve
+
+        # --- Standard discrimination plots for validation set ---
+        if "val_proba" in results and "y_val" in results:
+            y_val_arr = np.asarray(results["y_val"])
+            val_proba_arr = np.asarray(results["val_proba"])
+
+            val_bundle = compute_threshold_bundle(y_val_arr, val_proba_arr, target_spec=0.95)
+
+            plot_roc_curve(
+                y_true=y_val_arr,
+                y_pred=val_proba_arr,
+                out_path=diag_plots_dir / f"ENSEMBLE__val_roc.{plot_format}",
+                title="ENSEMBLE - Validation ROC",
+                subtitle=f"split_seed={split_seed}",
+                meta_lines=meta_lines_plot,
+                threshold_bundle=val_bundle,
+            )
+            plot_pr_curve(
+                y_true=y_val_arr,
+                y_pred=val_proba_arr,
+                out_path=diag_plots_dir / f"ENSEMBLE__val_pr.{plot_format}",
+                title="ENSEMBLE - Validation PR Curve",
+                subtitle=f"split_seed={split_seed}",
+                meta_lines=meta_lines_plot,
+            )
+            plot_calibration_curve(
+                y_true=y_val_arr,
+                y_pred=val_proba_arr,
+                out_path=diag_plots_dir / f"ENSEMBLE__val_calibration.{plot_format}",
+                title="ENSEMBLE - Validation Calibration",
+                meta_lines=meta_lines_plot,
+            )
+            plot_dca_curve(
+                y_true=y_val_arr,
+                y_pred=val_proba_arr,
+                out_path=str(diag_plots_dir / f"ENSEMBLE__val_dca.{plot_format}"),
+                title="ENSEMBLE - Validation DCA",
+                meta_lines=meta_lines_plot,
+            )
+            plot_risk_distribution(
+                y_true=y_val_arr,
+                scores=val_proba_arr,
+                out_path=diag_plots_dir / f"ENSEMBLE__val_risk_dist.{plot_format}",
+                title="ENSEMBLE - Validation Risk Distribution",
+                threshold_bundle=val_bundle,
+                meta_lines=meta_lines_plot,
+            )
+            logger.info("Validation plots saved")
+
+        # --- Standard discrimination plots for test set ---
+        if "test_proba" in results and "y_test" in results:
+            y_test_arr = np.asarray(results["y_test"])
+            test_proba_arr = np.asarray(results["test_proba"])
+
+            test_bundle = compute_threshold_bundle(y_test_arr, test_proba_arr, target_spec=0.95)
+
+            plot_roc_curve(
+                y_true=y_test_arr,
+                y_pred=test_proba_arr,
+                out_path=diag_plots_dir / f"ENSEMBLE__test_roc.{plot_format}",
+                title="ENSEMBLE - Test ROC",
+                subtitle=f"split_seed={split_seed}",
+                meta_lines=meta_lines_plot,
+                threshold_bundle=test_bundle,
+            )
+            plot_pr_curve(
+                y_true=y_test_arr,
+                y_pred=test_proba_arr,
+                out_path=diag_plots_dir / f"ENSEMBLE__test_pr.{plot_format}",
+                title="ENSEMBLE - Test PR Curve",
+                subtitle=f"split_seed={split_seed}",
+                meta_lines=meta_lines_plot,
+            )
+            plot_calibration_curve(
+                y_true=y_test_arr,
+                y_pred=test_proba_arr,
+                out_path=diag_plots_dir / f"ENSEMBLE__test_calibration.{plot_format}",
+                title="ENSEMBLE - Test Calibration",
+                meta_lines=meta_lines_plot,
+            )
+            plot_dca_curve(
+                y_true=y_test_arr,
+                y_pred=test_proba_arr,
+                out_path=str(diag_plots_dir / f"ENSEMBLE__test_dca.{plot_format}"),
+                title="ENSEMBLE - Test DCA",
+                meta_lines=meta_lines_plot,
+            )
+            plot_risk_distribution(
+                y_true=y_test_arr,
+                scores=test_proba_arr,
+                out_path=diag_plots_dir / f"ENSEMBLE__test_risk_dist.{plot_format}",
+                title="ENSEMBLE - Test Risk Distribution",
+                threshold_bundle=test_bundle,
+                meta_lines=meta_lines_plot,
+            )
+            logger.info("Test plots saved")
+
+        # --- Ensemble-specific plots ---
+        if coef:
+            plot_meta_learner_weights(
+                coef=coef,
+                out_path=ensemble_diag_dir / f"ENSEMBLE__meta_weights.{plot_format}",
+                title="Meta-Learner Coefficients",
+                subtitle=f"split_seed={split_seed}",
+                meta_penalty=meta_penalty,
+                meta_c=meta_c,
+                meta_lines=meta_lines_plot,
+            )
+
+        # Model comparison chart (ENSEMBLE vs base models)
+        base_metrics = _collect_base_model_test_metrics(results_path, available_models, split_seed)
+        if "test_metrics" in results:
+            base_metrics["ENSEMBLE"] = results["test_metrics"]
+        if len(base_metrics) >= 2:
+            plot_model_comparison(
+                metrics=base_metrics,
+                out_path=ensemble_diag_dir / f"ENSEMBLE__model_comparison.{plot_format}",
+                title="Model Comparison (Test Set)",
+                subtitle=f"split_seed={split_seed}",
+                highlight_model="ENSEMBLE",
+                meta_lines=meta_lines_plot,
+            )
+
+        logger.info(f"Ensemble-specific plots saved to: {ensemble_diag_dir}")
+
+    except Exception as e:
+        logger.warning(f"Plot generation failed (non-fatal): {e}")
 
     log_section(logger, "Ensemble Training Complete")
     logger.info(f"All results saved to: {outdir}")

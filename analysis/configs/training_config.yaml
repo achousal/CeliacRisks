@@ -16,11 +16,11 @@ cv:
   verbose: 1
 
 # Ensemble configuration (stacking multiple models)
-# When enabled, collects OOF predictions from base models and trains a meta-learner
+# NOTE: Ensemble training is now a separate CLI command: `ced train-ensemble`
+# This section defines default parameters for ensemble meta-learner only
 ensemble:
-  enabled: false  # Set to true to enable ensemble training
   method: stacking  # Options: stacking, blending, weighted_avg (only stacking implemented)
-  base_models: [LR_EN, RF, XGBoost, LinSVM_cal]  # Models to combine
+  base_models: [LR_EN, RF, XGBoost, LinSVM_cal]  # Default models to combine
   meta_model:
     type: logistic_regression  # Meta-learner type
     penalty: l2  # Regularization: l2, l1, elasticnet, none

@@ -147,8 +147,8 @@ ENSEMBLE_BASE_MODELS=$(get_yaml_nested_list "${TRAINING_CONFIG}" "ensemble" "bas
 # Generate run ID (timestamp-based)
 RUN_ID=$(date +"%Y%m%d_%H%M%S")
 
-# Create timestamped log directory for this run
-RUN_LOGS_DIR="${LOGS_DIR}/${RUN_ID}"
+# Create timestamped log directory for this run (base model jobs)
+RUN_LOGS_DIR="${LOGS_DIR}/base/run_${RUN_ID}"
 mkdir -p "${RUN_LOGS_DIR}"
 
 log "============================================"
@@ -220,7 +220,7 @@ log "Step 2/4: Submit training jobs (${N_SPLITS} splits x models)"
         log "Submitting ${MODEL} (seed ${SEED})..."
 
         LOG_ERR="${RUN_LOGS_DIR}/${JOB_NAME}.%J.err"
-        LIVE_LOG="${RUN_LOGS_DIR}/${JOB_NAME}.live.log"
+        LIVE_LOG="${RUN_LOGS_DIR}/${JOB_NAME}.%J.live.log"
 
         BSUB_OUT=$(bsub \
           -P "${PROJECT}" \
@@ -309,7 +309,7 @@ EOF
         log "Submitting ${JOB_NAME} (depends on base models)..."
 
         LOG_ERR="${RUN_LOGS_DIR}/${JOB_NAME}.%J.err"
-        LIVE_LOG="${RUN_LOGS_DIR}/${JOB_NAME}.live.log"
+        LIVE_LOG="${RUN_LOGS_DIR}/${JOB_NAME}.%J.live.log"
 
         BSUB_OUT=$(bsub \
           -P "${PROJECT}" \
@@ -403,52 +403,39 @@ EOF
 fi
 
 #==============================================================
-# STEP 4: POSTPROCESSING / AGGREGATION
+# STEP 4: POSTPROCESSING INSTRUCTIONS
 #==============================================================
-log "Step 4/4: Aggregate results (per model)"
+log "Step 4/4: Post-processing instructions"
 
 if [[ ${DRY_RUN} -eq 1 ]]; then
-  log "[DRY RUN] Would run: ced aggregate-splits for each model"
+  log "[DRY RUN] Would provide post-processing instructions"
 else
-  COMPLETED_COUNT=$(find "${RESULTS_DIR}" -path "*/split_seed*/core/test_metrics.csv" 2>/dev/null | wc -l)
-  log "Found ${COMPLETED_COUNT} completed split run(s)"
-
-  if [[ ${COMPLETED_COUNT} -gt 0 ]]; then
-    # Build list of models to aggregate (include ENSEMBLE if trained)
-    MODELS_TO_AGG="${RUN_MODELS}"
-    if [[ ${ENSEMBLE_ENABLED} -eq 1 ]]; then
-      MODELS_TO_AGG="${MODELS_TO_AGG},ENSEMBLE"
-    fi
-
-    IFS=',' read -r -a MODEL_ARRAY_AGG <<< "${MODELS_TO_AGG}"
-    for MODEL in "${MODEL_ARRAY_AGG[@]}"; do
-      MODEL=$(echo "${MODEL}" | xargs)
-      [[ -z "${MODEL}" ]] && continue
-
-      MODEL_DIR="${RESULTS_DIR}/${MODEL}/run_${RUN_ID}"
-      if [[ -d "${MODEL_DIR}" ]]; then
-        log "Aggregating ${MODEL}..."
-        ced aggregate-splits --results-dir "${MODEL_DIR}" --n-boot "${N_BOOT}"
-        log "  [OK] ${MODEL} aggregated"
-      else
-        log "  [SKIP] ${MODEL} run directory not found: ${MODEL_DIR}"
-      fi
-    done
-    log "[OK] Aggregation complete"
-  else
-    # Build list of models for instructions (include ENSEMBLE if enabled)
-    MODELS_TO_AGG="${RUN_MODELS}"
-    if [[ ${ENSEMBLE_ENABLED} -eq 1 ]]; then
-      MODELS_TO_AGG="${MODELS_TO_AGG},ENSEMBLE"
-    fi
-
-    log "No completed runs yet. Aggregate after jobs finish (per model):"
-    IFS=',' read -r -a MODEL_ARRAY_INFO <<< "${MODELS_TO_AGG}"
-    for MODEL in "${MODEL_ARRAY_INFO[@]}"; do
-      MODEL=$(echo "${MODEL}" | xargs)
-      [[ -z "${MODEL}" ]] && continue
-      log "  ced aggregate-splits --results-dir ${RESULTS_DIR}/${MODEL}/run_${RUN_ID}"
-    done
+  log "Jobs submitted. Post-processing will be needed after completion."
+  log ""
+  log "IMPORTANT: Run post-processing after all jobs complete:"
+  log "  bash scripts/post_training_pipeline.sh --run-id ${RUN_ID}"
+  log ""
+  log "This will:"
+  log "  1. Validate base model outputs"
+  log "  2. Train ensemble meta-learner (if enabled)"
+  log "  3. Aggregate results across splits"
+  log "  4. Generate validation reports"
+  log ""
+  log "Manual alternatives (advanced users):"
+  log "  # Train ensemble for each split"
+  log "  for seed in \$(seq ${SEED_START} ${SEED_END}); do"
+  log "    ced train-ensemble --results-dir ${RESULTS_DIR} --base-models ${RUN_MODELS} --split-seed \$seed"
+  log "  done"
+  log ""
+  log "  # Aggregate per model"
+  IFS=',' read -r -a MODEL_ARRAY_INFO <<< "${RUN_MODELS}"
+  for MODEL in "${MODEL_ARRAY_INFO[@]}"; do
+    MODEL=$(echo "${MODEL}" | xargs)
+    [[ -z "${MODEL}" ]] && continue
+    log "  ced aggregate-splits --results-dir ${RESULTS_DIR}/${MODEL}/run_${RUN_ID}"
+  done
+  if [[ ${ENSEMBLE_ENABLED} -eq 1 ]]; then
+    log "  ced aggregate-splits --results-dir ${RESULTS_DIR}/ENSEMBLE/run_${RUN_ID}"
   fi
 fi
 
@@ -459,6 +446,7 @@ log "============================================"
 log "Pipeline submission complete"
 log "============================================"
 log "Run ID: ${RUN_ID}"
+log ""
 log "Monitor jobs:"
 log "  bjobs -w | grep CeD_"
 if [[ ${ENSEMBLE_ENABLED} -eq 1 ]]; then
@@ -471,9 +459,9 @@ log ""
 log "Error logs (post-completion):"
 log "  cat ${RUN_LOGS_DIR}/*.err"
 log ""
+log "After all jobs complete, run post-processing:"
+log "  bash scripts/post_training_pipeline.sh --run-id ${RUN_ID}"
+log ""
 log "Logs: ${RUN_LOGS_DIR}"
 log "Results: ${RESULTS_DIR}"
-log ""
-log "Aggregate after all jobs complete:"
-log "  ced aggregate-splits --results-dir ${RESULTS_DIR}/<model>/run_${RUN_ID}"
 log "============================================"

@@ -388,6 +388,12 @@ def run_train(
     logger.info("Loading configuration...")
     config = load_training_config(config_file=config_file, overrides=all_overrides)
 
+    # Require infile for training (not needed for ensemble)
+    if config.infile is None:
+        raise ValueError(
+            "Training requires an input file. Provide 'infile' in config or via --infile CLI arg."
+        )
+
     logger.info("Validating configuration...")
     validate_training_config(config)
 

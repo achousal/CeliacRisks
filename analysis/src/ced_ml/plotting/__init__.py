@@ -9,6 +9,11 @@ Publication-quality visualization for model evaluation:
 
 from ced_ml.plotting.calibration import plot_calibration_curve
 from ced_ml.plotting.dca import apply_plot_metadata, plot_dca, plot_dca_curve
+from ced_ml.plotting.ensemble import (
+    plot_aggregated_weights,
+    plot_meta_learner_weights,
+    plot_model_comparison,
+)
 from ced_ml.plotting.learning_curve import (
     aggregate_learning_curve_runs,
     compute_learning_curve,
@@ -44,4 +49,8 @@ __all__ = [
     "save_learning_curve_csv",
     # OOF combined plots
     "plot_oof_combined",
+    # Ensemble-specific plots
+    "plot_aggregated_weights",
+    "plot_meta_learner_weights",
+    "plot_model_comparison",
 ]

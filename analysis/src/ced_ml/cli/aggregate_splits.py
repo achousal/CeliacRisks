@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from ced_ml.config.loader import load_aggregate_config
+from ced_ml.evaluation.scoring import compute_selection_scores_for_models
 from ced_ml.metrics.dca import threshold_dca_zero_crossing
 from ced_ml.metrics.discrimination import (
     compute_brier_score,
@@ -71,12 +72,16 @@ def run_aggregate_splits_with_config(
     return run_aggregate_splits(**params)
 
 
-def discover_split_dirs(results_dir: Path) -> list[Path]:
+def discover_split_dirs(
+    results_dir: Path,
+    logger: logging.Logger | None = None,
+) -> list[Path]:
     """
     Discover all split_seedX subdirectories in results_dir.
 
     Args:
         results_dir: Base results directory
+        logger: Optional logger instance
 
     Returns:
         List of split subdirectory paths, sorted by seed number
@@ -85,10 +90,16 @@ def discover_split_dirs(results_dir: Path) -> list[Path]:
         results_dir.glob("split_seed*"),
         key=lambda p: int(p.name.replace("split_seed", "")),
     )
-    return [d for d in split_dirs if d.is_dir()]
+    valid_dirs = [d for d in split_dirs if d.is_dir()]
+    if logger:
+        logger.debug(f"Discovered {len(valid_dirs)} split directories in {results_dir}")
+    return valid_dirs
 
 
-def discover_ensemble_dirs(results_dir: Path) -> list[Path]:
+def discover_ensemble_dirs(
+    results_dir: Path,
+    logger: logging.Logger | None = None,
+) -> list[Path]:
     """
     Discover ENSEMBLE model split directories.
 
@@ -97,12 +108,15 @@ def discover_ensemble_dirs(results_dir: Path) -> list[Path]:
 
     Args:
         results_dir: Base results directory
+        logger: Optional logger instance
 
     Returns:
         List of ensemble split subdirectory paths, sorted by seed number
     """
     ensemble_base = results_dir / "ENSEMBLE"
     if not ensemble_base.exists():
+        if logger:
+            logger.debug(f"No ENSEMBLE directory found at {ensemble_base}")
         return []
 
     # Try both naming conventions: split_{seed} and split_seed{seed}
@@ -128,7 +142,12 @@ def discover_ensemble_dirs(results_dir: Path) -> list[Path]:
 
     # Sort by seed number
     split_dirs.sort(key=lambda x: x[0])
-    return [d for _, d in split_dirs]
+    dirs = [d for _, d in split_dirs]
+
+    if logger:
+        logger.debug(f"Discovered {len(dirs)} ENSEMBLE split directories")
+
+    return dirs
 
 
 def collect_ensemble_predictions(
@@ -257,6 +276,7 @@ def collect_ensemble_metrics(
 def collect_metrics(
     split_dirs: list[Path],
     metrics_file: str = "core/test_metrics.csv",
+    logger: logging.Logger | None = None,
 ) -> pd.DataFrame:
     """
     Collect metrics from all split directories.
@@ -264,6 +284,7 @@ def collect_metrics(
     Args:
         split_dirs: List of split subdirectory paths
         metrics_file: Relative path to metrics file within each split dir
+        logger: Optional logger instance
 
     Returns:
         DataFrame with all metrics, indexed by split_seed
@@ -275,22 +296,39 @@ def collect_metrics(
         metrics_path = split_dir / metrics_file
 
         if not metrics_path.exists():
+            if logger:
+                logger.debug(f"Metrics file not found: {metrics_path}")
             continue
 
-        df = pd.read_csv(metrics_path)
-        df["split_seed"] = seed
-        all_metrics.append(df)
+        try:
+            df = pd.read_csv(metrics_path)
+            df["split_seed"] = seed
+            all_metrics.append(df)
+            if logger:
+                logger.debug(f"Loaded metrics from {split_dir.name}/{metrics_file}")
+        except Exception as e:
+            if logger:
+                logger.warning(f"Failed to read {metrics_path}: {e}")
 
     if not all_metrics:
+        if logger:
+            logger.debug(f"No metrics collected from {metrics_file}")
         return pd.DataFrame()
 
-    return pd.concat(all_metrics, ignore_index=True)
+    df_combined = pd.concat(all_metrics, ignore_index=True)
+    if logger:
+        logger.info(
+            f"Collected {len(df_combined)} rows from {len(all_metrics)} splits ({metrics_file})"
+        )
+
+    return df_combined
 
 
 def compute_summary_stats(
     metrics_df: pd.DataFrame,
     group_cols: list[str] | None = None,
     metric_cols: list[str] | None = None,
+    logger: logging.Logger | None = None,
 ) -> pd.DataFrame:
     """
     Compute summary statistics (mean, std, min, max, count) across splits.
@@ -299,11 +337,14 @@ def compute_summary_stats(
         metrics_df: DataFrame with metrics from all splits
         group_cols: Columns to group by (e.g., ["scenario", "model"])
         metric_cols: Numeric columns to summarize (auto-detected if None)
+        logger: Optional logger instance
 
     Returns:
         DataFrame with summary statistics
     """
     if metrics_df.empty:
+        if logger:
+            logger.debug("No metrics to summarize (empty DataFrame)")
         return pd.DataFrame()
 
     if group_cols is None:
@@ -355,7 +396,11 @@ def compute_summary_stats(
 
         summary_rows.append(row)
 
-    return pd.DataFrame(summary_rows)
+    summary_df = pd.DataFrame(summary_rows)
+    if logger:
+        logger.info(f"Computed summary stats: {len(summary_df)} groups, {len(metric_cols)} metrics")
+
+    return summary_df
 
 
 def collect_predictions(
@@ -435,6 +480,7 @@ def compute_pooled_metrics(
     y_col: str = "y_true",
     pred_col: str = "y_prob",
     spec_targets: list[float] | None = None,
+    logger: logging.Logger | None = None,
 ) -> dict[str, float]:
     """
     Compute metrics on pooled predictions.
@@ -443,11 +489,15 @@ def compute_pooled_metrics(
         pooled_df: DataFrame with pooled predictions
         y_col: Column name for true labels
         pred_col: Column name for predicted probabilities
+        spec_targets: List of specificity targets for threshold computation
+        logger: Optional logger instance
 
     Returns:
         Dictionary of computed metrics
     """
     if pooled_df.empty:
+        if logger:
+            logger.debug("Empty pooled DataFrame, no metrics computed")
         return {}
 
     # Find the prediction column (might be y_prob, y_pred, risk_score, etc.)
@@ -483,6 +533,13 @@ def compute_pooled_metrics(
         )
         metrics.update(multi_target_metrics)
 
+    if logger:
+        logger.debug(
+            f"Computed pooled metrics: n={len(y_true)}, "
+            f"AUROC={metrics.get('AUROC', -1):.3f}, "
+            f"Brier={metrics.get('Brier', -1):.4f}"
+        )
+
     return metrics
 
 
@@ -491,6 +548,7 @@ def compute_pooled_metrics_by_model(
     y_col: str = "y_true",
     pred_col: str = "y_prob",
     spec_targets: list[float] | None = None,
+    logger: logging.Logger | None = None,
 ) -> dict[str, dict[str, float]]:
     """
     Compute metrics on pooled predictions, grouped by model.
@@ -499,24 +557,35 @@ def compute_pooled_metrics_by_model(
         pooled_df: DataFrame with pooled predictions (must have 'model' column)
         y_col: Column name for true labels
         pred_col: Column name for predicted probabilities
+        spec_targets: List of specificity targets for threshold computation
+        logger: Optional logger instance
 
     Returns:
         Dictionary mapping model name to metrics dict
     """
     if pooled_df.empty:
+        if logger:
+            logger.debug("Empty pooled DataFrame, no model metrics computed")
         return {}
 
     if "model" not in pooled_df.columns:
         # Fall back to single-model behavior
-        metrics = compute_pooled_metrics(pooled_df, y_col, pred_col, spec_targets)
+        if logger:
+            logger.debug("No 'model' column found, computing single-model metrics")
+        metrics = compute_pooled_metrics(pooled_df, y_col, pred_col, spec_targets, logger=logger)
         return {"unknown": metrics} if metrics else {}
 
     results = {}
     for model_name, model_df in pooled_df.groupby("model"):
-        metrics = compute_pooled_metrics(model_df, y_col, pred_col, spec_targets)
+        if logger:
+            logger.debug(f"Computing pooled metrics for model: {model_name}")
+        metrics = compute_pooled_metrics(model_df, y_col, pred_col, spec_targets, logger=logger)
         if metrics:
             metrics["model"] = model_name
             results[model_name] = metrics
+
+    if logger:
+        logger.info(f"Computed pooled metrics for {len(results)} models")
 
     return results
 
@@ -526,6 +595,7 @@ def compute_pooled_threshold_metrics(
     y_col: str = "y_true",
     pred_col: str = "y_prob",
     target_spec: float = 0.95,
+    logger: logging.Logger | None = None,
 ) -> dict[str, Any]:
     """
     Compute threshold-based metrics from pooled predictions.
@@ -612,6 +682,13 @@ def compute_pooled_threshold_metrics(
             "fpr": dca_fpr,
             "tpr": dca_tpr,
         }
+
+    if logger:
+        logger.debug(
+            f"Computed thresholds: Youden={youden_thr:.4f}, "
+            f"Alpha(spec={target_spec})={alpha_thr:.4f}, "
+            f"DCA={dca_thr if dca_thr is not None else 'N/A'}"
+        )
 
     return result
 
@@ -1501,11 +1578,11 @@ def run_aggregate_splits(
         logger.error(f"Results directory not found: {results_dir}")
         raise FileNotFoundError(f"Results directory not found: {results_dir}")
 
-    split_dirs = discover_split_dirs(results_path)
+    split_dirs = discover_split_dirs(results_path, logger=logger)
     logger.info(f"Found {len(split_dirs)} split directories")
 
     # Also discover ENSEMBLE model directories (stored separately)
-    ensemble_dirs = discover_ensemble_dirs(results_path)
+    ensemble_dirs = discover_ensemble_dirs(results_path, logger=logger)
     if ensemble_dirs:
         logger.info(f"Found {len(ensemble_dirs)} ENSEMBLE split directories")
 
@@ -1657,12 +1734,28 @@ def run_aggregate_splits(
                 )
                 logger.info(f"Pooled test [{model_name}] Brier: {metrics.get('Brier', 'N/A'):.4f}")
 
+            # Compute and save selection scores
+            selection_scores = compute_selection_scores_for_models(pooled_test_metrics)
+            if selection_scores:
+                selection_df = pd.DataFrame(
+                    [
+                        {"model": model_name, "selection_score": score}
+                        for model_name, score in sorted(
+                            selection_scores.items(), key=lambda x: x[1], reverse=True
+                        )
+                    ]
+                )
+                selection_df.to_csv(core_dir / "selection_scores.csv", index=False)
+                logger.info("Selection scores computed and saved")
+                for model_name, score in selection_scores.items():
+                    logger.info(f"Selection score [{model_name}]: {score:.4f}")
+
         # Compute threshold info per model
         threshold_info = {}
         for model_name in test_models:
             model_df = pooled_test_df[pooled_test_df["model"] == model_name]
             model_threshold = compute_pooled_threshold_metrics(
-                model_df, target_spec=target_specificity
+                model_df, target_spec=target_specificity, logger=logger
             )
             if model_threshold:
                 threshold_info[model_name] = model_threshold
@@ -1698,9 +1791,58 @@ def run_aggregate_splits(
         logger=logger,
     )
 
+    # Generate ensemble-specific aggregate plots
+    if ensemble_dirs and pooled_test_metrics:
+        try:
+            from ced_ml.plotting.ensemble import (
+                plot_aggregated_weights,
+                plot_model_comparison,
+            )
+
+            agg_plots_dir = agg_dir / "diagnostics" / "plots"
+            agg_plots_dir.mkdir(parents=True, exist_ok=True)
+
+            # Collect meta-learner coefficients from each ensemble split
+            coefs_per_split: dict[int, dict[str, float]] = {}
+            for ed in ensemble_dirs:
+                settings_path = ed / "core" / "run_settings.json"
+                if settings_path.exists():
+                    try:
+                        with open(settings_path) as f:
+                            settings = json.load(f)
+                        meta_coef = settings.get("meta_coef", {})
+                        if meta_coef:
+                            seed = settings.get("split_seed", 0)
+                            coefs_per_split[seed] = meta_coef
+                    except (json.JSONDecodeError, KeyError) as e:
+                        logger.debug(f"Could not read ensemble settings from {ed}: {e}")
+
+            if coefs_per_split:
+                plot_aggregated_weights(
+                    coefs_per_split=coefs_per_split,
+                    out_path=agg_plots_dir / "ensemble_weights_aggregated.png",
+                    title="Aggregated Meta-Learner Coefficients",
+                    meta_lines=[f"n_splits={len(coefs_per_split)}"],
+                )
+                logger.info("Aggregated ensemble weights plot saved")
+
+            # Model comparison chart across all discovered models
+            if len(pooled_test_metrics) >= 2:
+                plot_model_comparison(
+                    metrics=pooled_test_metrics,
+                    out_path=agg_plots_dir / "model_comparison.png",
+                    title="Model Comparison (Pooled Test Set)",
+                    highlight_model="ENSEMBLE",
+                    meta_lines=[f"n_models={len(pooled_test_metrics)}"],
+                )
+                logger.info("Model comparison plot saved")
+
+        except Exception as e:
+            logger.warning(f"Ensemble aggregate plot generation failed (non-fatal): {e}")
+
     log_section(logger, "Aggregating Per-Split Metrics")
 
-    test_metrics = collect_metrics(split_dirs, "core/test_metrics.csv")
+    test_metrics = collect_metrics(split_dirs, "core/test_metrics.csv", logger=logger)
     if not test_metrics.empty:
         all_test_path = agg_dir / "all_test_metrics.csv"
         test_metrics.to_csv(all_test_path, index=False)
@@ -1709,31 +1851,31 @@ def run_aggregate_splits(
             f"  {len(test_metrics)} rows from {test_metrics['split_seed'].nunique()} splits"
         )
 
-        summary = compute_summary_stats(test_metrics)
+        summary = compute_summary_stats(test_metrics, logger=logger)
         if not summary.empty:
             summary_path = core_dir / "test_metrics_summary.csv"
             summary.to_csv(summary_path, index=False)
             logger.info(f"Summary stats saved: {summary_path}")
 
-    val_metrics = collect_metrics(split_dirs, "core/val_metrics.csv")
+    val_metrics = collect_metrics(split_dirs, "core/val_metrics.csv", logger=logger)
     if not val_metrics.empty:
         all_val_path = agg_dir / "all_val_metrics.csv"
         val_metrics.to_csv(all_val_path, index=False)
         logger.info(f"All val metrics saved: {all_val_path}")
 
-        val_summary = compute_summary_stats(val_metrics)
+        val_summary = compute_summary_stats(val_metrics, logger=logger)
         if not val_summary.empty:
             val_summary_path = core_dir / "val_metrics_summary.csv"
             val_summary.to_csv(val_summary_path, index=False)
             logger.info(f"Val summary saved: {val_summary_path}")
 
-    cv_metrics = collect_metrics(split_dirs, "cv/cv_repeat_metrics.csv")
+    cv_metrics = collect_metrics(split_dirs, "cv/cv_repeat_metrics.csv", logger=logger)
     if not cv_metrics.empty:
         all_cv_path = cv_dir / "all_cv_repeat_metrics.csv"
         cv_metrics.to_csv(all_cv_path, index=False)
         logger.info(f"All CV metrics saved: {all_cv_path}")
 
-        cv_summary = compute_summary_stats(cv_metrics)
+        cv_summary = compute_summary_stats(cv_metrics, logger=logger)
         if not cv_summary.empty:
             cv_summary_path = cv_dir / "cv_metrics_summary.csv"
             cv_summary.to_csv(cv_summary_path, index=False)

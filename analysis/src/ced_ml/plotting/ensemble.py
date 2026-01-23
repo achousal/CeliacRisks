@@ -1,0 +1,342 @@
+"""Ensemble-specific plotting utilities.
+
+Visualizations for stacking ensemble interpretability:
+- Meta-learner weight/coefficient charts
+- Model comparison (ENSEMBLE vs base models)
+- Aggregated weights across splits (mean +/- SD)
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Sequence
+from pathlib import Path
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+try:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    _HAS_PLOTTING = True
+except ImportError:
+    _HAS_PLOTTING = False
+
+
+def plot_meta_learner_weights(
+    coef: dict[str, float],
+    out_path: Path | str,
+    title: str = "Meta-Learner Coefficients",
+    subtitle: str = "",
+    meta_penalty: str = "l2",
+    meta_c: float = 1.0,
+    meta_lines: Sequence[str] | None = None,
+) -> None:
+    """Plot horizontal bar chart of meta-learner coefficients.
+
+    Shows how much each base model contributes to the ensemble decision.
+    Bars colored by sign (positive = teal, negative = coral).
+
+    Args:
+        coef: Dict mapping base model name to coefficient value.
+        out_path: Output file path.
+        title: Plot title.
+        subtitle: Optional subtitle.
+        meta_penalty: Regularization type (for annotation).
+        meta_c: Regularization strength (for annotation).
+        meta_lines: Optional metadata lines to display at bottom.
+    """
+    if not _HAS_PLOTTING:
+        logger.warning("matplotlib not available, skipping meta-learner weights plot")
+        return
+
+    if not coef:
+        logger.warning("Empty coefficient dict, skipping meta-learner weights plot")
+        return
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Sort by absolute magnitude (largest at top)
+    sorted_items = sorted(coef.items(), key=lambda x: abs(x[1]))
+    names = [item[0] for item in sorted_items]
+    values = np.array([item[1] for item in sorted_items])
+
+    colors = ["#2a9d8f" if v >= 0 else "#e76f51" for v in values]
+
+    fig, ax = plt.subplots(figsize=(7, max(3, 0.6 * len(names) + 1.5)))
+
+    bars = ax.barh(range(len(names)), values, color=colors, edgecolor="white", linewidth=0.5)
+    ax.set_yticks(range(len(names)))
+    ax.set_yticklabels(names, fontsize=10)
+    ax.set_xlabel("Coefficient", fontsize=11)
+    ax.axvline(0, color="grey", linewidth=0.8, linestyle="--", alpha=0.6)
+
+    # Annotate values on bars
+    for i, (_bar, val) in enumerate(zip(bars, values, strict=True)):
+        offset = 0.01 * max(abs(values)) if max(abs(values)) > 0 else 0.01
+        ha = "left" if val >= 0 else "right"
+        x_pos = val + offset if val >= 0 else val - offset
+        ax.text(x_pos, i, f"{val:.3f}", va="center", ha=ha, fontsize=9)
+
+    # Title and annotation
+    full_title = title
+    if subtitle:
+        full_title += f"\n{subtitle}"
+    ax.set_title(full_title, fontsize=12, fontweight="bold")
+
+    # Add regularization annotation
+    ax.text(
+        0.98,
+        0.02,
+        f"penalty={meta_penalty}, C={meta_c}",
+        transform=ax.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=8,
+        color="grey",
+    )
+
+    # Apply metadata lines if available
+    if meta_lines:
+        from ced_ml.plotting.dca import apply_plot_metadata
+
+        apply_plot_metadata(fig, meta_lines)
+
+    plt.tight_layout()
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    logger.info(f"Meta-learner weights plot saved: {out_path}")
+
+
+def plot_model_comparison(
+    metrics: dict[str, dict[str, float]],
+    out_path: Path | str,
+    title: str = "Model Comparison",
+    subtitle: str = "",
+    highlight_model: str = "ENSEMBLE",
+    metric_names: list[str] | None = None,
+    meta_lines: Sequence[str] | None = None,
+) -> None:
+    """Plot grouped bar chart comparing models on key metrics.
+
+    Shows AUROC, PR-AUC, and Brier side by side for all models.
+    The ensemble model is highlighted with a distinct edge/hatch.
+
+    Args:
+        metrics: Dict mapping model name to dict of metric values.
+            Expected keys per model: "AUROC", "PR_AUC", "Brier".
+        out_path: Output file path.
+        title: Plot title.
+        subtitle: Optional subtitle.
+        highlight_model: Model name to visually highlight.
+        metric_names: Metrics to include. Default: ["AUROC", "PR_AUC", "Brier"].
+        meta_lines: Optional metadata lines.
+    """
+    if not _HAS_PLOTTING:
+        logger.warning("matplotlib not available, skipping model comparison plot")
+        return
+
+    if not metrics or len(metrics) < 2:
+        logger.warning("Need at least 2 models for comparison, skipping")
+        return
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if metric_names is None:
+        metric_names = ["AUROC", "PR_AUC", "Brier"]
+
+    # Filter to models that have at least one requested metric
+    valid_models = {name: m for name, m in metrics.items() if any(mn in m for mn in metric_names)}
+    if len(valid_models) < 2:
+        logger.warning("Fewer than 2 models with valid metrics, skipping comparison plot")
+        return
+
+    model_names = list(valid_models.keys())
+    n_models = len(model_names)
+    n_metrics = len(metric_names)
+
+    # Color palette (avoid purple per user rules)
+    base_colors = ["#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51"]
+    colors = [base_colors[i % len(base_colors)] for i in range(n_models)]
+
+    fig, axes = plt.subplots(1, n_metrics, figsize=(4 * n_metrics, 5), sharey=True)
+    if n_metrics == 1:
+        axes = [axes]
+
+    x = np.arange(n_models)
+    bar_width = 0.6
+
+    for ax_idx, metric_name in enumerate(metric_names):
+        ax = axes[ax_idx]
+        values = []
+        for model in model_names:
+            val = valid_models[model].get(metric_name, 0.0)
+            values.append(val if val is not None else 0.0)
+
+        bars = ax.bar(
+            x,
+            values,
+            bar_width,
+            color=colors,
+            edgecolor="white",
+            linewidth=0.5,
+        )
+
+        # Highlight ensemble bar
+        for i, model in enumerate(model_names):
+            if model == highlight_model:
+                bars[i].set_edgecolor("#264653")
+                bars[i].set_linewidth(2.5)
+                bars[i].set_hatch("//")
+
+        # Annotate values
+        for i, val in enumerate(values):
+            ax.text(
+                i,
+                val + 0.005 * max(max(values), 0.01),
+                f"{val:.3f}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                fontweight="bold" if model_names[i] == highlight_model else "normal",
+            )
+
+        # Format axis
+        display_name = metric_name.replace("_", "-")
+        ax.set_title(display_name, fontsize=11, fontweight="bold")
+        ax.set_xticks(x)
+        ax.set_xticklabels(model_names, rotation=30, ha="right", fontsize=9)
+
+        # Set y-axis limits with padding
+        if values:
+            y_min = min(values) * 0.9 if min(values) > 0 else 0
+            y_max = max(values) * 1.15
+            # For Brier (lower is better), use different scaling
+            if metric_name == "Brier":
+                y_min = 0
+                y_max = max(values) * 1.3
+            ax.set_ylim(y_min, y_max)
+
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    # Suptitle
+    full_title = title
+    if subtitle:
+        full_title += f"\n{subtitle}"
+    fig.suptitle(full_title, fontsize=13, fontweight="bold", y=1.02)
+
+    # Apply metadata lines
+    if meta_lines:
+        from ced_ml.plotting.dca import apply_plot_metadata
+
+        apply_plot_metadata(fig, meta_lines)
+
+    plt.tight_layout()
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    logger.info(f"Model comparison plot saved: {out_path}")
+
+
+def plot_aggregated_weights(
+    coefs_per_split: dict[int, dict[str, float]],
+    out_path: Path | str,
+    title: str = "Aggregated Meta-Learner Coefficients",
+    subtitle: str = "",
+    meta_lines: Sequence[str] | None = None,
+) -> None:
+    """Plot meta-learner coefficients aggregated across splits with error bars.
+
+    Shows mean coefficient +/- 1 SD across multiple split seeds.
+
+    Args:
+        coefs_per_split: Dict mapping split_seed to coefficient dict.
+        out_path: Output file path.
+        title: Plot title.
+        subtitle: Optional subtitle (e.g., n_splits info).
+        meta_lines: Optional metadata lines.
+    """
+    if not _HAS_PLOTTING:
+        logger.warning("matplotlib not available, skipping aggregated weights plot")
+        return
+
+    if not coefs_per_split:
+        logger.warning("Empty coefs_per_split, skipping aggregated weights plot")
+        return
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Collect all base model names across splits
+    all_names: set[str] = set()
+    for coef_dict in coefs_per_split.values():
+        all_names.update(coef_dict.keys())
+
+    if not all_names:
+        logger.warning("No model names found in coefs, skipping aggregated weights plot")
+        return
+
+    # Compute mean and std for each base model
+    name_stats: dict[str, tuple[float, float]] = {}
+    for name in all_names:
+        vals = [coef_dict[name] for coef_dict in coefs_per_split.values() if name in coef_dict]
+        if vals:
+            name_stats[name] = (float(np.mean(vals)), float(np.std(vals)))
+
+    # Sort by mean absolute magnitude (largest at top)
+    sorted_names = sorted(name_stats.keys(), key=lambda n: abs(name_stats[n][0]))
+    means = np.array([name_stats[n][0] for n in sorted_names])
+    stds = np.array([name_stats[n][1] for n in sorted_names])
+
+    colors = ["#2a9d8f" if m >= 0 else "#e76f51" for m in means]
+
+    fig, ax = plt.subplots(figsize=(7, max(3, 0.6 * len(sorted_names) + 1.5)))
+
+    ax.barh(
+        range(len(sorted_names)),
+        means,
+        xerr=stds,
+        color=colors,
+        edgecolor="white",
+        linewidth=0.5,
+        capsize=4,
+        error_kw={"linewidth": 1.2, "capthick": 1.2},
+    )
+    ax.set_yticks(range(len(sorted_names)))
+    ax.set_yticklabels(sorted_names, fontsize=10)
+    ax.set_xlabel("Coefficient (mean +/- SD)", fontsize=11)
+    ax.axvline(0, color="grey", linewidth=0.8, linestyle="--", alpha=0.6)
+
+    # Annotate mean values
+    max_extent = max(abs(means).max() + stds.max(), 0.01)
+    for i, (m, s) in enumerate(zip(means, stds, strict=True)):
+        offset = 0.02 * max_extent
+        ha = "left" if m >= 0 else "right"
+        x_pos = m + s + offset if m >= 0 else m - s - offset
+        ax.text(x_pos, i, f"{m:.3f}", va="center", ha=ha, fontsize=9)
+
+    # Title
+    n_splits = len(coefs_per_split)
+    full_title = title
+    if subtitle:
+        full_title += f"\n{subtitle}"
+    else:
+        full_title += f"\n(n_splits={n_splits})"
+    ax.set_title(full_title, fontsize=12, fontweight="bold")
+
+    # Apply metadata lines
+    if meta_lines:
+        from ced_ml.plotting.dca import apply_plot_metadata
+
+        apply_plot_metadata(fig, meta_lines)
+
+    plt.tight_layout()
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    logger.info(f"Aggregated weights plot saved: {out_path}")
