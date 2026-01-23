@@ -925,6 +925,24 @@ def run_train(
                             plot_format=config.output.plot_format,
                         )
                         logger.info(f"Optuna plots saved to: {optuna_dir}")
+
+                        # Generate Pareto frontier plot if multi-objective
+                        if (
+                            hasattr(config.optuna, "multi_objective")
+                            and config.optuna.multi_objective
+                        ):
+                            from ced_ml.plotting.optuna_plots import plot_pareto_frontier
+
+                            try:
+                                plot_pareto_frontier(
+                                    search_cv=optuna_search,
+                                    outdir=optuna_dir,
+                                    plot_format=config.output.plot_format,
+                                    dpi=config.output.plot_dpi,
+                                )
+                                logger.info(f"Pareto frontier plot saved to: {optuna_dir}")
+                            except Exception as e:
+                                logger.warning(f"Failed to generate Pareto frontier plot: {e}")
                     else:
                         logger.warning("Optuna study object not available for plotting")
                 else:

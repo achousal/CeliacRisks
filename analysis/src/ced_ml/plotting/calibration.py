@@ -85,6 +85,7 @@ def _plot_prob_calibration_panel(
     unique_splits: list | None = None,
     panel_title: str = "",
     variable_sizes: bool = True,
+    skip_ci_band: bool = False,
 ) -> None:
     """
     Plot a single probability-space calibration panel.
@@ -101,6 +102,7 @@ def _plot_prob_calibration_panel(
         unique_splits: List of unique split IDs
         panel_title: Title for this panel
         variable_sizes: If True, circle sizes vary with bin sample counts
+        skip_ci_band: If True, skip rendering 95% CI band (only show ±1 SD)
     """
     ax.plot([0, 1], [0, 1], "k--", linewidth=1.5, label="Perfect calibration", alpha=0.7)
 
@@ -136,14 +138,15 @@ def _plot_prob_calibration_panel(
             np.nanmean(counts_all, axis=0)
             sum_counts = np.nansum(counts_all, axis=0)
 
-        ax.fill_between(
-            bin_centers,
-            np.clip(obs_lo, 0, 1),
-            np.clip(obs_hi, 0, 1),
-            color="steelblue",
-            alpha=0.15,
-            label="95% CI",
-        )
+        if not skip_ci_band:
+            ax.fill_between(
+                bin_centers,
+                np.clip(obs_lo, 0, 1),
+                np.clip(obs_hi, 0, 1),
+                color="steelblue",
+                alpha=0.15,
+                label="95% CI",
+            )
         ax.fill_between(
             bin_centers,
             np.clip(obs_mean - obs_sd, 0, 1),
@@ -159,7 +162,8 @@ def _plot_prob_calibration_panel(
             scatter_sizes = 50  # Fixed size for quantile binning
         elif variable_sizes:
             # Use variable marker sizes based on aggregate counts
-            scatter_sizes = np.clip(sum_counts[valid] * 1, 5, 300)
+            # Square root scaling for better visual separation at low counts
+            scatter_sizes = np.clip(np.sqrt(sum_counts[valid]) * 15, 30, 350)
         else:
             # Fixed marker size for all points
             scatter_sizes = 30
@@ -205,7 +209,8 @@ def _plot_prob_calibration_panel(
         if bin_strategy == "quantile":
             scatter_sizes = 60  # Fixed size for quantile binning
         elif variable_sizes:
-            scatter_sizes = np.clip(sizes[valid] * 3, 30, 500)
+            # Square root scaling for better visual separation at low counts
+            scatter_sizes = np.clip(np.sqrt(sizes[valid]) * 20, 40, 450)
         else:
             scatter_sizes = 60
         ax.scatter(
@@ -238,12 +243,16 @@ def _plot_prob_calibration_panel(
 
         # Determine the actual sizing formula used in the scatter plot
         if unique_splits is not None and len(unique_splits) > 1:
-            # Multi-split case: uses sum_counts * 1
-            size_multiplier = 1
+            # Multi-split case: uses sqrt(sum_counts) * 15
+            sqrt_multiplier = 15
+            min_scatter = 30
+            max_scatter = 350
             actual_bin_sizes = sum_counts[sum_counts > 0]
         else:
-            # Single-split case: uses sizes * 3
-            size_multiplier = 3
+            # Single-split case: uses sqrt(sizes) * 20
+            sqrt_multiplier = 20
+            min_scatter = 40
+            max_scatter = 450
             actual_bin_sizes = sizes[sizes > 0]
 
         # Get legend reference sizes based on actual data
@@ -252,12 +261,13 @@ def _plot_prob_calibration_panel(
         size_handles = []
         size_labels = []
         for sample_count in reference_sizes:
-            # Match the actual scatter plot sizing formula
+            # Match the actual scatter plot sizing formula (square root scaling)
             # scatter() 's' parameter is area in points^2
-            scatter_area = np.clip(sample_count * size_multiplier, 5, 300)
+            scatter_area = np.clip(
+                np.sqrt(sample_count) * sqrt_multiplier, min_scatter, max_scatter
+            )
             # Line2D markersize is the marker width/diameter in points
-            # Convert: diameter = sqrt(area) because area = pi*r^2 and diameter ≈ 2*r
-            # But matplotlib scatter uses a simpler area calculation, so: diameter = sqrt(area)
+            # Convert: diameter = sqrt(area) for matplotlib scatter
             markersize = np.sqrt(scatter_area)
             handle = Line2D(
                 [0],
@@ -435,6 +445,7 @@ def _plot_logit_calibration_panel(
     calib_intercept: float | None,
     calib_slope: float | None,
     eps: float = 1e-7,
+    skip_ci_band: bool = False,
 ) -> None:
     """
     Plot a single logit-space calibration panel.
@@ -454,6 +465,7 @@ def _plot_logit_calibration_panel(
         calib_intercept: Calibration intercept (alpha) from logistic recalibration
         calib_slope: Calibration slope (beta) from logistic recalibration
         eps: Small epsilon for clipping probabilities
+        skip_ci_band: If True, skip rendering 95% CI band (only show ±1 SD)
     """
     # Clip probabilities for numerical stability
     p_clipped = np.clip(p, eps, 1 - eps)
@@ -564,14 +576,15 @@ def _plot_logit_calibration_panel(
         # Plot aggregated logit calibration bands
         valid_logit = ~np.isnan(logit_x_mean) & ~np.isnan(logit_y_mean)
         if valid_logit.sum() > 0:
-            ax.fill_between(
-                logit_x_mean[valid_logit],
-                logit_y_lo[valid_logit],
-                logit_y_hi[valid_logit],
-                color="steelblue",
-                alpha=0.15,
-                label="95% CI",
-            )
+            if not skip_ci_band:
+                ax.fill_between(
+                    logit_x_mean[valid_logit],
+                    logit_y_lo[valid_logit],
+                    logit_y_hi[valid_logit],
+                    color="steelblue",
+                    alpha=0.15,
+                    label="95% CI",
+                )
             ax.fill_between(
                 logit_x_mean[valid_logit],
                 np.clip(logit_y_mean[valid_logit] - logit_y_sd[valid_logit], -20, 20),
@@ -696,15 +709,16 @@ def _plot_logit_calibration_panel(
             and by_sd is not None
         ):
             # Plot 95% CI band
-            ax.fill_between(
-                bx,
-                by_lo,
-                by_hi,
-                color="steelblue",
-                alpha=0.15,
-                label="95% CI",
-                zorder=3,
-            )
+            if not skip_ci_band:
+                ax.fill_between(
+                    bx,
+                    by_lo,
+                    by_hi,
+                    color="steelblue",
+                    alpha=0.15,
+                    label="95% CI",
+                    zorder=3,
+                )
 
             # Plot ±1 SD band
             ax.fill_between(
@@ -876,6 +890,7 @@ def plot_calibration_curve(
     calib_intercept: float | None = None,
     calib_slope: float | None = None,
     four_panel: bool = False,
+    skip_ci_band: bool = False,
 ) -> None:
     """
     Generate 4-panel calibration plot.
@@ -899,6 +914,8 @@ def plot_calibration_curve(
         calib_intercept: Calibration intercept (alpha) from logistic recalibration
         calib_slope: Calibration slope (beta) from logistic recalibration
         four_panel: Deprecated parameter (always True, kept for backward compatibility)
+        skip_ci_band: If True, skip rendering 95% CI band (only show ±1 SD).
+            Useful for ensemble models where CI and SD are redundant.
     """
     try:
         import matplotlib
@@ -980,6 +997,7 @@ def plot_calibration_curve(
         unique_splits=unique_splits,
         panel_title=panel_title_1,
         variable_sizes=False,
+        skip_ci_band=skip_ci_band,
     )
 
     # ========== Panel 2 (top-right): Probability-space calibration curve with uniform binning ==========
@@ -1003,6 +1021,7 @@ def plot_calibration_curve(
         unique_splits=unique_splits,
         panel_title=panel_title_2,
         variable_sizes=True,
+        skip_ci_band=skip_ci_band,
     )
 
     # ========== Panel 3 (bottom-left): Log-odds calibration with quantile binning ==========
@@ -1019,6 +1038,7 @@ def plot_calibration_curve(
         calib_intercept,
         calib_slope,
         eps=eps,
+        skip_ci_band=skip_ci_band,
     )
 
     # ========== Panel 4 (bottom-right): Log-odds calibration with uniform binning ==========
@@ -1035,6 +1055,7 @@ def plot_calibration_curve(
         calib_intercept,
         calib_slope,
         eps=eps,
+        skip_ci_band=skip_ci_band,
     )
 
     # Add title at the top

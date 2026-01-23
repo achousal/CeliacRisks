@@ -431,6 +431,10 @@ def _build_hyperparameter_search(
                 study_name=config.optuna.study_name,
                 load_if_exists=config.optuna.load_if_exists,
                 verbose=0,
+                # Multi-objective parameters
+                multi_objective=config.optuna.multi_objective,
+                objectives=config.optuna.objectives,
+                pareto_selection=config.optuna.pareto_selection,
             )
 
     # === RandomizedSearchCV path (default) ===

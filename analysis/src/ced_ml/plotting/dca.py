@@ -127,6 +127,7 @@ def plot_dca_curve(
     step: float = 0.005,
     split_ids: np.ndarray | None = None,
     meta_lines: Sequence[str] | None = None,
+    skip_ci_band: bool = False,
 ) -> None:
     """
     Generate DCA plot from raw predictions with multi-split averaging.
@@ -144,6 +145,8 @@ def plot_dca_curve(
         step: Threshold step size (default: 0.005)
         split_ids: Optional array of split IDs for multi-split averaging
         meta_lines: Optional metadata lines to display at bottom
+        skip_ci_band: If True, skip rendering 95% CI band (only show ±1 SD).
+            Useful for ensemble models where CI and SD are redundant.
     """
     try:
         matplotlib.use("Agg")
@@ -214,14 +217,15 @@ def plot_dca_curve(
             thr_pct = thresholds_pct[: len(nb_model_mean)]
 
             # Plot with confidence bands
-            ax.fill_between(
-                thr_pct,
-                nb_model_lo,
-                nb_model_hi,
-                color="steelblue",
-                alpha=0.15,
-                label="95% CI",
-            )
+            if not skip_ci_band:
+                ax.fill_between(
+                    thr_pct,
+                    nb_model_lo,
+                    nb_model_hi,
+                    color="steelblue",
+                    alpha=0.15,
+                    label="95% CI",
+                )
             ax.fill_between(
                 thr_pct,
                 np.maximum(0, nb_model_mean - nb_model_sd),

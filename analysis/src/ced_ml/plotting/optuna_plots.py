@@ -201,3 +201,113 @@ def aggregate_optuna_trials(
         logger.warning(f"Failed to compute optuna summary stats: {e}")
 
     return combined_df
+
+
+def plot_pareto_frontier(
+    search_cv: Any,
+    outdir: Path,
+    plot_format: str = "png",
+    dpi: int = 300,
+) -> None:
+    """Plot Pareto frontier for multi-objective optimization.
+
+    Creates scatter plot showing:
+    - All Pareto-optimal trials (gray points)
+    - Selected trial (red star)
+    - Annotated with metric values
+
+    Args:
+        search_cv: Fitted OptunaSearchCV with multi_objective=True
+        outdir: Output directory for plot
+        plot_format: File format (png, pdf, svg)
+        dpi: Plot resolution
+
+    Raises:
+        ValueError: If search_cv is single-objective
+
+    Note:
+        Requires matplotlib and the OptunaSearchCV object must have been
+        fitted with multi_objective=True.
+    """
+    import matplotlib.pyplot as plt
+
+    if not hasattr(search_cv, "multi_objective") or not search_cv.multi_objective:
+        logger.warning("plot_pareto_frontier() called on single-objective study, skipping")
+        return
+
+    # Get Pareto frontier data
+    try:
+        df = search_cv.get_pareto_frontier()
+    except Exception as e:
+        logger.warning(f"Failed to get Pareto frontier: {e}")
+        return
+
+    # Create output directory
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    # Plot all Pareto-optimal trials
+    ax.scatter(
+        df["auroc"],
+        df["brier_score"],
+        c="lightgray",
+        s=50,
+        alpha=0.6,
+        edgecolors="black",
+        linewidths=0.5,
+        label="Pareto frontier",
+    )
+
+    # Highlight selected trial
+    selected = df[df["is_selected"]]
+    if not selected.empty:
+        ax.scatter(
+            selected["auroc"],
+            selected["brier_score"],
+            c="red",
+            s=200,
+            marker="*",
+            edgecolors="black",
+            linewidths=1.5,
+            label=f"Selected ({search_cv.pareto_selection})",
+            zorder=10,
+        )
+
+        # Annotate selected point
+        ax.annotate(
+            f"AUROC={selected['auroc'].iloc[0]:.3f}\nBrier={selected['brier_score'].iloc[0]:.4f}",
+            xy=(selected["auroc"].iloc[0], selected["brier_score"].iloc[0]),
+            xytext=(10, 10),
+            textcoords="offset points",
+            fontsize=10,
+            bbox={"boxstyle": "round,pad=0.5", "fc": "yellow", "alpha": 0.7, "edgecolor": "black"},
+            arrowprops={"arrowstyle": "->", "color": "black", "lw": 1},
+        )
+
+    ax.set_xlabel("AUROC", fontsize=12, fontweight="bold")
+    ax.set_ylabel("Brier Score", fontsize=12, fontweight="bold")
+    ax.set_title("Multi-Objective Optimization: Pareto Frontier", fontsize=14, fontweight="bold")
+    ax.legend(loc="best", framealpha=0.9)
+    ax.grid(alpha=0.3, linestyle="--")
+
+    # Set axis limits with padding
+    if len(df) > 1:
+        x_margin = (df["auroc"].max() - df["auroc"].min()) * 0.1
+        y_margin = (df["brier_score"].max() - df["brier_score"].min()) * 0.1
+        ax.set_xlim(df["auroc"].min() - x_margin, df["auroc"].max() + x_margin)
+        ax.set_ylim(df["brier_score"].min() - y_margin, df["brier_score"].max() + y_margin)
+
+    plt.tight_layout()
+    outfile = outdir / f"pareto_frontier.{plot_format}"
+    plt.savefig(outfile, dpi=dpi, bbox_inches="tight")
+    plt.close()
+
+    logger.info(f"Saved Pareto frontier plot: {outfile}")
+
+    # Also save Pareto frontier data as CSV
+    csv_path = outdir / "pareto_frontier.csv"
+    df.to_csv(csv_path, index=False)
+    logger.info(f"Saved Pareto frontier data: {csv_path}")

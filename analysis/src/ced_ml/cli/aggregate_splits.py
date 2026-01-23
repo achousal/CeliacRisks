@@ -1515,6 +1515,10 @@ def generate_aggregated_plots(
                 dca_threshold=dca_thr,
             )
 
+            # Ensemble models: skip 95% CI band (only use SD) since CI and SD are redundant
+            # when there are no CV repeats per split
+            skip_ci_band = model_name == "ENSEMBLE"
+
             for fmt in plot_formats:
                 if plot_roc:
                     plot_roc_curve(
@@ -1525,6 +1529,7 @@ def generate_aggregated_plots(
                         split_ids=split_ids,
                         meta_lines=model_meta_lines,
                         threshold_bundle=local_bundle,
+                        skip_ci_band=skip_ci_band,
                     )
 
                 if plot_pr:
@@ -1535,6 +1540,7 @@ def generate_aggregated_plots(
                         title=f"Aggregated {data_name.capitalize()} Set PR Curve - {model_name}",
                         split_ids=split_ids,
                         meta_lines=model_meta_lines,
+                        skip_ci_band=skip_ci_band,
                     )
 
                 if plot_calibration:
@@ -1545,6 +1551,7 @@ def generate_aggregated_plots(
                         title=f"Aggregated {data_name.capitalize()} Set Calibration - {model_name}",
                         split_ids=split_ids,
                         meta_lines=model_meta_lines,
+                        skip_ci_band=skip_ci_band,
                     )
 
                 if plot_dca:
@@ -1555,6 +1562,7 @@ def generate_aggregated_plots(
                         title=f"Aggregated {data_name.capitalize()} Set DCA - {model_name}",
                         split_ids=split_ids,
                         meta_lines=model_meta_lines,
+                        skip_ci_band=skip_ci_band,
                     )
 
                 if plot_risk_distribution:

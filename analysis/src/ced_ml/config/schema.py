@@ -354,6 +354,41 @@ class OptunaConfig(BaseModel):
     save_trials_csv: bool = True
     direction: Literal["minimize", "maximize"] | None = None
 
+    # Multi-objective optimization settings
+    multi_objective: bool = False
+    objectives: list[str] = Field(
+        default_factory=lambda: ["roc_auc", "neg_brier_score"],
+        description="Metrics to optimize (requires 2+ for multi-objective)",
+    )
+    pareto_selection: Literal["knee", "extreme_auroc", "balanced"] = "knee"
+
+    @model_validator(mode="after")
+    def validate_multi_objective(self) -> "OptunaConfig":
+        """Validate multi-objective configuration."""
+        if self.multi_objective and len(self.objectives) < 2:
+            raise ValueError(
+                "multi_objective=True requires at least 2 objectives, "
+                f"got {len(self.objectives)}"
+            )
+
+        supported = ["roc_auc", "neg_brier_score", "average_precision"]
+        for obj in self.objectives:
+            if obj not in supported:
+                raise ValueError(
+                    f"Unsupported objective: {obj}. " f"Supported objectives: {supported}"
+                )
+
+        if self.multi_objective and self.sampler == "cmaes":
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "CMA-ES sampler with multi-objective may be unstable. "
+                "Consider sampler='tpe' for multi-objective optimization."
+            )
+
+        return self
+
 
 class MetaModelConfig(BaseModel):
     """Configuration for ensemble meta-learner."""

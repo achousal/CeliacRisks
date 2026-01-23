@@ -3,7 +3,7 @@
 **A production-ready machine learning pipeline for disease risk prediction from high-dimensional biomarker data**
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)
-![Tests](https://img.shields.io/badge/tests-921%20passing-success)
+![Tests](https://img.shields.io/badge/tests-1081%20passing-success)
 ![Coverage](https://img.shields.io/badge/coverage-65%25-yellowgreen)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
@@ -232,7 +232,7 @@ See [analysis/CLAUDE.md](analysis/CLAUDE.md) for the complete case study.
 |----------|-------------|
 | [analysis/CLAUDE.md](analysis/CLAUDE.md) | Primary project documentation with case study |
 | [analysis/docs/ARCHITECTURE.md](analysis/docs/ARCHITECTURE.md) | Technical architecture with code pointers |
-| [analysis/docs/adr/](analysis/docs/adr/) | Architecture Decision Records (19 decisions) |
+| [analysis/docs/adr/](analysis/docs/adr/) | Architecture Decision Records (15 decisions) |
 | [analysis/docs/reference/HYPERPARAMETER_TUNING.md](analysis/docs/HYPERPARAMETER_TUNING.md) | Hyperparameter tuning guide |
 | [analysis/docs/reference/METRICS_REFERENCE.md](analysis/docs/reference/METRICS_REFERENCE.md) | Metrics behavior reference |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
@@ -247,7 +247,7 @@ pytest tests/ -v                    # Run all tests
 pytest tests/ --cov=src/ced_ml     # With coverage
 ```
 
-**Stats:** 921 tests, 65% coverage
+**Stats:** 1,081 tests, 65% coverage
 
 ---
 

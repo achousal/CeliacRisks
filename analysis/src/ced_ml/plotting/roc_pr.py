@@ -39,6 +39,7 @@ def plot_roc_curve(
     split_ids: np.ndarray | None = None,
     meta_lines: Sequence[str] | None = None,
     threshold_bundle: dict | None = None,
+    skip_ci_band: bool = False,
 ) -> None:
     """
     Plot ROC curve with optional split-wise confidence bands and threshold markers.
@@ -53,6 +54,8 @@ def plot_roc_curve(
         meta_lines: Optional metadata lines to display at bottom
         threshold_bundle: ThresholdBundle from compute_threshold_bundle() containing
             threshold values and metrics. See ced_ml.metrics.thresholds.compute_threshold_bundle().
+        skip_ci_band: If True, skip rendering 95% CI band (only show ±1 SD).
+            Useful for ensemble models where CI and SD are redundant.
 
     Returns:
         None. Saves plot to out_path.
@@ -122,7 +125,10 @@ def plot_roc_curve(
             auc_mean = float(np.mean(aucs))
             auc_sd = float(np.std(aucs))
 
-            ax.fill_between(base_fpr, tpr_lo, tpr_hi, color="steelblue", alpha=0.15, label="95% CI")
+            if not skip_ci_band:
+                ax.fill_between(
+                    base_fpr, tpr_lo, tpr_hi, color="steelblue", alpha=0.15, label="95% CI"
+                )
             ax.fill_between(
                 base_fpr,
                 np.maximum(0, tpr_mean - tpr_sd),
@@ -247,6 +253,7 @@ def plot_pr_curve(
     subtitle: str = "",
     split_ids: np.ndarray | None = None,
     meta_lines: Sequence[str] | None = None,
+    skip_ci_band: bool = False,
 ) -> None:
     """
     Plot Precision-Recall curve with optional split-wise confidence bands.
@@ -259,6 +266,8 @@ def plot_pr_curve(
         subtitle: Optional subtitle
         split_ids: Array indicating split membership for each sample
         meta_lines: Optional metadata lines to display at bottom
+        skip_ci_band: If True, skip rendering 95% CI band (only show ±1 SD).
+            Useful for ensemble models where CI and SD are redundant.
 
     Returns:
         None. Saves plot to out_path.
@@ -316,14 +325,15 @@ def plot_pr_curve(
             ap_mean = float(np.mean(aps))
             ap_sd = float(np.std(aps))
 
-            ax.fill_between(
-                base_recall,
-                np.clip(prec_lo, 0, 1),
-                np.clip(prec_hi, 0, 1),
-                color="steelblue",
-                alpha=0.15,
-                label="95% CI",
-            )
+            if not skip_ci_band:
+                ax.fill_between(
+                    base_recall,
+                    np.clip(prec_lo, 0, 1),
+                    np.clip(prec_hi, 0, 1),
+                    color="steelblue",
+                    alpha=0.15,
+                    label="95% CI",
+                )
             ax.fill_between(
                 base_recall,
                 np.clip(prec_mean - prec_sd, 0, 1),

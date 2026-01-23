@@ -159,6 +159,9 @@ class OptunaSearchCV(BaseEstimator):
         study_name: str | None = None,
         load_if_exists: bool = False,
         verbose: int = 0,
+        multi_objective: bool = False,
+        objectives: list[str] | None = None,
+        pareto_selection: str = "knee",
     ):
         if not optuna_available():
             raise ImportError("Optuna is not installed. Install with: pip install optuna")
@@ -183,6 +186,11 @@ class OptunaSearchCV(BaseEstimator):
         self.load_if_exists = load_if_exists
         self.verbose = verbose
 
+        # Multi-objective optimization parameters
+        self.multi_objective = multi_objective
+        self.objectives = objectives if objectives is not None else ["roc_auc", "neg_brier_score"]
+        self.pareto_selection = pareto_selection
+
         # Attributes set during fit
         self.best_params_: dict[str, Any] = {}
         self.best_score_: float = np.nan
@@ -190,6 +198,10 @@ class OptunaSearchCV(BaseEstimator):
         self.cv_results_: dict[str, list] = {}
         self.study_: optuna.Study | None = None
         self.n_trials_: int = 0
+
+        # Multi-objective attributes (set during fit if multi_objective=True)
+        self.pareto_frontier_: list = []
+        self.selected_trial_: optuna.Trial | None = None
 
     def _create_sampler(self) -> optuna.samplers.BaseSampler:
         """Create Optuna sampler based on configuration."""
@@ -359,18 +371,29 @@ class OptunaSearchCV(BaseEstimator):
         else:
             optuna.logging.set_verbosity(optuna.logging.DEBUG)
 
-        # Create or load study
-        self.study_ = optuna.create_study(
-            study_name=self.study_name,
-            storage=self.storage,
-            load_if_exists=self.load_if_exists,
-            direction=self.direction,
-            sampler=sampler,
-            pruner=pruner,
-        )
+        # Create or load study (multi-objective or single-objective)
+        if self.multi_objective:
+            directions = self._get_directions()
+            self.study_ = optuna.create_study(
+                study_name=self.study_name,
+                storage=self.storage,
+                load_if_exists=self.load_if_exists,
+                directions=directions,  # List for multi-objective
+                sampler=sampler,
+                pruner=pruner,
+            )
+        else:
+            self.study_ = optuna.create_study(
+                study_name=self.study_name,
+                storage=self.storage,
+                load_if_exists=self.load_if_exists,
+                direction=self.direction,
+                sampler=sampler,
+                pruner=pruner,
+            )
 
         # Validate existing study compatibility
-        if self.load_if_exists and len(self.study_.trials) > 0:
+        if self.load_if_exists and len(self.study_.trials) > 0 and not self.multi_objective:
             if self.study_.direction.name.lower() != self.direction:
                 logger.warning(
                     f"[optuna] Loaded study has direction={self.study_.direction.name.lower()}, "
@@ -378,28 +401,48 @@ class OptunaSearchCV(BaseEstimator):
                 )
 
         # Create objective with CV splitter
-        def objective(trial: optuna.Trial) -> float:
-            params = self._suggest_params(trial)
-            estimator = clone(self.estimator)
-            try:
-                estimator.set_params(**params)
-            except ValueError as e:
-                logger.warning(f"[optuna] Invalid params {params}: {e}")
-                raise optuna.TrialPruned() from e
+        if self.multi_objective:
 
-            try:
-                scores = cross_val_score(
-                    estimator,
-                    X_arr,
-                    y_arr,
-                    cv=cv_splitter,
-                    scoring=self.scoring,
-                    n_jobs=self.n_jobs,
-                )
-                return float(np.mean(scores))
-            except Exception as e:
-                logger.warning(f"[optuna] CV failed for params {params}: {e}")
-                raise optuna.TrialPruned() from e
+            def objective(trial: optuna.Trial) -> tuple[float, float]:
+                params = self._suggest_params(trial)
+                estimator = clone(self.estimator)
+                try:
+                    estimator.set_params(**params)
+                except ValueError as e:
+                    logger.warning(f"[optuna] Invalid params {params}: {e}")
+                    raise optuna.TrialPruned() from e
+
+                try:
+                    scores = self._multi_objective_cv_score(estimator, X_arr, y_arr, cv_splitter)
+                    return scores
+                except Exception as e:
+                    logger.warning(f"[optuna] CV failed for params {params}: {e}")
+                    raise optuna.TrialPruned() from e
+
+        else:
+
+            def objective(trial: optuna.Trial) -> float:
+                params = self._suggest_params(trial)
+                estimator = clone(self.estimator)
+                try:
+                    estimator.set_params(**params)
+                except ValueError as e:
+                    logger.warning(f"[optuna] Invalid params {params}: {e}")
+                    raise optuna.TrialPruned() from e
+
+                try:
+                    scores = cross_val_score(
+                        estimator,
+                        X_arr,
+                        y_arr,
+                        cv=cv_splitter,
+                        scoring=self.scoring,
+                        n_jobs=self.n_jobs,
+                    )
+                    return float(np.mean(scores))
+                except Exception as e:
+                    logger.warning(f"[optuna] CV failed for params {params}: {e}")
+                    raise optuna.TrialPruned() from e
 
         # Run optimization
         self.study_.optimize(
@@ -423,8 +466,12 @@ class OptunaSearchCV(BaseEstimator):
                 "hyperparameters, insufficient data, or other issues."
             )
 
-        self.best_params_ = self.study_.best_params
-        self.best_score_ = self.study_.best_value
+        # Extract best parameters (Pareto frontier selection for multi-objective)
+        if self.multi_objective:
+            self._select_from_pareto_frontier()
+        else:
+            self.best_params_ = self.study_.best_params
+            self.best_score_ = self.study_.best_value
 
         # Build cv_results_ for sklearn compatibility
         self.cv_results_ = self._build_cv_results()
@@ -442,7 +489,11 @@ class OptunaSearchCV(BaseEstimator):
         return self
 
     def _build_cv_results(self) -> dict[str, list]:
-        """Build sklearn-compatible cv_results_ from Optuna study."""
+        """Build sklearn-compatible cv_results_ from Optuna study.
+
+        For multi-objective studies, uses the first objective (AUROC) as
+        the primary score for ranking purposes.
+        """
         if self.study_ is None:
             return {}
 
@@ -459,7 +510,12 @@ class OptunaSearchCV(BaseEstimator):
         # Populate from trials
         for trial in self.study_.trials:
             if trial.state == optuna.trial.TrialState.COMPLETE:
-                results["mean_test_score"].append(trial.value)
+                # Handle multi-objective (use first objective as primary score)
+                if self.multi_objective:
+                    results["mean_test_score"].append(trial.values[0])  # AUROC
+                else:
+                    results["mean_test_score"].append(trial.value)
+
                 results["params"].append(trial.params)
 
                 for param_name in self.param_distributions.keys():
@@ -468,7 +524,10 @@ class OptunaSearchCV(BaseEstimator):
         # Compute ranks
         if results["mean_test_score"]:
             scores = np.array(results["mean_test_score"])
-            if self.direction == "maximize":
+            if self.multi_objective:
+                # For multi-objective, first objective is always maximized
+                ranks = np.argsort(np.argsort(-scores)) + 1
+            elif self.direction == "maximize":
                 ranks = np.argsort(np.argsort(-scores)) + 1
             else:
                 ranks = np.argsort(np.argsort(scores)) + 1
@@ -503,3 +562,236 @@ class OptunaSearchCV(BaseEstimator):
         if self.study_ is None:
             raise ValueError("Study not created. Call fit() first.")
         return self.study_.trials_dataframe()
+
+    def _get_directions(self) -> list[str]:
+        """Get optimization directions for each objective.
+
+        Returns
+        -------
+        list[str]
+            List of "maximize" or "minimize" for each objective.
+        """
+        direction_map = {
+            "roc_auc": "maximize",
+            "neg_brier_score": "maximize",  # Negative Brier, so maximize (minimize -Brier = maximize Brier reduction)
+            "average_precision": "maximize",
+        }
+        return [direction_map[obj] for obj in self.objectives]
+
+    def _multi_objective_cv_score(self, estimator, X, y, cv_splitter) -> tuple[float, float]:
+        """Compute AUROC and Brier score across CV folds.
+
+        Performs manual CV loop to compute both metrics, required because
+        sklearn's cross_val_score only supports single scoring metric.
+
+        Parameters
+        ----------
+        estimator : BaseEstimator
+            Unfitted sklearn estimator or pipeline.
+        X : array-like
+            Training features.
+        y : array-like
+            Training labels.
+        cv_splitter : CV splitter
+            Cross-validation strategy.
+
+        Returns
+        -------
+        tuple[float, float]
+            (auroc_mean, neg_brier_mean) for multi-objective optimization.
+            Note: Brier score is negated to align with Optuna's maximization.
+
+        Raises
+        ------
+        ValueError
+            If all CV folds have single class (cannot compute metrics).
+        """
+        from sklearn.metrics import brier_score_loss, roc_auc_score
+
+        auroc_scores = []
+        brier_scores = []
+
+        for train_idx, val_idx in cv_splitter.split(X, y):
+            # Handle DataFrame and array indexing
+            if hasattr(X, "iloc"):
+                X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+            else:
+                X_train, X_val = X[train_idx], X[val_idx]
+            y_train, y_val = y[train_idx], y[val_idx]
+
+            # Clone and fit estimator for this fold
+            estimator_fold = clone(estimator)
+            estimator_fold.fit(X_train, y_train)
+
+            # Predict probabilities
+            y_pred = estimator_fold.predict_proba(X_val)[:, 1]
+
+            # Compute metrics (skip single-class folds)
+            try:
+                auroc = roc_auc_score(y_val, y_pred)
+                brier = brier_score_loss(y_val, y_pred)
+                auroc_scores.append(auroc)
+                brier_scores.append(brier)
+            except ValueError:
+                # Single-class fold, skip
+                continue
+
+        if not auroc_scores:
+            raise ValueError("All CV folds had single class, cannot compute metrics")
+
+        # Return (AUROC, -Brier) - negated Brier for maximization
+        return (float(np.mean(auroc_scores)), -float(np.mean(brier_scores)))
+
+    def _select_from_pareto_frontier(self):
+        """Select best model from Pareto frontier using configured strategy.
+
+        Extracts Pareto-optimal trials from multi-objective study and selects
+        a single "best" trial based on pareto_selection strategy.
+
+        Sets attributes:
+        - best_params_: Parameters of selected trial
+        - best_score_: AUROC of selected trial (primary metric)
+        - pareto_frontier_: List of all Pareto-optimal trials
+        - selected_trial_: The selected trial object
+
+        Raises
+        ------
+        RuntimeError
+            If no completed trials in Pareto frontier.
+        ValueError
+            If unknown pareto_selection strategy.
+        """
+        pareto_trials = [
+            t for t in self.study_.best_trials if t.state == optuna.trial.TrialState.COMPLETE
+        ]
+
+        if not pareto_trials:
+            raise RuntimeError(
+                f"No completed trials in Pareto frontier. "
+                f"All {self.n_trials_} trials may have failed or been pruned."
+            )
+
+        logger.info(
+            f"[optuna] Pareto frontier has {len(pareto_trials)} trials. "
+            f"Selecting using strategy: {self.pareto_selection}"
+        )
+
+        if self.pareto_selection == "knee":
+            selected = self._find_knee_point(pareto_trials)
+        elif self.pareto_selection == "extreme_auroc":
+            selected = max(pareto_trials, key=lambda t: t.values[0])
+        elif self.pareto_selection == "balanced":
+            selected = self._find_balanced_point(pareto_trials)
+        else:
+            raise ValueError(f"Unknown pareto_selection: {self.pareto_selection}")
+
+        self.best_params_ = selected.params
+        self.best_score_ = selected.values[0]  # AUROC as primary metric
+        self.pareto_frontier_ = pareto_trials
+        self.selected_trial_ = selected
+
+        logger.info(
+            f"[optuna] Selected trial {selected.number}: "
+            f"AUROC={selected.values[0]:.4f}, Brier={-selected.values[1]:.4f}"
+        )
+
+    def _find_knee_point(self, trials):
+        """Find knee point in Pareto frontier (closest to ideal point).
+
+        Normalizes objectives to [0, 1] and finds trial with minimum Euclidean
+        distance to the ideal point (AUROC=1, Brier=0).
+
+        Parameters
+        ----------
+        trials : list[optuna.Trial]
+            Pareto-optimal trials.
+
+        Returns
+        -------
+        optuna.Trial
+            Trial at knee point.
+        """
+        auroc_vals = np.array([t.values[0] for t in trials])
+        brier_vals = np.array([-t.values[1] for t in trials])  # Convert back to positive
+
+        # Normalize to [0, 1]
+        auroc_range = auroc_vals.max() - auroc_vals.min() + 1e-10
+        brier_range = brier_vals.max() - brier_vals.min() + 1e-10
+
+        auroc_norm = (auroc_vals - auroc_vals.min()) / auroc_range
+        brier_norm = 1 - (brier_vals - brier_vals.min()) / brier_range  # Invert (lower better)
+
+        # Distance from ideal (AUROC=1, Brier=0)
+        distances = np.sqrt((1 - auroc_norm) ** 2 + (1 - brier_norm) ** 2)
+        knee_idx = np.argmin(distances)
+
+        return trials[knee_idx]
+
+    def _find_balanced_point(self, trials):
+        """Find balanced point in Pareto frontier (maximum sum of normalized objectives).
+
+        Normalizes both objectives and selects trial with maximum sum, giving
+        equal weight to AUROC and calibration quality.
+
+        Parameters
+        ----------
+        trials : list[optuna.Trial]
+            Pareto-optimal trials.
+
+        Returns
+        -------
+        optuna.Trial
+            Trial with best balanced performance.
+        """
+        auroc_vals = np.array([t.values[0] for t in trials])
+        brier_vals = np.array([-t.values[1] for t in trials])
+
+        # Normalize
+        auroc_range = auroc_vals.max() - auroc_vals.min() + 1e-10
+        brier_range = brier_vals.max() - brier_vals.min() + 1e-10
+
+        auroc_norm = (auroc_vals - auroc_vals.min()) / auroc_range
+        brier_norm = 1 - (brier_vals - brier_vals.min()) / brier_range
+
+        # Equal weight sum
+        scores = auroc_norm + brier_norm
+        best_idx = np.argmax(scores)
+
+        return trials[best_idx]
+
+    def get_pareto_frontier(self):
+        """Get Pareto frontier as DataFrame for analysis/visualization.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with columns:
+            - trial_number: Trial index
+            - auroc: AUROC score
+            - brier_score: Brier score (positive, lower is better)
+            - params: Dictionary of hyperparameters
+            - is_selected: Whether this trial was selected by pareto_selection
+
+        Raises
+        ------
+        ValueError
+            If called on single-objective study or before fit().
+        """
+        import pandas as pd
+
+        if not self.multi_objective:
+            raise ValueError("get_pareto_frontier() only available for multi-objective studies")
+
+        if not self.pareto_frontier_:
+            raise ValueError("No Pareto frontier available. Call fit() first.")
+
+        trials = self.pareto_frontier_
+        return pd.DataFrame(
+            {
+                "trial_number": [t.number for t in trials],
+                "auroc": [t.values[0] for t in trials],
+                "brier_score": [-t.values[1] for t in trials],
+                "params": [t.params for t in trials],
+                "is_selected": [t.number == self.selected_trial_.number for t in trials],
+            }
+        )

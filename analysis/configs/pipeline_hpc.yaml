@@ -14,7 +14,7 @@ paths:
 # Configs
 configs:
   splits: configs/splits_config.yaml
-  training: configs/training_config.yaml
+  training: configs/training_config_production.yaml
 
 # Execution
 execution:
@@ -23,7 +23,7 @@ execution:
     - LinSVM_cal
     - RF
     - XGBoost
-  n_boot: 500  # Bootstrap iterations for aggregation (HPC: full)
+  n_boot: 1000  # Bootstrap iterations for publication-ready CIs
   overwrite_splits: false
   dry_run: false
 
@@ -31,9 +31,9 @@ execution:
 # HPC Settings (LSF/Slurm)
 hpc:
   scheduler: lsf  # lsf or slurm
-  project: YOUR_PROJECT_ALLOCATION  # Required: update before use
-  queue: normal
-  walltime: "144:00"  # hours:minutes
+  project: acc_Chipuk_Laboratory  # Required: update before use
+  queue: premium
+  walltime: "48:00"  # hours:minutes (100 trials x 10 repeats needs headroom)
   cores: 8
   mem_per_core: 8000  # MB
 
