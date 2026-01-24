@@ -62,8 +62,6 @@ def compute_learning_curve(
         cv=StratifiedKFold(n_splits=int(cv), shuffle=True, random_state=int(seed)),
         scoring=scoring,
         n_jobs=1,
-        shuffle=True,
-        random_state=int(seed),
     )
 
     return sizes, train_scores, val_scores

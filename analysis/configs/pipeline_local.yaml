@@ -14,7 +14,7 @@ paths:
 # Configs
 configs:
   splits: configs/splits_config.yaml
-  training: configs/training_config_L2.yaml
+  training: configs/training_config_L2_multiobjective_fast.yaml
 
 # Execution
 execution:

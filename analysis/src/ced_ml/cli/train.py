@@ -133,21 +133,30 @@ def build_preprocessor(
     """
     Build preprocessing pipeline for model training.
 
+    Uses sklearn.compose.make_column_selector to dynamically select numeric and
+    categorical columns at fit time, making the preprocessor robust to upstream
+    feature screening that reduces the protein column set.
+
     Args:
-        protein_cols: List of protein column names
+        protein_cols: List of protein column names (may be reduced by upstream screening)
         cat_cols: List of categorical column names
         meta_num_cols: List of numeric metadata column names
 
     Returns:
         ColumnTransformer with StandardScaler for numeric and OneHotEncoder for categorical
     """
-    numeric_cols = protein_cols + meta_num_cols
+    from sklearn.compose import make_column_selector
+
+    # Dynamic selector: scale all numeric columns present at fit time
+    # This handles cases where screening reduces protein columns
+    numeric_selector = make_column_selector(dtype_include="number")
 
     transformers = [
-        ("num", StandardScaler(), numeric_cols),
+        ("num", StandardScaler(), numeric_selector),
     ]
 
     if cat_cols:
+        # Categorical columns are explicit (not reduced by screening)
         transformers.append(
             (
                 "cat",
@@ -168,9 +177,11 @@ def build_training_pipeline(
 ) -> Pipeline:
     """Build complete training pipeline with preprocessing, feature selection, and classifier.
 
-    Two-stage feature selection (when enabled):
-    1. Screening: Univariate Mann-Whitney/F-test → keep top-N features
-    2. SelectKBest: Tuned k value (from k_grid) during CV
+    Pipeline order (when screening enabled):
+    1. Screening: Univariate Mann-Whitney/F-test → keep top-N proteins (operates on raw DataFrame)
+    2. Preprocessing: StandardScaler + OneHotEncoder (adds metadata columns)
+    3. SelectKBest: Tuned k value (from k_grid) during CV
+    4. Classifier
 
     Args:
         config: TrainingConfig object
@@ -180,22 +191,21 @@ def build_training_pipeline(
         meta_num_cols: List of numeric metadata column names
 
     Returns:
-        Pipeline with named steps: pre, [screen], [sel], clf
+        Pipeline with named steps: [screen], pre, [sel], clf
 
     Example:
         Screening (top 1000 Mann-Whitney features) + SelectKBest tuning (k=25-800):
         >>> config.features.feature_select = "kbest"
         >>> config.features.screen_top_n = 1000
         >>> config.features.k_grid = [25, 50, 100, 200, 400, 800]
-        Pipeline stages: pre → screen → sel → clf
+        Pipeline stages: screen → pre → sel → clf
     """
     logger = logging.getLogger(__name__)
-    preprocessor = build_preprocessor(protein_cols, cat_cols, meta_num_cols)
 
-    steps = [("pre", preprocessor)]
+    steps = []
 
+    # Stage 0: Screening (BEFORE preprocessing, operates on raw DataFrame)
     if config.features.feature_select and config.features.feature_select != "none":
-        # Stage 1: Screening (univariate feature pre-filtering)
         screen_top_n = getattr(config.features, "screen_top_n", 0)
         screen_method = getattr(config.features, "screen_method", "mannwhitney")
 
@@ -210,7 +220,14 @@ def build_training_pipeline(
             steps.append(("screen", screener))
             logger.debug(f"Feature screening: {screen_method} → top {screen_top_n} features")
 
-        # Stage 2: SelectKBest with k_grid tuning
+    # Stage 1: Preprocessing (StandardScaler + OneHotEncoder)
+    # Note: If screening is enabled, protein_cols will be reduced by screener
+    # We need to build preprocessor dynamically or make it flexible
+    preprocessor = build_preprocessor(protein_cols, cat_cols, meta_num_cols)
+    steps.append(("pre", preprocessor))
+
+    # Stage 2: SelectKBest with k_grid tuning (operates on preprocessed features)
+    if config.features.feature_select and config.features.feature_select != "none":
         k_grid = getattr(config.features, "k_grid", None)
         if k_grid:
             # Use first k value as default (will be tuned during CV)
@@ -225,6 +242,7 @@ def build_training_pipeline(
             steps.append(("sel", kbest))
             logger.debug(f"Feature selection: SelectKBest(k={k_val})")
 
+    # Stage 3: Classifier
     steps.append(("clf", classifier))
 
     return Pipeline(steps=steps)

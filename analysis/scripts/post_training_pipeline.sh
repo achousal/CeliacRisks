@@ -67,10 +67,17 @@ BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${BASE_DIR}"
 
 # Timestamped log file for this post-processing run
-POST_LOG_DIR="${BASE_DIR}/logs/post/post_${RUN_ID:-$(date +"%Y%m%d_%H%M%S")}"
-mkdir -p "${POST_LOG_DIR}"
+# Use separate post directory: logs/post/run_{RUN_ID}
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-LOG_FILE="${POST_LOG_DIR}/training_${RUN_ID:-${TIMESTAMP}}.log"
+if [[ -n "${RUN_ID}" ]]; then
+  POST_LOG_DIR="${BASE_DIR}/logs/post/run_${RUN_ID}"
+else
+  # Fallback for auto run ID
+  RUN_ID="${TIMESTAMP}"
+  POST_LOG_DIR="${BASE_DIR}/logs/post/run_${RUN_ID}"
+fi
+mkdir -p "${POST_LOG_DIR}"
+LOG_FILE="${POST_LOG_DIR}/post_training.log"
 
 # Logging functions
 log() {
@@ -170,13 +177,18 @@ fi
 
 N_BOOT=$(get_yaml "${CONFIG_FILE}" "n_boot")
 
-# Activate venv
-VENV_PATH="${BASE_DIR}/venv/bin/activate"
-if [[ -f "${VENV_PATH}" ]]; then
-  source "${VENV_PATH}"
+# Activate venv (skip if conda env already active)
+if [[ -z "${CONDA_DEFAULT_ENV}" ]]; then
+  VENV_PATH="${BASE_DIR}/venv/bin/activate"
+  if [[ -f "${VENV_PATH}" ]]; then
+    source "${VENV_PATH}"
+  else
+    log_error "Virtual environment not found: ${VENV_PATH}"
+    log_error "Either activate a conda environment (e.g., 'conda activate ced_ml') or create a venv."
+    exit 1
+  fi
 else
-  log_error "Virtual environment not found: ${VENV_PATH}"
-  exit 1
+  log "Using active conda environment: ${CONDA_DEFAULT_ENV}"
 fi
 
 log_section "Post-Training Pipeline"
@@ -305,10 +317,14 @@ if [[ ${TRAIN_ENSEMBLE} -eq 1 ]]; then
     fi
   done
 
-  log_success "Ensemble training: ${ENSEMBLE_TRAINED} successful, ${ENSEMBLE_FAILED} failed"
+  if [[ ${ENSEMBLE_FAILED} -gt 0 ]]; then
+    log_warning "Ensemble training: ${ENSEMBLE_TRAINED} successful, ${ENSEMBLE_FAILED} skipped (missing base models)"
+  else
+    log_success "Ensemble training: ${ENSEMBLE_TRAINED} successful"
+  fi
 
   if [[ ${ENSEMBLE_TRAINED} -eq 0 ]]; then
-    log_error "All ensemble training attempts failed. Continuing without ensemble."
+    log_warning "No ensemble models trained. Ensure all base models are trained for each split before running ensemble."
   fi
 else
   log_section "Step 2: Train Ensemble (Skipped)"
@@ -411,7 +427,7 @@ done
 log_success "Total aggregated files: ${TOTAL_FILES}"
 
 # Generate summary JSON
-SUMMARY_JSON="${POST_LOG_DIR}/pipeline_summary_${RUN_ID:-${TIMESTAMP}}.json"
+SUMMARY_JSON="${POST_LOG_DIR}/pipeline_summary.json"
 cat > "${SUMMARY_JSON}" << EOF
 {
   "timestamp": "$(date -Iseconds)",

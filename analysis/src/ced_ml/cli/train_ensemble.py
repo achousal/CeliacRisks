@@ -29,6 +29,7 @@ from ced_ml.models.stacking import (
     collect_split_predictions,
     load_calibration_info_for_models,
 )
+from ced_ml.plotting.learning_curve import save_learning_curve_csv
 from ced_ml.utils.logging import log_section, setup_logger
 
 logger = logging.getLogger(__name__)
@@ -265,10 +266,12 @@ def run_train_ensemble(
         logger.warning(f"Missing OOF predictions for: {missing_models}")
 
     if len(available_models) < 2:
-        raise ValueError(
-            f"Need at least 2 base models with OOF predictions. "
+        logger.warning(
+            f"Skipping ensemble training for split_seed {split_seed}: "
+            f"need at least 2 base models with OOF predictions. "
             f"Available: {available_models}, missing: {missing_models}"
         )
+        return
 
     logger.info(f"Using {len(available_models)} base models: {available_models}")
 
@@ -515,6 +518,7 @@ def run_train_ensemble(
         from ced_ml.plotting.calibration import plot_calibration_curve
         from ced_ml.plotting.dca import plot_dca_curve
         from ced_ml.plotting.ensemble import plot_meta_learner_weights, plot_model_comparison
+        from ced_ml.plotting.oof import plot_oof_combined
         from ced_ml.plotting.risk_dist import plot_risk_distribution
         from ced_ml.plotting.roc_pr import plot_pr_curve, plot_roc_curve
 
@@ -614,6 +618,84 @@ def run_train_ensemble(
             )
             logger.info("Test plots saved")
 
+        # --- OOF combined plots (training set with CV repeats) ---
+        # For ensemble, we use single repeat of OOF meta-features (already aggregated)
+        # So n_repeats=1 (no cross-repeat variability to show)
+        try:
+
+            if "y_train" in results:
+                # Build meta-features used for training (OOF predictions from base models)
+                oof_meta_features = ensemble._build_meta_features(oof_dict, aggregate_repeats=True)
+                y_train_arr = np.asarray(results["y_train"])
+
+                # Get meta-learner predictions on OOF features (training set)
+                # This is what the meta-learner sees during training
+                oof_proba = ensemble.predict_proba(oof_meta_features)[:, 1]
+
+                # Reshape as (n_repeats=1, n_samples) for plot_oof_combined
+                oof_preds_ensemble = np.expand_dims(oof_proba, axis=0)
+
+                oof_meta_lines = [
+                    "Model: ENSEMBLE (OOF on meta-features)",
+                    f"Base models: {', '.join(available_models)}",
+                    f"Split seed: {split_seed}",
+                    f"Meta-learner: LR(penalty={meta_penalty}, C={meta_c})",
+                    f"Train n={len(y_train_arr)}, prevalence={y_train_arr.mean():.4f}",
+                    "Note: OOF computed from base model OOF predictions (meta-features)",
+                ]
+
+                plot_oof_combined(
+                    y_true=y_train_arr,
+                    oof_preds=oof_preds_ensemble,
+                    out_dir=diag_plots_dir,
+                    model_name="ENSEMBLE",
+                    scenario="ensemble",
+                    seed=split_seed,
+                    cv_folds=1,
+                    train_prev=y_train_arr.mean(),
+                    plot_format=plot_format,
+                    calib_bins=10,
+                    meta_lines=oof_meta_lines,
+                    target_spec=0.95,
+                )
+                logger.info("OOF combined plots saved (training set meta-features)")
+        except Exception as e:
+            logger.warning(f"OOF combined plots generation failed (non-fatal): {e}")
+
+        # --- Train OOF risk distribution plot ---
+        try:
+            from ced_ml.metrics.dca import threshold_dca_zero_crossing
+
+            if "y_train" in results:
+                y_train_arr = np.asarray(results["y_train"])
+
+                # Get meta-learner predictions on OOF meta-features (training set)
+                oof_meta_features = ensemble._build_meta_features(oof_dict, aggregate_repeats=True)
+                oof_proba = ensemble.predict_proba(oof_meta_features)[:, 1]
+
+                # Compute threshold bundle for train OOF
+                oof_dca_thr = threshold_dca_zero_crossing(y_train_arr, oof_proba)
+                oof_bundle = compute_threshold_bundle(
+                    y_train_arr,
+                    oof_proba,
+                    target_spec=0.95,
+                    dca_threshold=oof_dca_thr,
+                )
+
+                plot_risk_distribution(
+                    y_true=y_train_arr,
+                    scores=oof_proba,
+                    out_path=diag_plots_dir
+                    / f"ENSEMBLE__TRAIN_OOF_risk_distribution.{plot_format}",
+                    title="ENSEMBLE - Train OOF",
+                    subtitle="Risk Score Distribution (meta-learner on OOF meta-features)",
+                    meta_lines=meta_lines_plot,
+                    threshold_bundle=oof_bundle,
+                )
+                logger.info("Train OOF risk distribution plot saved")
+        except Exception as e:
+            logger.warning(f"Train OOF risk distribution plot generation failed (non-fatal): {e}")
+
         # --- Ensemble-specific plots ---
         if coef:
             plot_meta_learner_weights(
@@ -644,6 +726,72 @@ def run_train_ensemble(
 
     except Exception as e:
         logger.warning(f"Plot generation failed (non-fatal): {e}")
+
+    # --- Learning curve for meta-learner (on OOF meta-features) ---
+    try:
+        lc_enabled = getattr(config.evaluation, "learning_curve", False) if config else False
+        plot_lc = getattr(config.output, "plot_learning_curve", True) if config else True
+        if lc_enabled and plot_lc:
+            logger.info("Generating learning curve for ensemble meta-learner...")
+            diag_learning_dir = outdir / "diagnostics" / "learning_curve"
+            diag_learning_dir.mkdir(parents=True, exist_ok=True)
+
+            lc_csv_path = diag_learning_dir / "ENSEMBLE__learning_curve.csv"
+            lc_plot_path = diag_learning_dir / f"ENSEMBLE__learning_curve.{plot_format}"
+
+            # Build meta-features for learning curve computation
+            # Use OOF predictions from base models as features for the meta-learner
+            X_meta = ensemble._build_meta_features(oof_dict, aggregate_repeats=True)
+            y_meta = y_train
+
+            # Create a simple wrapper pipeline for learning curve (just the meta-learner LR)
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.pipeline import Pipeline
+
+            meta_pipeline = Pipeline(
+                [
+                    (
+                        "meta_learner",
+                        LogisticRegression(
+                            penalty=meta_penalty,
+                            C=meta_c,
+                            solver="lbfgs",
+                            max_iter=1000,
+                            random_state=random_state,
+                            class_weight="balanced" if y_meta.mean() < 0.1 else None,
+                        ),
+                    )
+                ]
+            )
+
+            lc_meta = [
+                "Model: ENSEMBLE (meta-learner learning curve)",
+                f"Base models: {', '.join(available_models)}",
+                f"Split seed: {split_seed}",
+                f"Meta-learner: LR(penalty={meta_penalty}, C={meta_c})",
+                f"Train n={len(y_meta)}, prevalence={y_meta.mean():.4f}",
+                f"Meta-features: {X_meta.shape[1]} (from {len(available_models)} base models)",
+            ]
+
+            save_learning_curve_csv(
+                estimator=meta_pipeline,
+                X=X_meta,
+                y=y_meta,
+                out_csv=lc_csv_path,
+                scoring="roc_auc",
+                cv=min(config.cv.folds if config else 5, 5),
+                min_frac=0.3,
+                n_points=5,
+                seed=random_state,
+                out_plot=lc_plot_path,
+                meta_lines=lc_meta,
+            )
+            logger.info(f"Learning curve saved: {lc_csv_path}")
+        else:
+            if not lc_enabled:
+                logger.debug("Learning curve disabled in config (evaluation.learning_curve=false)")
+    except Exception as e:
+        logger.warning(f"Learning curve generation failed (non-fatal): {e}")
 
     log_section(logger, "Ensemble Training Complete")
     logger.info(f"All results saved to: {outdir}")

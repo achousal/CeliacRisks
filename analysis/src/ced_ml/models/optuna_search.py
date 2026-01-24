@@ -393,8 +393,24 @@ class OptunaSearchCV(BaseEstimator):
             )
 
         # Validate existing study compatibility
-        if self.load_if_exists and len(self.study_.trials) > 0 and not self.multi_objective:
-            if self.study_.direction.name.lower() != self.direction:
+        if self.load_if_exists and len(self.study_.trials) > 0:
+            # Check if loaded study is multi-objective when we expect single-objective
+            study_is_multi = hasattr(self.study_, "directions")
+            if study_is_multi and not self.multi_objective:
+                raise ValueError(
+                    "[optuna] Incompatible study loaded: study is multi-objective but "
+                    "multi_objective=False was requested. Please use a different study_name, "
+                    "set load_if_exists=False, or delete the existing study database."
+                )
+            # Check if loaded study is single-objective when we expect multi-objective
+            if not study_is_multi and self.multi_objective:
+                raise ValueError(
+                    "[optuna] Incompatible study loaded: study is single-objective but "
+                    "multi_objective=True was requested. Please use a different study_name, "
+                    "set load_if_exists=False, or delete the existing study database."
+                )
+            # For single-objective, check direction compatibility
+            if not self.multi_objective and self.study_.direction.name.lower() != self.direction:
                 logger.warning(
                     f"[optuna] Loaded study has direction={self.study_.direction.name.lower()}, "
                     f"but requested direction={self.direction}. Using existing study's direction."

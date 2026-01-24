@@ -36,7 +36,7 @@ optuna:
   multi_objective: true                              # Enable multi-objective optimization
   objectives: ["roc_auc", "neg_brier_score"]         # Discrimination + calibration
   pareto_selection: "knee"                           # Knee point (balanced tradeoff)
-  n_trials: 10                                       # down from 30 (1-hour constraint)
+  n_trials: 5                                       # down from 30 (1-hour constraint)
   timeout: null
   sampler: tpe
   sampler_seed: 42

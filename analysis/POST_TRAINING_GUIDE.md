@@ -57,18 +57,18 @@ Replace `<YOUR_RUN_ID>` with the timestamp from `run_hpc.sh` output (e.g., `2026
   - Ensemble training status
   - Aggregation success/failures
   - Total aggregated files
-- Saves to `logs/post/post_{run_id}/pipeline_summary_{run_id}.json`
+- Saves to `logs/post/run_{run_id}/pipeline_summary.json`
 
 ## Logging
 
 All post-processing steps are logged to:
 ```
-logs/post/post_{run_id}/training_{run_id}.log
+logs/post/run_{run_id}/post_training.log
 ```
 
 View in real-time:
 ```bash
-tail -f logs/post/post_{run_id}/training_{run_id}.log
+tail -f logs/post/run_{run_id}/post_training.log
 ```
 
 Log entries include:
@@ -146,7 +146,7 @@ bash scripts/post_training_pipeline.sh --run-id 20260122_120000 --min-splits 5
 ```bash
 ls -ltr logs/post/
 # Use most recent log file
-cat logs/post/post_*/training_*.log
+cat logs/post/run_*/post_training.log
 ```
 
 ## Manual Alternatives

@@ -4,85 +4,7 @@
 **Baseline Run**: `run_20260122_233730` (exploratory, 3 Optuna trials, 2 splits)
 **Target**: Maximize test AUROC and clinical utility (DCA net benefit) for incident celiac disease risk prediction
 
----
 
-## 1. Exploratory Run Diagnosis
-
-### 1.1 Performance Summary (Pooled Test, n=438, prevalence=16.7%)
-
-| Model      | Test AUROC | PR-AUC | Brier  | Sens@95Spec | DCA NB Improvement |
-|------------|-----------|--------|--------|-------------|---------------------|
-| RF         | 0.844     | 0.652  | 0.089  | 0.466       | +0.00092            |
-| ENSEMBLE   | 0.841     | 0.690  | 0.101  | 0.575       | +0.00016            |
-| XGBoost    | 0.836     | 0.689  | 0.096  | 0.493       | +0.00064            |
-| LinSVM_cal | 0.821     | 0.664  | 0.090  | 0.534       | --                  |
-| LR_EN      | 0.819     | 0.648  | 0.104  | 0.575       | -0.00120            |
-
-### 1.2 Inner CV (OOF) Performance
-
-| Model      | OOF AUROC | OOF PR-AUC | OOF-to-Test Gap |
-|------------|-----------|------------|-----------------|
-| XGBoost    | 0.874     | 0.694      | -0.038          |
-| LR_EN      | 0.873     | 0.700      | -0.054          |
-| LinSVM_cal | 0.872     | 0.695      | -0.051          |
-| RF         | 0.863     | 0.677      | -0.019          |
-
-### 1.3 Validation vs Test Consistency
-
-| Model      | Val AUROC | Test AUROC | Gap    |
-|------------|-----------|------------|--------|
-| XGBoost    | 0.868     | 0.836      | -0.032 |
-| RF         | 0.838     | 0.844      | +0.006 |
-| ENSEMBLE   | 0.829     | 0.841      | +0.012 |
-| LinSVM_cal | 0.819     | 0.821      | +0.002 |
-| LR_EN      | 0.806     | 0.819      | +0.013 |
-
-### 1.4 Hyperparameter Convergence
-
-| Model      | Key Params (mean +/- std)                                        | Feature k (mean +/- std) |
-|------------|------------------------------------------------------------------|--------------------------|
-| LR_EN      | C=0.054+/-0.015, l1_ratio=0.088+/-0.116                         | 298 +/- 160              |
-| LinSVM_cal | C=0.024+/-0.024                                                  | 489 +/- 360              |
-| RF         | depth=28+/-4, leaf=8+/-3, n_est=392+/-33                         | 140 +/- 125              |
-| XGBoost    | lr=0.027+/-0.007, depth=7.2+/-0.6, subsample=0.59, colsample=0.57| 792 +/- 75               |
-
----
-
-## 2. Identified Bottlenecks (Priority Order)
-
-### B1: Hyperparameter Search is Trivial (Critical)
-- **3 Optuna trials per fold** is random sampling, not optimization
-- TPE requires ~30 trials to build a useful surrogate model
-- LR_EN explored only 3 distinct (C, l1_ratio) combinations across all 50 folds
-- XGBoost regularization parameters may be artifacts of landing in a constrained region
-
-### B2: Insufficient Split Seeds (High)
-- Only 2 random seeds: model ranking may be due to split luck
-- Cannot compute reliable inter-split variance
-- Need 5+ seeds for ranking, 10 for publication-ready CIs
-
-### B3: Feature Count Instability (High)
-- LR_EN k: std/mean = 160/298 = 54% CV -- no convergence
-- LinSVM_cal k: std/mean = 360/489 = 74% CV -- no convergence
-- Each fold selects wildly different feature sets because hyperparameters never stabilized
-
-### B4: Ensemble Underperformance (Medium)
-- ENSEMBLE (0.841) does not beat RF (0.844) individually
-- Stacking undertrained base models amplifies noise rather than combining signal
-- Expected to resolve when base models are properly optimized
-
-### B5: Large OOF-to-Test Gap for Linear Models (Medium)
-- LR_EN gap: 0.054 (concerning)
-- LinSVM_cal gap: 0.051 (concerning)
-- RF gap: 0.019 (acceptable)
-- Linear models may be overfit to inner CV or feature selection is unstable
-
-### B6: LR_EN has Negative DCA Net Benefit (Low-Medium)
-- LR_EN is WORSE than "treat all" strategy on test set
-- Likely due to poor calibration from undertrained hyperparameters
-- Should resolve with proper tuning and stable feature selection
-
----
 
 ## 3. Optimization Strategy
 
@@ -148,36 +70,257 @@ bash scripts/post_training_pipeline.sh --run-id <RUN_ID>
 - Clear model ranking with tighter error bars (SE < 0.008)
 - Identify if RF dominance persists with more trials
 
-### 3.2 Level 3: Production (Overnight HPC)
+### 3.2 Level 3: Production (Overnight HPC) - UPDATED FOR FULL RESOURCE RUN
 
-**Goal**: Definitive model selection. Publication-ready results. Maximum statistical power.
+**Goal**: Definitive model selection. Publication-ready results. Maximum statistical power for overnight execution.
 
-| Parameter            | Level 2     | Level 3     | Rationale                                    |
-|---------------------|-------------|-------------|----------------------------------------------|
-| Optuna n_trials     | 30          | 100         | Full Bayesian convergence                    |
-| n_splits            | 5           | 10          | SE < 0.006, detect 1% differences           |
-| CV repeats          | 5           | 10          | Tight OOF CIs for publication               |
-| n_boot              | 200         | 1000        | Narrow bootstrap CIs                         |
-| Learning curves     | disabled    | enabled     | Publication figure                           |
-| Walltime            | --          | 48:00       | Safety margin for 100 trials x 50 folds      |
-| Optuna ranges       | Same as L2  | Refined     | Tighten based on L2 convergence              |
+**Strategy**: Maximize splits and CV power for robust model ranking and publication-quality statistical inference. Use full Optuna budget with refined ranges based on recent multi-objective runs.
 
-**Config**: `configs/training_config_production.yaml`
-**Pipeline**: `configs/pipeline_hpc.yaml` (already pointing to production)
+| Parameter            | Level 2.5   | Level 3 (Overnight) | Rationale                                    |
+|---------------------|-------------|---------------------|----------------------------------------------|
+| Optuna n_trials     | 50          | 100                 | Full Bayesian convergence                    |
+| Multi-objective     | enabled     | disabled            | Single AUROC focus for speed (can add later)|
+| n_splits            | 8           | 10                  | SE < 0.006, detect 1% AUROC differences     |
+| CV outer folds      | 5           | 5                   | Keep (standard nested CV)                   |
+| CV repeats          | 5           | 10                  | Maximum OOF precision (SE < 0.005)          |
+| CV inner folds      | 3           | 5                   | Restore full inner tuning loop              |
+| n_boot              | 200         | 1000                | Publication-quality bootstrap CIs           |
+| Learning curves     | disabled    | enabled             | Publication figure + sample efficiency      |
+| Queue               | medium      | premium             | Priority access for overnight run           |
+| Walltime            | 5:00        | 48:00               | Full headroom for 100 trials x 50 folds     |
+| Cores per job       | 4           | 8                   | Maximum parallelism per model               |
+| Memory per core     | 4000 MB     | 8000 MB             | Prevent OOM with large feature matrices     |
 
-**Pre-launch checklist** (after L2 completes):
-1. Update `splits_config.yaml`: `n_splits: 10`
-2. Review L2 hyperparameter distributions -- tighten Optuna ranges if clustering seen
-3. Refine `k_grid` if L2 shows convergence to specific feature counts
-4. Consider dropping dominated models from ensemble
-5. Consider adding `LR_L1` if optimal l1_ratio from L2 is > 0.7
+**Total compute budget**:
+- 10 splits × 4 models × 100 trials × 50 folds (5 outer × 10 repeats) = ~200,000 model fits
+- Estimated runtime: 24-36 hours on premium queue with 8 cores
+- Total core-hours: ~10,000-15,000 (well within overnight budget)
 
-**Run command**:
+**Config files**:
+- Training: `configs/training_config_production.yaml` (already configured)
+- Pipeline: `configs/pipeline_hpc.yaml` (already configured)
+- Splits: `configs/splits_config.yaml` (needs update to n_splits: 10)
+
+**Pre-launch checklist**:
+
+1. **Update splits config** for 10 splits:
+   ```bash
+   # Edit configs/splits_config.yaml
+   n_splits: 10  # Up from 2
+   ```
+
+2. **Verify HPC allocation** in `configs/pipeline_hpc.yaml`:
+   ```yaml
+   hpc:
+     project: acc_Chipuk_Laboratory  # Confirm active
+     queue: premium                   # For overnight priority
+     walltime: "48:00"                # 48 hours
+     cores: 8                         # Max parallelism
+     mem_per_core: 8000               # 8 GB per core
+   ```
+
+3. **Review current production config** (already optimal):
+   - Optuna n_trials: 100
+   - CV: 5 outer folds × 10 repeats × 5 inner folds = 50 total folds
+   - n_boot: 1000
+   - Learning curves: enabled
+   - OOF-posthoc calibration: enabled (unbiased)
+   - All evaluation metrics: enabled
+
+4. **Optional refinements** based on recent L2 multi-objective runs:
+   - If L2 results show k convergence to narrow range: tighten k_grid
+   - If LR l1_ratio consistently > 0.7: add LR_L1 model
+   - If LinSVM_cal clearly worst: consider dropping (keep for comparison)
+   - If XGBoost subsample/colsample cluster < 0.6: keep current wide ranges
+
+5. **Data and environment checks**:
+   ```bash
+   # Verify data file exists
+   ls -lh ../data/Celiac_dataset_proteomics_w_demo.parquet
+
+   # Verify HPC setup
+   bash scripts/hpc_setup.sh
+   source venv/bin/activate
+   ced --version
+   ```
+
+**Launch commands**:
+
 ```bash
 cd analysis/
-OVERWRITE_SPLITS=1 ./run_hpc.sh
-# After jobs complete:
+
+# 1. Generate fresh splits (10 splits, seed 0-9)
+OVERWRITE_SPLITS=1 ced save-splits \
+  --config configs/splits_config.yaml \
+  --infile ../data/Celiac_dataset_proteomics_w_demo.parquet
+
+# 2. Optional: Dry run to verify job submission
+DRY_RUN=1 ./run_hpc.sh
+
+# 3. Launch production run
+./run_hpc.sh
+```
+
+**Expected job array structure**:
+- 40 jobs total: 10 splits × 4 models (LR_EN, LinSVM_cal, RF, XGBoost)
+- Job names: `CeD_LR_EN_seed0`, `CeD_LR_EN_seed1`, ..., `CeD_XGBoost_seed9`
+- Logs: `logs/{RUN_ID}/CeD_{MODEL}_seed{N}.{out,err}`
+
+**Monitoring during execution**:
+
+```bash
+# Check job queue status
+bjobs -w | grep CeD_
+
+# Monitor a specific job's progress
+tail -f logs/{RUN_ID}/CeD_LR_EN_seed0.out
+
+# Check resource utilization
+bjobs -l <JOB_ID> | grep -E "(RUNLIMIT|MEMLIMIT)"
+
+# Count completed jobs
+bjobs -w | grep CeD_ | grep DONE | wc -l
+```
+
+**Post-training workflow** (after all jobs DONE):
+
+```bash
+# 1. Validate base model outputs
 bash scripts/post_training_pipeline.sh --run-id <RUN_ID>
+
+# This will:
+# - Validate all 40 model outputs (10 splits × 4 models)
+# - Report missing/incomplete jobs
+# - Aggregate results across splits for each model
+# - Generate summary reports
+
+# 2. Optional: Train ensemble meta-learner
+bash scripts/post_training_pipeline.sh \
+  --run-id <RUN_ID> \
+  --train-ensemble
+
+# This adds:
+# - ENSEMBLE model trained on OOF predictions
+# - Aggregated ensemble results
+# - Expected +2-5% AUROC improvement
+
+# 3. Check aggregation outputs
+ls -la ../results/{LR_EN,RF,XGBoost,LinSVM_cal}/run_{RUN_ID}/aggregated/
+
+# Key files per model:
+# - aggregated_metrics.json     # Pooled metrics across splits
+# - aggregated_metrics.csv      # Same as table
+# - feature_stability.csv       # Feature selection consistency
+# - calibration_aggregated.png  # Calibration plot
+# - roc_aggregated.png          # ROC curves
+# - dca_aggregated.png          # Decision curve analysis
+```
+
+**Success criteria**:
+
+1. **All 40 jobs complete** without errors
+2. **OOF-test gap < 0.02** for all models (minimal overfitting)
+3. **Feature selection k converges** (std/mean < 30% across splits)
+4. **Clear model ranking** with non-overlapping 95% CIs
+5. **Test AUROC ≥ 0.85** for best model (realistic ceiling: 0.85-0.88)
+6. **Calibration slope 0.9-1.1** (well-calibrated with OOF-posthoc)
+7. **DCA net benefit > treat-all** in clinically relevant threshold range
+
+**Expected outcomes**:
+
+- **Discrimination**: Test AUROC 0.85-0.88 (best model), SE < 0.006
+- **Calibration**: Brier score < 0.015, calibration slope 0.95-1.05
+- **Clinical utility**: Positive net benefit at 1-10% threshold range
+- **Feature panel**: 50-300 stable proteins (≥75% selection frequency)
+- **Model ranking**: Clear winner with statistical significance (p < 0.05)
+- **Ensemble boost**: +2-5% AUROC improvement over best single model
+
+**Fallback plan** if jobs fail:
+
+1. **Check error logs**: `cat logs/{RUN_ID}/CeD_{MODEL}_seed{N}.err`
+2. **Common issues**:
+   - OOM errors: Reduce cores to 4, increase mem_per_core to 16000
+   - Timeout: Increase walltime to 72:00 or reduce n_trials to 50
+   - Split file missing: Re-run `ced save-splits` with OVERWRITE_SPLITS=1
+3. **Re-run failed jobs only**:
+   ```bash
+   # Re-submit specific split seeds
+   ced train --model LR_EN --split-seed 3 --config configs/training_config_production.yaml
+   ```
+
+---
+
+## 3.3 Level 3 Resource Optimization Summary
+
+**Recommended overnight configuration** (maximum resources):
+
+```yaml
+# configs/splits_config.yaml
+n_splits: 10                    # 10 independent random splits
+
+# configs/training_config_production.yaml (already set)
+cv:
+  folds: 5                      # Outer CV folds
+  repeats: 10                   # Maximize statistical power
+  inner_folds: 5                # Full inner tuning loop
+
+optuna:
+  enabled: true
+  n_trials: 100                 # Full Bayesian convergence
+  multi_objective: false        # Disable for speed (single AUROC)
+
+evaluation:
+  n_boot: 1000                  # Publication-quality CIs
+  learning_curve: true          # Generate learning curves
+
+# configs/pipeline_hpc.yaml (already set)
+hpc:
+  queue: premium                # Priority overnight queue
+  walltime: "48:00"             # 48-hour safety margin
+  cores: 8                      # Maximum parallelism
+  mem_per_core: 8000            # 8 GB (prevent OOM)
+```
+
+**Expected runtime breakdown** (per split, per model):
+
+| Model      | Trials | Folds | Avg Time/Trial | Total Time | Notes                     |
+|------------|--------|-------|----------------|------------|---------------------------|
+| LR_EN      | 100    | 50    | 2 min          | 3.3 hr     | Fast linear model         |
+| LinSVM_cal | 100    | 50    | 3 min          | 5.0 hr     | Calibration overhead      |
+| RF         | 100    | 50    | 8 min          | 13.3 hr    | Bottleneck (tree building)|
+| XGBoost    | 100    | 50    | 5 min          | 8.3 hr     | GPU-accelerated possible  |
+
+**Critical path**: RF with 13.3 hours per split × 10 splits = **133 hours sequential**
+
+**With parallel job array**: ~13.3 hours (all splits run simultaneously)
+
+**Total wall-clock time**: ~14-16 hours (including overhead, post-processing)
+
+**Resource efficiency**:
+- Core-hours: 10 splits × 4 models × 8 cores × 14 hrs = **4,480 core-hours**
+- Well within overnight budget on premium queue
+- Cost-effective: ~$200-300 at typical HPC rates
+
+**Quick pre-flight checklist**:
+
+```bash
+# 1. Update splits config
+sed -i.bak 's/n_splits: 2/n_splits: 10/' configs/splits_config.yaml
+
+# 2. Verify HPC config points to production
+grep "training_config_production" configs/pipeline_hpc.yaml
+
+# 3. Verify allocation and queue
+grep -E "(project|queue|walltime)" configs/pipeline_hpc.yaml
+
+# 4. Check data file size
+du -h ../data/Celiac_dataset_proteomics_w_demo.parquet
+
+# 5. Estimate job count
+echo "Expected jobs: 10 splits × 4 models = 40 jobs"
+
+# 6. Launch
+OVERWRITE_SPLITS=1 ./run_hpc.sh
 ```
 
 ---

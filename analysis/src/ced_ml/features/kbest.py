@@ -380,7 +380,7 @@ class ScreeningTransformer:
         """Fit screening transformer.
 
         Args:
-            X: Feature matrix
+            X: Feature matrix (DataFrame or array from ColumnTransformer)
             y: Binary target vector
 
         Returns:
@@ -391,14 +391,27 @@ class ScreeningTransformer:
 
         from ced_ml.features.screening import screen_proteins
 
+        # Store all column names for reconstruction in transform()
+        if isinstance(X, pd.DataFrame):
+            self.all_feature_names_ = X.columns.tolist()
+        else:
+            # X is numpy array from ColumnTransformer - we need actual feature names
+            # ScreeningTransformer should only be applied to protein columns
+            # For now, raise clear error if X is array (ScreeningTransformer expects DataFrame)
+            raise TypeError(
+                "ScreeningTransformer expects DataFrame input. "
+                "It should be placed before ColumnTransformer in the pipeline, "
+                "not after. Current pipeline has ColumnTransformer → ScreeningTransformer "
+                "which is incompatible."
+            )
+
         # Determine protein columns if not set
         if not self.protein_cols:
             # Default: all numeric columns except likely metadata
             numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
-            # Filter out metadata-like columns (might need adjustment)
             self.protein_cols = numeric_cols
 
-        # Screen proteins
+        # Screen proteins only (not metadata)
         selected_prots, _ = screen_proteins(
             X_train=X,
             y_train=y,
@@ -411,19 +424,28 @@ class ScreeningTransformer:
         return self
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
-        """Transform: keep only selected features.
+        """Transform: keep only selected protein features + all non-protein columns.
 
         Args:
-            X: Feature matrix
+            X: Feature matrix (must be DataFrame)
 
         Returns:
-            Subset of X with only selected features
+            Subset of X with selected proteins + all metadata columns
         """
         if self.selected_features_ is None:
             raise ValueError("Must fit before transform")
 
-        # Keep only selected features (they should exist)
-        cols_to_keep = [c for c in self.selected_features_ if c in X.columns]
+        if not isinstance(X, pd.DataFrame):
+            raise TypeError(
+                "ScreeningTransformer.transform() expects DataFrame input. "
+                "Ensure ScreeningTransformer is placed before ColumnTransformer."
+            )
+
+        # Keep selected proteins + all non-protein columns (metadata)
+        selected_proteins = [c for c in self.selected_features_ if c in X.columns]
+        non_protein_cols = [c for c in X.columns if c not in self.protein_cols]
+        cols_to_keep = selected_proteins + non_protein_cols
+
         return X[cols_to_keep]
 
     def fit_transform(self, X: pd.DataFrame, y: np.ndarray = None) -> pd.DataFrame:

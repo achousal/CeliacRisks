@@ -158,6 +158,10 @@ ENSEMBLE_BASE_MODELS=$(get_yaml_nested_list "${TRAINING_CONFIG}" "ensemble" "bas
 # Generate run ID (timestamp-based)
 RUN_ID=$(date +"%Y%m%d_%H%M%S")
 
+# Create timestamped log directory for this run (base model jobs)
+RUN_LOGS_DIR="${LOGS_DIR}/base/run_${RUN_ID}"
+mkdir -p "${RUN_LOGS_DIR}"
+
 log "============================================"
 log "CeD-ML Pipeline (Config-Driven)"
 log "============================================"
@@ -167,6 +171,7 @@ log "Run ID: ${RUN_ID}"
 log "Input: ${INFILE}"
 log "Splits: ${SPLITS_DIR} (${N_SPLITS} splits, seeds ${SEED_START}-$((SEED_START + N_SPLITS - 1)))"
 log "Results: ${RESULTS_DIR}"
+log "Logs: ${RUN_LOGS_DIR}"
 log "Models: ${RUN_MODELS}"
 log "Bootstrap: ${N_BOOT}"
 log "Ensemble: ${ENSEMBLE_ENABLED} (base: ${ENSEMBLE_BASE_MODELS:-none})"
@@ -229,7 +234,7 @@ log "Step 2/4: Train models (${N_SPLITS} splits)"
         log "Training ${MODEL} (seed ${SEED})..."
         START_TIME=$(date +%s)
 
-        LOG_FILE="${LOGS_DIR}/${JOB_NAME}_$(date +%Y%m%d_%H%M%S).log"
+        LOG_FILE="${RUN_LOGS_DIR}/${JOB_NAME}.log"
 
         if ced train \
           --config "${TRAINING_CONFIG}" \
@@ -275,7 +280,7 @@ log "Step 2/4: Train models (${N_SPLITS} splits)"
         log "Training ensemble (seed ${SEED})..."
         START_TIME=$(date +%s)
 
-        LOG_FILE="${LOGS_DIR}/${JOB_NAME}_$(date +%Y%m%d_%H%M%S).log"
+        LOG_FILE="${RUN_LOGS_DIR}/${JOB_NAME}.log"
 
         # Check if base models have OOF predictions
         BASE_MODELS_READY=1
