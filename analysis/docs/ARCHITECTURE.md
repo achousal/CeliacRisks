@@ -1,31 +1,18 @@
 # CeliacRisks Architecture
 
-**Version:** 1.4
-**Date:** 2026-01-22
-**Status:** Current-state documentation (updated with stacking ensemble, OOF calibration, model selection scoring, expanded Optuna search ranges)
+**Version:** 2.0
+**Date:** 2026-01-24
+**Status:** Streamlined algorithmic documentation
 
 ---
 
 ## Table of Contents
 
 1. [System Overview](#1-system-overview)
-2. [Repo Layout & Module Responsibilities](#2-repo-layout--module-responsibilities)
-3. [Primary Execution Flows](#3-primary-execution-flows)
-4. [Data Flow Diagram](#4-data-flow-diagram)
-5. [Key Data Contracts](#5-key-data-contracts)
-6. [Configuration System](#6-configuration-system)
-7. [Splitting & Leakage Prevention](#7-splitting--leakage-prevention)
-8. [Feature Selection Pipeline](#8-feature-selection-pipeline)
-9. [Model Training](#9-model-training)
-10. [Stacking Ensemble](#10-stacking-ensemble)
-11. [Calibration & Prevalence Adjustment](#11-calibration--prevalence-adjustment)
-12. [Threshold Selection](#12-threshold-selection)
-13. [Evaluation & Metrics](#13-evaluation--metrics)
-14. [Output Artifacts & Reports](#14-output-artifacts--reports)
-15. [Reproducibility & Determinism](#15-reproducibility--determinism)
-16. [HPC Orchestration](#16-hpc-orchestration)
-17. [Extension Points](#17-extension-points)
-18. [Non-Negotiable Behaviors](#18-non-negotiable-behaviors)
+2. [Core Algorithm](#2-core-algorithm)
+3. [Data Contracts](#3-data-contracts)
+4. [Module Reference](#4-module-reference)
+5. [Extension Points](#5-extension-points)
 
 ---
 
@@ -33,662 +20,206 @@
 
 ### Purpose
 
-CeliacRisks is a modular ML pipeline for predicting **incident Celiac Disease (CeD)** risk from proteomics biomarkers measured before clinical diagnosis. The system generates calibrated risk scores suitable for clinical screening decisions.
+ML pipeline for predicting **incident Celiac Disease (CeD)** risk from proteomics biomarkers. Generates calibrated risk scores for clinical screening.
 
-**Key Characteristics:**
-- Proteomics-based biomarker discovery
-- Nested cross-validation optimized for discrimination (AUROC)
-- Leakage-proof split strategy with VAL set for threshold tuning
-- Calibrated probability estimates with prevalence adjustment
-- Reproducible outputs with full metadata tracking
+**Dataset:**
+- 43,960 samples (43,662 controls, 148 incident cases, 150 prevalent)
+- 2,920 protein features (`*_resid` suffix)
+- Prevalence: ~1:300 (0.33%)
 
-### Dataset
+**Models:**
+- Base: LR_EN, RF, XGBoost, LinSVM_cal
+- Ensemble: Stacking meta-learner (L2 logistic regression)
 
-- **Size:** 43,960 samples (43,662 controls, 148 incident, 150 prevalent)
-- **Features:** 2,920 proteins (columns ending with `_resid` suffix)
-- **Metadata:** age, BMI, sex, ethnicity (flexible via `ColumnsConfig`)
-- **Target:** Binary incident CeD diagnosis
-- **Prevalence:** ~1:300 (0.33% incident cases)
-- **Formats:** CSV and Parquet (auto-detected by file extension)
-
-**Where in code:**
-- [data/schema.py:1-50](../src/ced_ml/data/schema.py#L1-L50) - Column definitions
-- [data/io.py](../src/ced_ml/data/io.py) - Data loading functions
-
-### Supported Models
-
-Four base classifiers with nested hyperparameter tuning, plus stacking ensemble:
-
-**Base Models:**
-1. **RF** (Random Forest)
-2. **XGBoost**
-3. **LinSVM_cal** (Linear SVM with CalibratedClassifierCV)
-4. **LR_EN** (Logistic Regression with ElasticNet)
-
-**Ensemble:**
-5. **ENSEMBLE** (Stacking ensemble combining base model OOF predictions via meta-learner)
-
-**Where in code:**
-- [models/registry.py](../src/ced_ml/models/registry.py) - Model factory functions
-- [models/stacking.py](../src/ced_ml/models/stacking.py) - Stacking ensemble implementation
-
-### Architecture Decision Records
-
-Key design decisions are documented in separate ADR files, organized by pipeline stage:
-
-**Stage 1: Data Preparation**
-- [ADR-001: Split Strategy](adr/ADR-001-split-strategy.md) - Why 50/25/25 three-way split
-- [ADR-002: Prevalent→TRAIN](adr/ADR-002-prevalent-train-only.md) - Why prevalent cases in TRAIN only
-- [ADR-003: Control Downsampling](adr/ADR-003-control-downsampling.md) - Why 1:5 ratio
-
-**Stage 2: Feature Selection**
-- [ADR-004: Hybrid Feature Selection](adr/ADR-004-hybrid-feature-selection.md) - Effect size + k-best + stability
-- [ADR-005: Stability Panel](adr/ADR-005-stability-panel.md) - Cross-CV stability selection
-
-**Stage 3: Model Training & Ensembling**
-- [ADR-006: Nested CV Structure](adr/ADR-006-nested-cv.md) - 5x10x5 nested cross-validation
-- [ADR-007: AUROC Optimization](adr/ADR-007-auroc-optimization.md) - AUROC as primary metric
-- [ADR-008: Optuna Hyperparameter Optimization](adr/ADR-008-optuna-hyperparameter-optimization.md) - Bayesian TPE with pruning
-- [ADR-009: OOF Stacking Ensemble](adr/ADR-009-oof-stacking-ensemble.md) - Meta-learner on OOF predictions
-
-**Stage 4: Calibration**
-- [ADR-010: Prevalence Adjustment](adr/ADR-010-prevalence-adjustment.md) - Logit shift method
-- [ADR-014: OOF Posthoc Calibration](adr/ADR-014-oof-posthoc-calibration.md) - Bias-free calibration strategy
-
-**Stage 5: Evaluation & Thresholds**
-- [ADR-011: Threshold on VAL](adr/ADR-011-threshold-on-val.md) - Threshold selection on validation set
-- [ADR-012: Fixed Spec 95%](adr/ADR-012-fixed-spec-95.md) - Clinical specificity target
-- [ADR-013: Prevalence Wrapper](adr/ADR-013-prevalence-wrapper.md) - PrevalenceAdjustedModel wrapper
-- [ADR-015: Model Selection Scoring](adr/ADR-015-model-selection-scoring.md) - Composite score for model comparison
-
-See [docs/adr/](adr/) for complete list.
+**Architecture Decision Records:** See [docs/adr/](adr/) for detailed design rationale.
 
 ---
 
-## 2. Repo Layout & Module Responsibilities
+## 2. Core Algorithm
 
-### High-Level Structure
+### 2.1 Data Split Strategy
 
-```
-analysis/
-  src/ced_ml/           # Python package (~25,800 lines)
-    cli/                # Command-line interface (7 modules, 3,816 lines)
-    config/             # Configuration system (5 modules, 1,779 lines)
-    data/               # Data I/O, splits, persistence (6 modules, 3,008 lines)
-    features/           # Feature selection pipeline (5 modules, 2,298 lines)
-    models/             # Model training, calibration, stacking (8 modules, 4,440 lines)
-    metrics/            # Performance metrics (6 modules, 2,249 lines)
-    evaluation/         # Prediction, reporting, scoring (4 modules, 1,963 lines)
-    plotting/           # Visualization (8 modules, 4,759 lines)
-    utils/              # Shared utilities (6 modules, 1,631 lines)
-  tests/                # 921 tests across 36 test modules
-  docs/                 # Documentation
-    ARCHITECTURE.md     # This file
-    adr/                # Architecture Decision Records (15 ADRs)
-    reference/          # Reference documentation (parameters, knobs)
-splits/          # Persisted split indices
-results/         # Training outputs
-```
+**Three-way split:** TRAIN / VAL / TEST
 
-**Where in code:**
-- [src/ced_ml/](../src/ced_ml/) - Package root
-- [tests/](../tests/) - Test suite
+**Stratification:** By target to preserve class balance.
 
-### Module Responsibilities
+**Control downsampling:** case:control ratio customizable for data imbalance.
 
-#### `cli/` - Command-Line Interface
-- `main.py` - Entry point (`ced` command via Click)
-- `save_splits.py` - Split generation CLI
-- `train.py` - Model training CLI
-- `train_ensemble.py` - Stacking ensemble training CLI
-- `aggregate_splits.py` - Cross-split aggregation CLI (metrics, predictions, panels)
-- `eval_holdout.py` - Holdout evaluation CLI (run ONCE)
-- `config_tools.py` - Config migration/validation utilities (validate, diff)
+**Prevalent case handling:** Prevalent cases can be added to TRAIN only. VAL/TEST remain prospective (incident-only).
 
-**CLI Commands:**
-- `ced save-splits` - Generate train/val/test splits
-- `ced train` - Train ML models with nested CV
-- `ced train-ensemble` - Train stacking ensemble from base models
-- `ced aggregate-splits` - Aggregate results across split seeds
-- `ced eval-holdout` - Evaluate on holdout set (run ONCE)
-- `ced config validate` - Validate configuration file
-- `ced config diff` - Compare two configuration files
-- `ced convert-to-parquet` - Convert CSV to Parquet format
-
-**Where in code:**
-- [cli/main.py](../src/ced_ml/cli/main.py) - CLI entry point
-- [cli/train.py:224-1153](../src/ced_ml/cli/train.py#L224-L1153) - Main training orchestration
-- [cli/train_ensemble.py](../src/ced_ml/cli/train_ensemble.py) - Ensemble training CLI
-
-#### `config/` - Configuration System
-- `schema.py` - Pydantic models (~230 parameters)
-- `loader.py` - YAML loading + CLI overrides
-- `validation.py` - Cross-field validation, leakage detection
-
-**Key Config Classes:**
-- `TrainingConfig` - Top-level training config
-- `SplitsConfig` - Split generation parameters
-- `CVConfig` - Cross-validation structure
-- `FeatureConfig` - Feature selection methods
-- `ThresholdConfig` - Threshold selection objectives
-- `CalibrationConfig` - Calibration settings (with strategy: per_fold, oof_posthoc, none)
-- `OptunaConfig` - Optuna hyperparameter optimization settings
-- `EnsembleConfig` - Stacking ensemble configuration
-- `MetaModelConfig` - Meta-learner hyperparameters
-- `ColumnsConfig` - Flexible metadata column configuration
-- Model-specific configs: `LRConfig`, `SVMConfig`, `RFConfig`, `XGBoostConfig`
-
-**Where in code:**
-- [config/schema.py:367-440](../src/ced_ml/config/schema.py#L367-L440) - `TrainingConfig`
-- [config/schema.py:226-290](../src/ced_ml/config/schema.py#L226-L290) - `OptunaConfig`
-- [config/loader.py](../src/ced_ml/config/loader.py) - YAML loader
-- [config/validation.py](../src/ced_ml/config/validation.py) - Validators
-
-See [ADR-012: Pydantic Config Schema](adr/ADR-012-pydantic-config.md) for rationale.
-
-#### `data/` - Data Layer (386 lines, 111 tests)
-- `io.py` - Data loading with flexible column selection
-- `splits.py` - Stratified splitting, downsampling, prevalent handling
-- `persistence.py` - Split index CSV I/O
-- `schema.py` - Column name constants, scenario definitions
-- `filters.py` - Row filtering logic
-- `columns.py` - Metadata column resolution (auto/explicit modes)
-
-**Where in code:**
-- [data/io.py](../src/ced_ml/data/io.py) - `load_data`, `usecols_for_proteomics`
-- [data/splits.py:375-439](../src/ced_ml/data/splits.py#L375-L439) - `stratified_train_val_test_split`
-- [data/columns.py](../src/ced_ml/data/columns.py) - `resolve_columns`, `ResolvedColumns`
-
-See [ADR-015: Flexible Metadata Columns](adr/ADR-015-flexible-metadata-columns.md) for column configuration design.
-
-#### `features/` - Feature Engineering (433 lines, 128 tests)
-- `screening.py` - Mann-Whitney U / F-statistic screening
-- `kbest.py` - SelectKBest wrapper
-- `stability.py` - Stability panel extraction
-- `corr_prune.py` - Correlation-based pruning
-- `panels.py` - Biomarker panel building
-
-**Where in code:**
-- [features/screening.py](../src/ced_ml/features/screening.py) - `mann_whitney_screen`
-- [features/stability.py:124-216](../src/ced_ml/features/stability.py#L124-L216) - `extract_stable_panel`
-
-See [ADR-006: Hybrid Feature Selection](adr/ADR-006-hybrid-feature-selection.md).
-
-#### `models/` - Model Training (1,406+ lines, 139 tests)
-- `registry.py` - Model factory (RF, XGBoost, LinSVM, LR)
-- `hyperparams.py` - Hyperparameter grids for RandomizedSearchCV and Optuna (expanded ranges)
-- `training.py` - Nested CV orchestration, OOF predictions, calibration strategy support
-- `calibration.py` - Calibration wrappers, prevalence adjustment, OOF calibration
-- `stacking.py` - Stacking ensemble implementation (StackingEnsemble, BaseModelBundle)
-- `prevalence.py` - Prevalence adjustment utilities
-- `optuna_search.py` - Optuna-based hyperparameter optimization (OptunaSearchCV)
-
-**Where in code:**
-- [models/registry.py](../src/ced_ml/models/registry.py) - `build_<model_name>` functions
-- [models/training.py:30-200](../src/ced_ml/models/training.py#L30-L200) - `oof_predictions_with_nested_cv`
-- [models/calibration.py:152-188](../src/ced_ml/models/calibration.py#L152-L188) - `PrevalenceAdjustedModel`
-- [models/calibration.py](../src/ced_ml/models/calibration.py) - `OOFCalibrator`, `OOFCalibratedModel`
-- [models/stacking.py:61-160](../src/ced_ml/models/stacking.py#L61-L160) - `StackingEnsemble`
-- [models/optuna_search.py](../src/ced_ml/models/optuna_search.py) - `OptunaSearchCV`
-
-See [ADR-006: Nested CV Structure](adr/ADR-006-nested-cv.md), [ADR-009: OOF Stacking Ensemble](adr/ADR-009-oof-stacking-ensemble.md), [ADR-014: OOF Posthoc Calibration](adr/ADR-014-oof-posthoc-calibration.md).
-
-#### `metrics/` - Performance Metrics (421 lines, 163 tests)
-- `discrimination.py` - AUROC, PR-AUC, Brier score
-- `thresholds.py` - Threshold selection (Youden, max_f1, fixed_spec, etc.)
-- `dca.py` - Decision Curve Analysis (net benefit)
-- `bootstrap.py` - Stratified bootstrap confidence intervals
-
-**Where in code:**
-- [metrics/discrimination.py](../src/ced_ml/metrics/discrimination.py) - `auroc`, `prauc`, `compute_brier_score`
-- [metrics/thresholds.py:326-377](../src/ced_ml/metrics/thresholds.py#L326-L377) - `choose_threshold_objective`
-
-See [ADR-009: Threshold on VAL](adr/ADR-009-threshold-on-val.md), [ADR-010: Fixed Spec 95%](adr/ADR-010-fixed-spec-95.md).
-
-#### `evaluation/` - Prediction & Reporting (745 lines, 103 tests)
-- `predict.py` - Generate predictions for TRAIN/VAL/TEST
-- `reports.py` - `ResultsWriter` class (metrics, plots, metadata)
-- `scoring.py` - Composite scoring for model selection
-- `holdout.py` - Holdout set evaluation (run ONCE)
-
-**Where in code:**
-- [evaluation/reports.py](../src/ced_ml/evaluation/reports.py) - `ResultsWriter`, `OutputDirectories`
-- [evaluation/scoring.py](../src/ced_ml/evaluation/scoring.py) - `compute_selection_score`, `rank_models_by_selection_score`
-- [evaluation/holdout.py](../src/ced_ml/evaluation/holdout.py) - Holdout CLI logic
-
-See [ADR-015: Model Selection Scoring](adr/ADR-015-model-selection-scoring.md).
-
-#### `plotting/` - Visualization (1,082 lines, 122 tests)
-- `roc_pr.py` - ROC + PR curves
-- `calibration.py` - Calibration plots
-- `risk_dist.py` - Risk distribution histograms
-- `dca.py` - Decision curve analysis plots
-- `learning_curve.py` - Learning curve analysis
-- `oof.py` - Out-of-fold prediction plots with confidence bands across CV repeats
-- `optuna_plots.py` - Optuna hyperparameter optimization visualization (optimization history, parameter importances, parallel coordinates)
-
-**Where in code:**
-- [plotting/](../src/ced_ml/plotting/) - All plotting modules
-- [plotting/oof.py](../src/ced_ml/plotting/oof.py) - `plot_oof_combined`
-
-#### `utils/` - Shared Utilities
-- `logging.py` - Logging configuration
-- `paths.py` - Path handling helpers
-- `random.py` - RNG utilities
-- `serialization.py` - Pickle save/load wrappers
-
----
-
-## 3. Primary Execution Flows
-
-### 3.1 `save-splits` - Split Generation
-
-**Purpose:** Generate reproducible train/val/test split indices and save to CSV files.
-
-**Inputs:**
-- Raw data CSV or Parquet (`--infile`)
-- Splits configuration (YAML or CLI args)
-
-**Outputs:**
-- Split index CSV files: `{scenario}_{split}_idx_seed{N}.csv`
-- Resolved config: `splits_config.yaml`
-
-**Modes:**
-- `--mode development` (default): 3-way split (TRAIN/VAL/TEST)
-- `--mode holdout`: 4-way split (TRAIN/VAL/TEST/HOLDOUT) for final validation
-
-**Key Options:**
-- `--train-control-per-case`: Control downsampling ratio for TRAIN (default: 5.0)
-- `--eval-control-per-case`: Separate control downsampling for VAL/TEST (optional, defaults to train ratio)
-- `--prevalent-train-frac`: Fraction of prevalent cases to add to TRAIN (default: 0.5)
-- `--scenarios`: Comma-separated list of scenarios to generate (default: IncidentOnly,IncidentPlusPrevalent)
-
-**Flow:**
-1. Load splits configuration
-2. Load raw data (minimal columns: ID, target, scenario columns)
-3. For each scenario:
-   a. Filter rows by scenario definition
-   b. Downsample controls (1:5 ratio for TRAIN, configurable for VAL/TEST)
-   c. Stratified 3-way or 4-way split (50/25/25 or 50/20/15/15)
-   d. Add prevalent cases to TRAIN (50% sample)
-   e. Save indices as CSV
-4. Save resolved config
-
-**Where in code:**
-- [cli/save_splits.py](../src/ced_ml/cli/save_splits.py) - CLI entry point
-- [cli/main.py](../src/ced_ml/cli/main.py) - CLI options definition
-- [data/splits.py](../src/ced_ml/data/splits.py) - Split logic (`stratified_train_val_test_split`, `add_prevalent_to_train`, `downsample_controls`)
-- [data/persistence.py](../src/ced_ml/data/persistence.py) - `save_split_indices`
+**Persistence:** Split indices saved as CSV files (`{scenario}_{split}_idx_seed{N}.csv`) for reproducibility.
 
 **See ADRs:**
 - [ADR-001: Split Strategy](adr/ADR-001-split-strategy.md)
 - [ADR-002: Prevalent→TRAIN](adr/ADR-002-prevalent-train-only.md)
 - [ADR-003: Control Downsampling](adr/ADR-003-control-downsampling.md)
-- [ADR-013: Split Persistence Format](adr/ADR-013-split-persistence.md)
 
-### 3.2 `train` - Model Training
+### 2.2 Feature Selection Pipeline
 
-**Purpose:** Train a single model with nested CV, generate OOF predictions, select thresholds, evaluate on VAL/TEST.
+**Four-stage pipeline:**
 
-**Inputs:**
-- Raw data CSV
-- Split index CSVs (if `--split-dir` provided)
-- Training configuration (YAML + CLI overrides)
+1. **Screening:** Univariate filtering (Mann-Whitney U or F-statistic) → top N proteins (default: 1,000)
+2. **KBest:** sklearn `SelectKBest` with `f_classif` → K features (hyperparameter-tuned if K not specified)
+3. **Stability Selection:** Cross-CV frequency analysis → proteins selected in ≥75% of CV folds
+4. **Correlation Pruning:** Remove features with |r| > threshold (default: 0.9)
 
-**Outputs:**
-- Final trained model: `final_model.pkl` (wrapped in `PrevalenceAdjustedModel`)
-- OOF predictions: `oof_predictions.csv`, `val_predictions.csv`, `test_predictions.csv`
-- Metrics: `*_metrics.json`
-- Plots: ROC, PR, calibration, risk distribution, DCA, OOF combined plots
-- Metadata: `run_settings.json`
-- Logs: `run.log` (detailed execution log)
-- Split trace: `train_test_split_trace.csv` (WIP)
+**Hybrid mode:** Combines KBest + Stability (order configurable via `hybrid_kbest_first`).
 
-**Flow:**
-1. Load training configuration
-2. Resolve metadata columns (auto or explicit mode)
-3. Load raw data with resolved columns
-4. Load or generate splits
-5. Apply row filters
-6. Screening: Reduce to top N proteins (e.g., 1000)
-7. Nested CV loop (5 outer folds × 10 repeats):
-   a. For each outer fold:
-      - Split TRAIN into inner train/val
-      - Inner CV: RandomizedSearchCV (5 inner folds × 200 iterations)
-      - Select best hyperparameters (AUROC optimization)
-      - Train model on inner train with best params
-      - Generate OOF predictions for held-out outer fold samples
-   b. Aggregate OOF predictions across all outer folds
-8. Stability panel extraction: Keep proteins selected in ≥75% of CV folds
-9. Train final model on full TRAIN set with stable panel
-10. Calibrate model (if configured)
-11. Wrap in `PrevalenceAdjustedModel` with target prevalence
-12. Generate predictions on TRAIN/VAL/TEST
-13. Select threshold on VAL set (e.g., Youden, max_f1, fixed_spec=0.95)
-14. Compute metrics on TRAIN/VAL/TEST with selected threshold
-15. Generate plots
-16. Save model, predictions, metrics, plots, run_settings
-
-**Where in code:**
-- [cli/train.py:224-1153](../src/ced_ml/cli/train.py#L224-L1153) - Main training orchestration
-- [models/training.py:30-200](../src/ced_ml/models/training.py#L30-L200) - `oof_predictions_with_nested_cv`
-- [features/stability.py:124-216](../src/ced_ml/features/stability.py#L124-L216) - `extract_stable_panel`
-- [models/calibration.py:152-188](../src/ced_ml/models/calibration.py#L152-L188) - `PrevalenceAdjustedModel`
-- [metrics/thresholds.py:326-377](../src/ced_ml/metrics/thresholds.py#L326-L377) - `choose_threshold_objective`
-- [evaluation/reports.py](../src/ced_ml/evaluation/reports.py) - `ResultsWriter`
+**Fallback:** If no features meet stability threshold, keep top 20 by frequency.
 
 **See ADRs:**
-- [ADR-004: AUROC Optimization](adr/ADR-004-auroc-optimization.md)
-- [ADR-005: Prevalence Adjustment](adr/ADR-005-prevalence-adjustment.md)
-- [ADR-006: Hybrid Feature Selection](adr/ADR-006-hybrid-feature-selection.md)
-- [ADR-007: Stability Panel](adr/ADR-007-stability-panel.md)
-- [ADR-008: Nested CV Structure](adr/ADR-008-nested-cv.md)
-- [ADR-009: Threshold on VAL](adr/ADR-009-threshold-on-val.md)
-- [ADR-011: PrevalenceAdjustedModel](adr/ADR-011-prevalence-wrapper.md)
-- [ADR-015: Flexible Metadata Columns](adr/ADR-015-flexible-metadata-columns.md)
+- [ADR-004: Hybrid Feature Selection](adr/ADR-004-hybrid-feature-selection.md)
+- [ADR-005: Stability Panel](adr/ADR-005-stability-panel.md)
 
-### 3.3 `convert-to-parquet` - Data Format Conversion
+### 2.3 Nested Cross-Validation
 
-**Purpose:** Convert proteomics CSV files to Parquet format for faster I/O and reduced storage.
+**Structure:**  #n outer folds × #n repeats × #n inner folds
 
-**Inputs:**
-- Raw data CSV file
+**Outer CV:**
+- Generates out-of-fold (OOF) predictions for TRAIN set
+- Repeated #n times for robust estimates
 
-**Outputs:**
-- Parquet file with same data, optimized compression
+**Inner CV:**
+- Hyperparameter optimization (RandomizedSearchCV or OptunaSearchCV)
+- Optimizes AUROC (discrimination-focused)
+- Selects best hyperparameters per outer fold
 
-**Flow:**
-1. Load CSV with same column selection as training pipeline
-2. Write to Parquet with specified compression (default: snappy)
-3. Typical 5-10x file size reduction and 3-10x faster reads
+**Hyperparameter search:**
+- **RandomizedSearchCV** (default): 200 iterations per fold
+- **OptunaSearchCV** (optional): Bayesian TPE sampling with pruning (median/percentile/hyperband)
 
-**Where in code:**
-- [data/io.py](../src/ced_ml/data/io.py) - `convert_csv_to_parquet`
-- [cli/main.py:371-416](../src/ced_ml/cli/main.py#L371-L416) - CLI command
+**OOF prediction tracking:** Each sample's prediction comes from a fold where it was held out (no leakage).
 
-**See ADR:**
-- [ADR-017: Parquet Format Support](adr/ADR-017-parquet-format-support.md)
+**See ADRs:**
+- [ADR-006: Nested CV Structure](adr/ADR-006-nested-cv.md)
+- [ADR-007: AUROC Optimization](adr/ADR-007-auroc-optimization.md)
+- [ADR-008: Optuna Hyperparameter Optimization](adr/ADR-008-optuna-hyperparameter-optimization.md)
 
-### 3.4 `config validate` / `config diff` - Configuration Management
+### 2.4 Stacking Ensemble
 
-**Purpose:** Validate configuration files and compare configurations across experiments.
+**Purpose:** Combine base model predictions to improve performance (+2-5% AUROC).
 
-**Commands:**
-1. **`ced config validate`** - Validate configuration file for errors
-2. **`ced config diff`** - Compare two configuration files
-
-**Inputs:**
-- Configuration YAML file(s)
-
-**Outputs:**
-- Validation report (errors, warnings)
-- Configuration diff report
-
-**Where in code:**
-- [cli/config_tools.py](../src/ced_ml/cli/config_tools.py) - Config validation and diff utilities
-- [cli/main.py:312-368](../src/ced_ml/cli/main.py#L312-L368) - CLI commands
-
-### 3.5 `aggregate-splits` - Cross-Split Aggregation
-
-**Purpose:** Aggregate metrics, predictions, and stability panels across multiple split seeds for robust statistical inference.
-
-**Inputs:**
-- Root output directory containing split-specific subdirectories (`split_seed{N}/`)
-- Split seed range (e.g., `--seed-start 42 --seed-end 51` for 10 splits)
-
-**Outputs:**
-- Aggregated metrics: `aggregate_metrics.json` (mean ± SE across splits)
-- Pooled predictions: `pooled_predictions.csv` (predictions from all splits)
-- Pooled metrics: `pooled_metrics.json` (metrics computed on pooled predictions)
-- Consensus stability panels: `consensus_panel_*.txt` (proteins selected across splits)
-- Summary statistics: per-split and cross-split performance distributions
-
-**Flow:**
-1. Discover split-specific output directories (`split_seed42/`, `split_seed43/`, ...)
-2. Collect metrics from each split (`*_metrics.json`)
-3. Compute summary statistics: mean, SE, min, max, median, Q1, Q3
-4. Collect predictions from each split (`val_predictions.csv`, `test_predictions.csv`)
-5. Concatenate predictions across splits (pooled predictions)
-6. Compute pooled metrics on concatenated predictions
-7. Build consensus stability panels:
-   - Extract stability panels from each split
-   - Identify proteins selected in ≥K% of splits (default: 75%)
-8. Save aggregated results
-
-**Key Metrics:**
-- Cross-split mean ± SE for AUROC, PR-AUC, Brier, sensitivity, specificity
-- Pooled AUROC/PR-AUC (all predictions concatenated)
-- Per-split distributions for stability analysis
-
-**Where in code:**
-- [cli/aggregate_splits.py](../src/ced_ml/cli/aggregate_splits.py) - Aggregation CLI (946 lines)
-  - `discover_split_dirs()` - Find split-specific directories
-  - `collect_metrics()` - Load metrics from all splits
-  - `compute_summary_stats()` - Mean, SE, quantiles
-  - `collect_predictions()` - Load and concatenate predictions
-  - `compute_pooled_metrics()` - Metrics on pooled data
-  - `build_consensus_panels()` - Cross-split feature consensus
-
-**Use Case:**
-Run after training on multiple split seeds to obtain robust performance estimates and identify features consistently selected across different data partitions.
-
-**Example:**
-```bash
-ced aggregate-splits \
-  --root results/my_model/ \
-  --seed-start 42 \
-  --seed-end 51 \
-  --panel-threshold 0.75
+**Architecture:**
+```
+Base Models → OOF Predictions → Meta-Learner (L2 LR) → Calibrated Ensemble
 ```
 
-This aggregates 10 splits (seeds 42-51) and builds consensus panels requiring ≥75% selection frequency.
+**Training:**
+1. Base models trained independently with nested CV → OOF predictions
+2. Meta-learner (L2 logistic regression) trained on stacked OOF predictions
+3. No leakage: meta-learner never sees predictions from samples in training fold
 
-### 3.6 `eval-holdout` - Holdout Evaluation
+**Configuration:** Opt-in via `ensemble.enabled=true` in config.
 
-**Purpose:** Evaluate trained model on a completely held-out dataset (run ONCE).
+**See ADR:**
+- [ADR-009: OOF Stacking Ensemble](adr/ADR-009-oof-stacking-ensemble.md)
 
-**Inputs:**
-- Trained model pickle file
-- Holdout dataset CSV
+### 2.5 Calibration
 
-**Outputs:**
-- Holdout predictions: `holdout_predictions.csv`
-- Holdout metrics: `holdout_metrics.json`
-- Holdout plots
+**Methods:**
+- `sigmoid` - Platt scaling (logistic regression on scores)
+- `isotonic` - Isotonic regression (non-parametric, monotonic)
 
-**Flow:**
-1. Load trained model
-2. Load holdout data
-3. Generate predictions
-4. Compute metrics with previously selected threshold
-5. Generate plots
-6. Save results
+**Strategies:**
+- `per_fold` (default): Apply `CalibratedClassifierCV` inside each CV fold
+- `oof_posthoc`: Fit single calibrator on pooled OOF predictions (eliminates ~0.5-1% optimism bias)
+- `none`: No calibration
 
-**Where in code:**
-- [evaluation/holdout.py](../src/ced_ml/evaluation/holdout.py) - Holdout evaluation logic
+**Strategy comparison:**
+
+| Strategy | Data Efficiency | Leakage Risk | Optimism Bias | Stability |
+|----------|-----------------|--------------|---------------|-----------|
+| `per_fold` | Full | Subtle (~0.5-1%) | ~0.5-1% | Lower |
+| `oof_posthoc` | Full | None | None | Higher |
+
+**See ADR:**
+- [ADR-014: OOF Posthoc Calibration](adr/ADR-014-oof-posthoc-calibration.md)
+
+### 2.6 Prevalence Configuration
+
+**Configuration:**
+- TRAIN: 5:1 case:control (16.7% prevalence) - `train_control_per_case: 5`
+- VAL/TEST: 5:1 case:control (16.7% prevalence) - `eval_control_per_case: 5`
+- All three sets share the same prevalence → valid threshold selection and calibration
+
+**Key observation:** Since TRAIN, VAL, and TEST all operate at 16.7% prevalence, there is no mismatch. This means:
+- Threshold selection on VAL is unbiased (same prevalence as TRAIN)
+- Calibration is valid (OOF calibrator fit on 16.7% data, applied to 16.7% test data)
+- No in-pipeline prevalence adjustment is needed
+
+**Note on real-world deployment:** Real-world incident Celiac Disease prevalence is ~0.34% (1:300). If models are deployed for clinical screening, predicted probabilities will need adjustment to account for this 50× prevalence difference. This is a future concern outside the current training pipeline.
+
+**See ADR for speculative deployment guidance:**
+- [ADR-010: Prevalence Adjustment Strategy (Future Deployment Concern)](adr/ADR-010-prevalence-adjustment.md)
+- [DEPLOYMENT.md](development/DEPLOYMENT.md) - Speculative best-practices guide
+
+### 2.7 Threshold Selection
+
+**Objectives:**
+- `youden` - Youden's J (sensitivity + specificity - 1) [default]
+- `max_f1` - Maximize F1 score
+- `fixed_spec` - Achieve fixed specificity (e.g., 0.95 for high specificity screening)
+- `fixed_ppv` / `fixed_sens` - Fixed positive predictive value / sensitivity
+
+**Source:** Threshold selected on VAL set, never on TEST (prevents leakage).
+
+**See ADRs:**
+- [ADR-011: Threshold on VAL](adr/ADR-011-threshold-on-val.md)
+- [ADR-012: Fixed Spec 95%](adr/ADR-012-fixed-spec-95.md)
+
+### 2.8 Leakage Prevention
+
+**Critical rules enforced:**
+1. Prevalent cases never in VAL/TEST (only TRAIN)
+2. Threshold selected on VAL, never on TEST
+3. Hyperparameter tuning only on TRAIN (via inner CV)
+4. OOF predictions: each sample's prediction from fold where it was held out
 
 ---
 
-## 4. Data Flow Diagram
+## 3. Data Contracts
+
+### 3.1 Input Format
+
+**Required columns:**
+- `eid` - Sample identifier
+- `incident_CeD` - Binary target (0/1)
+- `{protein}_resid` - Protein features (must end with `_resid` suffix)
+
+**Optional columns:**
+- `prevalent_CeD` - Prevalent case flag
+- Metadata: age, BMI, sex, ethnicity (auto-detected or explicit via `ColumnsConfig`)
+
+**Supported formats:** CSV, Parquet (auto-detected by extension)
+
+### 3.2 Output Artifacts
+
+**Directory structure:** `{outdir}/split_seed{N}/`
 
 ```
-Raw Data CSV (43,960 samples, 2,920 proteins)
-           |
-           v
-    [save-splits]
-           |
-           +---> {scenario}_train_idx_seed{N}.csv (50%)
-           +---> {scenario}_val_idx_seed{N}.csv   (25%)
-           +---> {scenario}_test_idx_seed{N}.csv  (25%)
-           |
-           v
-    [train] with config.yaml
-           |
-           +---> Screening (Mann-Whitney U / F-stat → 1000 proteins)
-           |
-           +---> Nested CV Loop (5 outer × 10 repeats)
-           |       |
-           |       +---> Inner CV: RandomizedSearchCV (5 inner × 200 iter)
-           |       +---> OOF predictions for each outer fold
-           |       +---> Track selected features per CV repeat
-           |
-           +---> Stability Panel Extraction (≥75% selection rate)
-           |
-           +---> Final Model Training (full TRAIN, stable panel)
-           |
-           +---> Calibration (if enabled)
-           |
-           +---> Prevalence Adjustment Wrapper
-           |
-           +---> Predictions: TRAIN / VAL / TEST
-           |
-           +---> Threshold Selection (on VAL)
-           |
-           +---> Metrics Computation (with threshold)
-           |
-           +---> Outputs:
-                   - final_model.pkl (PrevalenceAdjustedModel)
-                   - oof_predictions.csv
-                   - val_predictions.csv
-                   - test_predictions.csv
-                   - train_metrics.json, val_metrics.json, test_metrics.json
-                   - plots/ (ROC, PR, calibration, risk_dist, DCA)
-                   - run_settings.json
+split_seed42/
+  core/
+    final_model.pkl           # Trained sklearn model (calibrated if enabled)
+    oof_predictions.csv       # OOF predictions (TRAIN)
+    val_predictions.csv       # VAL predictions
+    test_predictions.csv      # TEST predictions
+    *_metrics.json            # Performance metrics
+    run_settings.json         # Full config + metadata
+    stable_features.txt       # Stability panel
+  cv/
+    cv_repeat_metrics.csv     # Per-repeat OOF metrics
+    best_params.csv           # Best hyperparameters
+  plots/
+    roc_pr.png, calibration.png, risk_dist.png, dca.png
 ```
 
-**Key Leakage Prevention:**
-- VAL and TEST splits never used for hyperparameter tuning (only TRAIN)
-- Threshold selected on VAL, never on TEST
-- Prevalent cases only in TRAIN, never in VAL/TEST
-
-**See ADRs:**
-- [ADR-001: Split Strategy](adr/ADR-001-split-strategy.md)
-- [ADR-002: Prevalent→TRAIN](adr/ADR-002-prevalent-train-only.md)
-- [ADR-009: Threshold on VAL](adr/ADR-009-threshold-on-val.md)
-
----
-
-## 5. Key Data Contracts
-
-### 5.1 Column Schema
-
-**Protein Columns:** Must end with `_resid` suffix (e.g., `APOE_resid`, `SERPINA1_resid`).
-
-**Metadata Columns:** Configurable via `ColumnsConfig`:
-- **Auto mode** (default): Auto-detect from default list (age, BMI, sex, ethnicity)
-- **Explicit mode**: User-specified custom columns
-
-**Reserved Columns:**
-- `ID_COL = 'eid'` - Sample identifier
-- `TARGET_COL = 'incident_CeD'` - Binary target
-- `INCIDENT_COL = 'incident_CeD'` - Incident flag
-- `PREVALENT_COL = 'prevalent_CeD'` - Prevalent flag
-
-**Where in code:**
-- [data/schema.py:1-50](../src/ced_ml/data/schema.py#L1-L50) - Column constants
-- [data/columns.py](../src/ced_ml/data/columns.py) - `ColumnsConfig`, `resolve_columns`
-- [config/schema.py](../src/ced_ml/config/schema.py) - `ColumnsConfig` class
-
-**See ADR:**
-- [ADR-015: Flexible Metadata Columns](adr/ADR-015-flexible-metadata-columns.md)
-
-### 5.2 Metadata Column Resolution
-
-**Purpose:** Handle datasets with varying metadata availability (e.g., protein-only datasets, custom metadata columns).
-
-**Modes:**
-- `auto` (default): Auto-detect from default metadata columns
-- `explicit`: Use user-specified lists
-
-**Resolution Process:**
-1. If mode is `auto`:
-   - Check data file for presence of default metadata columns
-   - Use only those present
-   - If none present, use 0 metadata columns (protein-only)
-2. If mode is `explicit`:
-   - Use user-specified lists (features, filters, stratify)
-   - Validate that all specified columns exist
-
-**Where in code:**
-- [data/columns.py](../src/ced_ml/data/columns.py) - `resolve_columns`, `get_available_columns_from_file`
-- [config/schema.py](../src/ced_ml/config/schema.py) - `ColumnsConfig`
-- [data/io.py](../src/ced_ml/data/io.py) - `usecols_for_proteomics` (uses resolved columns)
-- [data/filters.py](../src/ced_ml/data/filters.py) - `apply_row_filters` (uses resolved columns)
-- [cli/train.py](../src/ced_ml/cli/train.py) - Column resolution before data loading
-
-**See ADR:**
-- [ADR-015: Flexible Metadata Columns](adr/ADR-015-flexible-metadata-columns.md)
-
-### 5.3 Split Index CSVs
-
-**Format:** Single-column CSV files with row indices (int64).
-
-**Filename Pattern:** `{scenario}_{split}_idx_seed{N}.csv`
-
-**Example:**
-```
-train_idx_seed42.csv
-val_idx_seed42.csv
-test_idx_seed42.csv
-```
-
-**Contents:**
-```csv
-row_idx
-0
-5
-12
-...
-```
-
-**Where in code:**
-- [data/persistence.py](../src/ced_ml/data/persistence.py) - `save_split_indices`, `load_split_indices`
-
-**See ADR:**
-- [ADR-013: Split Persistence Format](adr/ADR-013-split-persistence.md)
-
-### 5.4 Output Artifacts
-
-**Directory Structure:**
-```
-results_hpc/
-  {outdir}/split_seed{N}/      # Split-specific subdirectory
-    core/
-      final_model.pkl          # PrevalenceAdjustedModel wrapper
-      oof_predictions.csv      # OOF predictions (TRAIN set)
-      val_predictions.csv      # VAL predictions
-      test_predictions.csv     # TEST predictions
-      train_metrics.json       # TRAIN metrics
-      val_metrics.json         # VAL metrics
-      test_metrics.json        # TEST metrics
-      run_settings.json        # Full config + metadata
-    cv/
-      cv_repeat_metrics.csv    # Per-repeat OOF metrics
-      best_params.csv          # Best hyperparameters per fold
-      optuna/                  # (if Optuna enabled)
-        optuna_config.json     # Optuna settings
-        best_params_optuna.csv # Best params with trial metadata
-    plots/
-      roc_pr.png               # ROC + PR curves
-      calibration.png          # Calibration plot
-      risk_dist.png            # Risk distribution histogram
-      dca.png                  # Decision curve analysis
-      oof_roc.png              # OOF ROC with confidence bands
-      oof_pr.png               # OOF PR with confidence bands
-      oof_calibration.png      # OOF calibration plot
-```
-
-**Note:** Output directories now use split-specific subdirectories (`split_seed{N}/`) for multi-split runs, enabling parallel training with different split seeds.
-
-**Prediction CSV Format:**
+**Prediction CSV format:**
 ```csv
 eid,y_true,y_pred_proba,y_pred,fold,repeat
 1001,0,0.012,0,0,0
-1002,1,0.842,1,0,0
-...
 ```
 
-**Metrics JSON Format:**
+**Metrics JSON format:**
 ```json
 {
   "auroc": 0.85,
@@ -696,994 +227,105 @@ eid,y_true,y_pred_proba,y_pred,fold,repeat
   "brier": 0.08,
   "threshold": 0.35,
   "sensitivity": 0.78,
-  "specificity": 0.82,
-  ...
+  "specificity": 0.82
 }
 ```
 
-**Where in code:**
-- [evaluation/reports.py](../src/ced_ml/evaluation/reports.py) - `ResultsWriter.save_*` methods
-- [data/schema.py:100-150](../src/ced_ml/data/schema.py#L100-L150) - Output filename constants
+See [ARTIFACTS.md](ARTIFACTS.md) for detailed artifact documentation.
 
 ---
 
-## 6. Configuration System
+## 4. Module Reference
 
-### 6.1 Schema (Pydantic)
+### 4.1 Package Structure
 
-**Top-Level Config:** `TrainingConfig`
+```
+src/ced_ml/
+  cli/          # Command-line interface
+  config/       # Pydantic configuration system
+  data/         # Data I/O, splits, persistence
+  features/     # Feature selection pipeline
+  models/       # Model training, calibration, stacking
+  metrics/      # Performance metrics (AUROC, Brier, DCA)
+  evaluation/   # Prediction, reporting, scoring
+  plotting/     # Visualization
+  utils/        # Logging, random, serialization
+```
 
-**Sub-Configs:**
-- `CVConfig` - Cross-validation structure
-- `FeatureConfig` - Feature selection methods
-- `ThresholdConfig` - Threshold selection objectives
-- `CalibrationConfig` - Calibration settings
+### 4.2 Key Modules
+
+**Data layer:**
+- `data/splits.py` - Stratified splitting, downsampling, prevalent handling
+- `data/persistence.py` - Split index CSV I/O
+- `data/columns.py` - Metadata column resolution
+
+**Feature selection:**
+- `features/screening.py` - Mann-Whitney U / F-statistic screening
+- `features/stability.py` - Stability panel extraction
+- `features/corr_prune.py` - Correlation-based pruning
+
+**Model training:**
+- `models/training.py` - Nested CV orchestration, OOF predictions
+- `models/stacking.py` - Stacking ensemble (StackingEnsemble, BaseModelBundle)
+- `models/calibration.py` - Calibration wrappers, prevalence adjustment, OOF calibration
+- `models/optuna_search.py` - Optuna hyperparameter optimization
+
+**Evaluation:**
+- `metrics/discrimination.py` - AUROC, PR-AUC, Brier score
+- `metrics/thresholds.py` - Threshold selection objectives
+- `metrics/dca.py` - Decision curve analysis
+- `evaluation/scoring.py` - Composite scoring for model selection
+
+### 4.3 Configuration Schema
+
+**Top-level:** `TrainingConfig`
+
+**Sub-configs:**
+- `CVConfig` - Cross-validation structure (folds, repeats, scoring)
+- `FeatureConfig` - Feature selection methods (screening, k-best, stability, correlation)
+- `CalibrationConfig` - Calibration settings (method, strategy)
+- `ThresholdConfig` - Threshold selection (objective, source)
 - `OptunaConfig` - Optuna hyperparameter optimization
-- `EvaluationConfig` - Metrics and reporting
-- `DCAConfig` - Decision curve analysis
-- `OutputConfig` - File generation control
+- `EnsembleConfig` - Stacking ensemble configuration
 - `ColumnsConfig` - Metadata column configuration
-- Model-specific: `LRConfig`, `SVMConfig`, `RFConfig`, `XGBoostConfig`
 
-**Where in code:**
-- [config/schema.py:367-440](../src/ced_ml/config/schema.py#L367-L440) - `TrainingConfig`
-- [config/schema.py](../src/ced_ml/config/schema.py) - All config classes
-
-**See ADR:**
-- [ADR-012: Pydantic Config Schema](adr/ADR-012-pydantic-config.md)
-
-### 6.2 Sub-Configs
-
-#### CVConfig (Cross-Validation)
-```python
-folds: int = 5                # Outer CV folds
-repeats: int = 10             # CV repeats
-inner_folds: int = 5          # Inner CV folds for hyperparameter tuning
-scoring: str = "roc_auc"      # Optimization metric (AUROC for discrimination)
-n_iter: int = 200             # RandomizedSearchCV iterations
-random_state: int = 42        # RNG seed
-n_jobs: int = -1              # Parallel jobs
-verbose: int = 1              # Verbosity level
-```
-
-**Where in code:**
-- [config/schema.py](../src/ced_ml/config/schema.py) - `CVConfig`
-
-**See ADR:**
-- [ADR-004: AUROC Optimization](adr/ADR-004-auroc-optimization.md)
-- [ADR-008: Nested CV Structure](adr/ADR-008-nested-cv.md)
-
-#### FeatureConfig (Feature Selection)
-```python
-feature_select: str = "hybrid"       # hybrid | kbest | stability | none
-screen_method: str = "mann_whitney"  # mann_whitney | f_statistic
-screen_top_n: int = 1000             # Screening output size
-kbest_k: int | None = None           # KBest k (tuned if None)
-stability_thresh: float = 0.75       # Stability selection threshold
-corr_thresh: float = 0.9             # Correlation pruning threshold
-hybrid_kbest_first: bool = True      # Hybrid mode: KBest before stability
-
-# WIP: Experimental features (unstaged changes)
-rf_use_permutation: bool = False     # Enable RF permutation importance
-rf_perm_repeats: int = 5             # Permutation repeats
-coef_threshold: float = 0.01         # Coefficient threshold for L1 selection
-...
-```
-
-**Where in code:**
-- [config/schema.py:94-126](../src/ced_ml/config/schema.py#L94-L126) - `FeatureConfig`
-
-**See ADRs:**
-- [ADR-006: Hybrid Feature Selection](adr/ADR-006-hybrid-feature-selection.md)
-- [ADR-007: Stability Panel](adr/ADR-007-stability-panel.md)
-
-#### ThresholdConfig (Threshold Selection)
-```python
-objective: str = "youden"               # youden | max_f1 | fixed_spec | fixed_ppv
-threshold_source: str = "val"           # val | train
-fixed_spec: float | None = None         # For fixed_spec objective
-fixed_ppv: float | None = None          # For fixed_ppv objective
-target_prevalence_source: str = "test"  # test | val | train | fixed
-target_prevalence_fixed: float | None = None  # For fixed source
-...
-```
-
-**Where in code:**
-- [config/schema.py:245-290](../src/ced_ml/config/schema.py#L245-L290) - `ThresholdConfig`
-
-**See ADRs:**
-- [ADR-009: Threshold on VAL](adr/ADR-009-threshold-on-val.md)
-- [ADR-010: Fixed Spec 95%](adr/ADR-010-fixed-spec-95.md)
-
-#### CalibrationConfig (Calibration)
-```python
-calibrate: bool = False         # Enable calibration
-method: str = "sigmoid"         # sigmoid | isotonic
-cv_folds: int = 5               # Calibration CV folds
-ensemble: bool = True           # Ensemble calibration
-```
-
-**Where in code:**
-- [config/schema.py](../src/ced_ml/config/schema.py) - `CalibrationConfig`
-
-#### OptunaConfig (Hyperparameter Optimization)
-```python
-enabled: bool = False                        # Enable Optuna (vs RandomizedSearchCV)
-n_trials: int = 100                          # Number of optimization trials
-timeout: float | None = None                 # Max seconds per study (None = unlimited)
-sampler: str = "tpe"                         # tpe | random | cmaes | grid
-sampler_seed: int | None = None              # Sampler RNG seed
-pruner: str = "median"                       # median | percentile | hyperband | none
-pruner_n_startup_trials: int = 5             # Trials before pruning starts
-pruner_percentile: float = 25.0              # Percentile for PercentilePruner
-n_jobs: int = 1                              # Parallel jobs for CV
-storage: str | None = None                   # Optuna storage URL (e.g., sqlite:///study.db)
-study_name: str | None = None                # Study name for persistence
-load_if_exists: bool = False                 # Resume existing study
-save_study: bool = True                      # Save study object
-save_trials_csv: bool = True                 # Export trials to CSV
-direction: str | None = None                 # minimize | maximize (auto-inferred from scoring)
-```
-
-**Where in code:**
-- [config/schema.py:226-290](../src/ced_ml/config/schema.py#L226-L290) - `OptunaConfig`
-- [models/optuna_search.py](../src/ced_ml/models/optuna_search.py) - `OptunaSearchCV`
-- [models/hyperparams.py](../src/ced_ml/models/hyperparams.py) - `get_param_distributions_optuna`
-
-#### ColumnsConfig (Metadata Columns)
-```python
-mode: str = "auto"                      # auto | explicit
-metadata_features: list[str] = []       # Explicit mode: feature columns
-metadata_filters: list[str] = []        # Explicit mode: filter columns
-metadata_stratify: list[str] = []       # Explicit mode: stratify columns
-default_metadata: list[str] = ["age", "BMI", "sex", "ethnicity"]  # Auto mode defaults
-```
-
-**Where in code:**
-- [config/schema.py](../src/ced_ml/config/schema.py) - `ColumnsConfig`
-- [data/columns.py](../src/ced_ml/data/columns.py) - `resolve_columns`
-
-**See ADR:**
-- [ADR-015: Flexible Metadata Columns](adr/ADR-015-flexible-metadata-columns.md)
-
-### 6.3 YAML Loading
-
-**YAML Structure:**
-```yaml
-model: LR_EN
-scenario: IncidentPlusPrevalent
-split_seed: 42
-
-cv:
-  folds: 5
-  repeats: 10
-  scoring: roc_auc
-
-features:
-  feature_select: hybrid
-  screen_top_n: 1000
-  stability_thresh: 0.75
-
-thresholds:
-  objective: max_f1
-  threshold_source: val
-
-columns:
-  mode: auto  # or explicit with custom lists
-
-# Optional: Optuna hyperparameter optimization (alternative to RandomizedSearchCV)
-optuna:
-  enabled: false      # Set to true to use Optuna
-  n_trials: 100       # Number of trials per inner CV fold
-  sampler: tpe        # tpe | random | cmaes | grid
-  pruner: median      # median | percentile | hyperband | none
-```
-
-**CLI Overrides:**
-```bash
-ced train --config config.yaml \
-    --override cv.folds=10 \
-    --override features.screen_top_n=2000
-```
-
-**Where in code:**
-- [config/loader.py](../src/ced_ml/config/loader.py) - `load_config_with_overrides`
-
-### 6.4 Validation
-
-**Cross-Field Validation:**
-- VAL + TEST fractions must sum to < 1.0
-- If `threshold_source='val'`, requires `cv.folds >= 2`
-- If `target_prevalence_source='fixed'`, requires `target_prevalence_fixed` is not None
-
-**Where in code:**
-- [config/validation.py](../src/ced_ml/config/validation.py) - Validator functions
-- [config/schema.py](../src/ced_ml/config/schema.py) - `@model_validator` decorators
+See `config/schema.py` for complete schema.
 
 ---
 
-## 7. Splitting & Leakage Prevention
+## 5. Extension Points
 
-### 7.1 Stratified 3-Way Split
+### 5.1 Add New Model
 
-**Strategy:** 50% TRAIN / 25% VAL / 25% TEST
-
-**Stratification:** By target (incident_CeD) to preserve class balance across splits.
-
-**Flow:**
-1. Filter data by scenario (e.g., `IncidentPlusPrevalent`)
-2. Downsample controls to 1:5 ratio
-3. Stratified split into TRAIN (50%), VAL (25%), TEST (25%)
-4. Save split indices as CSV files
-
-**Why 3-Way Split?** See [ADR-001: Split Strategy](adr/ADR-001-split-strategy.md).
-
-**Where in code:**
-- [data/splits.py:375-439](../src/ced_ml/data/splits.py#L375-L439) - `stratified_train_val_test_split`
-- [config/schema.py](../src/ced_ml/config/schema.py) - `SplitsConfig.validate_split_sizes`
-
-**Tests:**
-- `tests/test_data_splits.py` - Validates stratified split logic
-
-### 7.2 Prevalent→TRAIN Only
-
-**Rule:** Prevalent cases (diagnosed before plasma sample) are added to TRAIN set only, never to VAL or TEST.
-
-**Rationale:**
-- Prevalent cases provide signal enrichment for training
-- VAL/TEST remain prospective (incident-only) for clinically relevant evaluation
-- 50% sampling of prevalent cases balances signal vs. distribution shift
-
-**Where in code:**
-- [data/splits.py:326-366](../src/ced_ml/data/splits.py#L326-L366) - `add_prevalent_to_train`
-- [data/schema.py:49](../src/ced_ml/data/schema.py#L49) - `SCENARIO_DEFINITIONS`
-
-**Tests:**
-- `tests/test_data_splits.py` - Validates prevalent handling
-
-**See ADR:**
-- [ADR-002: Prevalent→TRAIN](adr/ADR-002-prevalent-train-only.md)
-
-### 7.3 Control Downsampling
-
-**Ratio:** 1:5 case:control (down from ~1:300 original ratio)
-
-**Method:** Random sampling of controls without replacement, stratified by split.
-
-**Rationale:**
-- Reduces computational cost (300x fewer controls)
-- Preserves adequate negative signal for model training
-- Requires prevalence adjustment for deployment (see Section 10.2)
-
-**Where in code:**
-- [data/splits.py:193-250](../src/ced_ml/data/splits.py#L193-L250) - `downsample_controls`
-
-**Tests:**
-- `tests/test_data_splits.py` - Validates downsampling logic
-
-**See ADR:**
-- [ADR-003: Control Downsampling](adr/ADR-003-control-downsampling.md)
-
-### 7.4 Split Persistence
-
-**Format:** CSV index files with single column of row indices (int64).
-
-**Filename Pattern:** `{scenario}_{split}_idx_seed{N}.csv`
-
-**Benefits:**
-- Human-readable and version-controllable
-- Language-agnostic (Python, R, etc.)
-- Enables exact reproducibility across runs
-
-**Where in code:**
-- [data/persistence.py](../src/ced_ml/data/persistence.py) - `save_split_indices`, `load_split_indices`
-
-**Tests:**
-- `tests/test_data_persistence.py` - Validates CSV I/O
-
-**See ADR:**
-- [ADR-013: Split Persistence Format](adr/ADR-013-split-persistence.md)
-
----
-
-## 8. Feature Selection Pipeline
-
-### 8.1 Screening
-
-**Purpose:** Reduce feature space from ~2,920 proteins to top N (default: 1,000) based on univariate association with target.
-
-**Methods:**
-- `mann_whitney` - Mann-Whitney U test (default for non-normal distributions)
-- `f_statistic` - F-statistic (ANOVA F-test)
-
-**Where in code:**
-- [features/screening.py](../src/ced_ml/features/screening.py) - `mann_whitney_screen`, `f_statistic_screen`
-
-**Tests:**
-- `tests/test_features_screening.py` - Validates screening methods
-
-### 8.2 KBest (SelectKBest)
-
-**Purpose:** Select top K features using sklearn's `SelectKBest` with `f_classif` scoring.
-
-**Hyperparameter Tuning:** K is tuned via RandomizedSearchCV if not specified.
-
-**Where in code:**
-- [features/kbest.py](../src/ced_ml/features/kbest.py) - `SelectKBest` wrapper
-
-**Tests:**
-- `tests/test_features_kbest.py` - Validates KBest selection
-
-### 8.3 Stability Selection
-
-**Purpose:** Extract proteins selected in ≥75% of CV folds for robust panel.
-
-**Method:**
-1. Track selected features across all CV repeats
-2. Compute selection frequency for each feature
-3. Keep features with frequency ≥ `stability_thresh` (default: 0.75)
-4. Fallback: If no features meet threshold, keep top 20 by frequency
-
-**Where in code:**
-- [features/stability.py:124-216](../src/ced_ml/features/stability.py#L124-L216) - `extract_stable_panel`
-
-**Tests:**
-- `tests/test_features_stability.py` - Validates stability logic
-
-**See ADR:**
-- [ADR-007: Stability Panel](adr/ADR-007-stability-panel.md)
-
-### 8.4 Correlation Pruning
-
-**Purpose:** Remove highly correlated features (|r| > threshold) to reduce redundancy.
-
-**Method:**
-1. Compute pairwise Pearson correlation matrix
-2. For each pair with |r| > `corr_thresh` (default: 0.9), keep feature with higher univariate association
-3. Remove redundant features
-
-**Where in code:**
-- [features/corr_prune.py](../src/ced_ml/features/corr_prune.py) - `prune_correlated_features`
-
-**Tests:**
-- `tests/test_features_corr_prune.py` - Validates pruning logic
-
-### 8.5 Hybrid Mode
-
-**Hybrid Feature Selection:** Combines KBest + Stability.
-
-**Order (if `hybrid_kbest_first=True`):**
-1. Screening → 1,000 proteins
-2. KBest → tune K via inner CV
-3. Stability → extract stable panel from KBest selections
-
-**Alternative Order (if `hybrid_kbest_first=False`):**
-1. Screening → 1,000 proteins
-2. Stability → extract stable panel from screening
-3. KBest → refine stable panel
-
-**Where in code:**
-- [config/schema.py:94-126](../src/ced_ml/config/schema.py#L94-L126) - `FeatureConfig.hybrid_kbest_first`
-
-**See ADR:**
-- [ADR-006: Hybrid Feature Selection](adr/ADR-006-hybrid-feature-selection.md)
-
----
-
-## 9. Model Training
-
-### 9.1 Registry
-
-**Model Factory:** `registry.py` provides builder functions for each model:
-- `build_logistic_regression()` - LR with ElasticNet penalty
-- `build_random_forest()` - RF with balanced class weights
-- `build_xgboost()` - XGBoost with scale_pos_weight
-- `build_linear_svm_calibrated()` - LinearSVC + CalibratedClassifierCV
-
-**Where in code:**
-- [models/registry.py](../src/ced_ml/models/registry.py) - `build_*` functions
-
-**Tests:**
-- `tests/test_models_registry.py` - Validates model builders
-
-### 9.2 Hyperparameters
-
-**Search Methods:**
-- **RandomizedSearchCV** (default): 200 iterations per inner CV fold
-- **OptunaSearchCV** (optional): Bayesian optimization with TPE, pruning support
-
-**Hyperparameter Grids (RandomizedSearchCV):**
-- **LR:** C (regularization strength), l1_ratio (ElasticNet mix)
-- **RF:** n_estimators, max_depth, min_samples_split, min_samples_leaf, max_features
-- **XGBoost:** max_depth, learning_rate, n_estimators, subsample, colsample_bytree, reg_alpha, reg_lambda
-- **LinSVM:** C (regularization strength)
-
-**Optuna Search Ranges (expanded, log-scale where appropriate):**
-
-| Model | Parameter | Range | Sampling |
-|-------|-----------|-------|----------|
-| XGBoost | n_estimators | 50-500 | Uniform |
-| XGBoost | learning_rate | 0.001-0.3 | Log-scale |
-| XGBoost | max_depth | 2-12 | Uniform |
-| XGBoost | reg_alpha | 1e-8 to 1.0 | Log-scale |
-| XGBoost | reg_lambda | 1e-8 to 10.0 | Log-scale |
-| RF | n_estimators | 50-500 | Uniform |
-| RF | max_depth | 3-20 | Uniform |
-| RF | max_features | 0.1-1.0 | Uniform float |
-| LR | C | 1e-3 to 100 | Log-scale |
-
-**Where in code:**
-- [models/hyperparams.py](../src/ced_ml/models/hyperparams.py) - Hyperparameter distributions (grid + Optuna)
-- [models/hyperparams.py](../src/ced_ml/models/hyperparams.py) - `get_param_distributions_optuna` for Optuna format
-- [models/optuna_search.py](../src/ced_ml/models/optuna_search.py) - `OptunaSearchCV` wrapper
-
-**Tests:**
-- `tests/test_hyperparams.py` - Validates hyperparameter grids and ranges
-
-### 9.3 Nested CV
-
-**Structure:** 5 outer folds × 10 repeats × 5 inner folds.
-
-**Outer CV (5 folds × 10 repeats):**
-- Generates out-of-fold (OOF) predictions for TRAIN set
-- Repeated 10 times for robust estimates
-
-**Inner CV (5 folds):**
-- **RandomizedSearchCV** (default): 200 iterations per fold
-- **OptunaSearchCV** (optional): Configurable trials with TPE/CMA-ES sampling, pruning
-- Optimizes AUROC (discrimination-focused)
-- Selects best hyperparameters per outer fold
-
-**Optuna Integration:**
-When `optuna.enabled=True`, the inner CV uses Optuna instead of RandomizedSearchCV:
-- Supports TPE, Random, CMA-ES, and Grid samplers
-- Supports Median, Percentile, and Hyperband pruners
-- Graceful fallback to RandomizedSearchCV if optuna not installed
-
-**Where in code:**
-- [models/training.py:30-200](../src/ced_ml/models/training.py#L30-L200) - `oof_predictions_with_nested_cv`
-- [models/training.py:281-380](../src/ced_ml/models/training.py#L281-L380) - `_build_hyperparameter_search`
-- [models/optuna_search.py](../src/ced_ml/models/optuna_search.py) - `OptunaSearchCV`
-- [config/schema.py](../src/ced_ml/config/schema.py) - `CVConfig`, `OptunaConfig`
-
-**Tests:**
-- `tests/test_training.py` - Validates nested CV logic
-
-**See ADR:**
-- [ADR-006: Nested CV Structure](adr/ADR-006-nested-cv.md)
-- [ADR-008: Optuna Hyperparameter Optimization](adr/ADR-008-optuna-hyperparameter-optimization.md)
-
----
-
-## 10. Stacking Ensemble
-
-### 10.1 Overview
-
-**Purpose:** Combine predictions from multiple base models to improve overall performance.
-
-**Expected Improvement:** +2-5% AUROC over best single model.
-
-**Architecture:**
-```
-Base Models (trained independently)
-    |
-    v
-OOF Predictions (n_samples x n_models)
-    |
-    v
-Meta-Learner (LogisticRegression L2)
-    |
-    v
-Calibrated Ensemble Probability
-```
-
-### 10.2 OOF-Based Training
-
-The stacking ensemble uses out-of-fold (OOF) predictions to train the meta-learner, preventing information leakage:
-
-1. Each base model's nested CV produces OOF predictions
-2. Each training sample's prediction comes from a fold where it was held out
-3. Meta-learner is trained on stacked OOF predictions from all base models
-4. No leakage: meta-learner never sees predictions made on samples in the training fold
-
-### 10.3 Configuration
-
-```yaml
-ensemble:
-  enabled: false                    # Opt-in
-  method: stacking                  # stacking | blending | weighted_avg
-  base_models: [LR_EN, RF, XGBoost, LinSVM_cal]
-  meta_model:
-    type: logistic_regression
-    penalty: l2
-    C: 1.0
-    max_iter: 1000
-  use_probabilities: true           # Use probabilities (vs logits)
-  cv_for_meta: 5                    # CV folds for meta-model calibration
-```
-
-### 10.4 CLI Usage
-
-```bash
-# Train base models first
-ced train --model LR_EN --split-seed 0
-ced train --model RF --split-seed 0
-ced train --model XGBoost --split-seed 0
-
-# Train ensemble
-ced train-ensemble \
-  --results-dir results/ \
-  --base-models LR_EN,RF,XGBoost \
-  --split-seed 0 \
-  --outdir results/ENSEMBLE/split_seed0
-```
-
-**Where in code:**
-- [models/stacking.py:61-160](../src/ced_ml/models/stacking.py#L61-L160) - `StackingEnsemble` class
-- [models/stacking.py:35-58](../src/ced_ml/models/stacking.py#L35-L58) - `BaseModelBundle` container
-- [cli/train_ensemble.py](../src/ced_ml/cli/train_ensemble.py) - CLI entry point
-
-**Tests:**
-- `tests/test_models_stacking.py` - Validates stacking logic (23 tests)
-
-**See ADR:**
-- [ADR-009: OOF Stacking Ensemble](adr/ADR-009-oof-stacking-ensemble.md)
-
----
-
-## 11. Calibration & Prevalence Adjustment
-
-### 11.1 Calibration Methods
-
-**Purpose:** Improve probability calibration (align predicted probabilities with true frequencies).
-
-**Methods:**
-- `sigmoid` - Platt scaling (logistic regression on classifier scores)
-- `isotonic` - Isotonic regression (non-parametric, monotonic)
-
-**Wrapper:** sklearn's `CalibratedClassifierCV` with 5-fold CV.
-
-**Where in code:**
-- [models/calibration.py](../src/ced_ml/models/calibration.py) - `maybe_calibrate_estimator`
-
-**Tests:**
-- `tests/test_models_calibration.py` - Validates calibration logic
-
-### 11.2 Calibration Strategies
-
-**Strategy Options:**
-- `per_fold` (default): Apply CalibratedClassifierCV inside each CV fold
-- `oof_posthoc`: Collect raw OOF predictions, then fit a single calibrator post-hoc
-- `none`: No calibration applied
-
-**Strategy Comparison:**
-
-| Approach | Data Efficiency | Leakage Risk | Optimism Bias | Stability |
-|----------|-----------------|--------------|---------------|-----------|
-| `per_fold` (default) | Full | Subtle (~0.5-1%) | ~0.5-1% | Lower |
-| `oof_posthoc` | Full | None | None | Higher |
-| 4-way split | Reduced | None | None | Medium |
-
-**Configuration:**
-```yaml
-calibration:
-  enabled: true
-  strategy: per_fold  # or oof_posthoc or none
-  method: isotonic    # or sigmoid
-  per_model:          # Optional per-model overrides
-    LR_EN: oof_posthoc
-    RF: per_fold
-```
-
-**Where in code:**
-- [models/calibration.py](../src/ced_ml/models/calibration.py) - `OOFCalibrator`, `OOFCalibratedModel`
-- [config/schema.py](../src/ced_ml/config/schema.py) - `CalibrationConfig.strategy`
-
-**See ADR:**
-- [ADR-014: OOF Posthoc Calibration](adr/ADR-014-oof-posthoc-calibration.md)
-
-### 11.3 Prevalence Shift (Logit Adjustment)
-
-**Problem:** Training prevalence (1:5 after downsampling) ≠ Deployment prevalence (1:300 real-world).
-
-**Solution:** Logit shift formula (Steyerberg, 2019):
-
-```
-P(Y=1|X, prev_new) = sigmoid(logit(p) + logit(prev_new) - logit(prev_old))
-```
-
-**Where:**
-- `p` = Model's predicted probability
-- `prev_old` = Training prevalence (e.g., 1/6 ≈ 0.167)
-- `prev_new` = Deployment prevalence (e.g., 1/300 ≈ 0.0033)
-
-**Where in code:**
-- [models/calibration.py:117-149](../src/ced_ml/models/calibration.py#L117-L149) - `adjust_probabilities_for_prevalence`
-
-**Tests:**
-- `tests/test_models_calibration.py`, `tests/test_prevalence.py` - Validates adjustment logic
-
-**References:**
-- Steyerberg (2019). *Clinical Prediction Models (2nd ed.)*, Chapter 13.
-
-**See ADR:**
-- [ADR-010: Prevalence Adjustment](adr/ADR-010-prevalence-adjustment.md)
-
-### 11.4 Wrapper Model (PrevalenceAdjustedModel)
-
-**Purpose:** Wrap trained model to automatically apply prevalence adjustment at prediction time.
-
-**Benefits:**
-- Serialized model artifact includes adjustment
-- Prevents deployment errors (forgetting to adjust)
-- Sklearn-compatible (`BaseEstimator`, `ClassifierMixin`)
-
-**Where in code:**
-- [models/calibration.py:152-188](../src/ced_ml/models/calibration.py#L152-L188) - `PrevalenceAdjustedModel`
-- [evaluation/reports.py](../src/ced_ml/evaluation/reports.py) - `ResultsWriter.save_model_artifact` (uses wrapper)
-
-**Tests:**
-- `tests/test_models_calibration.py` - Validates wrapper behavior
-
-**See ADR:**
-- [ADR-011: PrevalenceAdjustedModel](adr/ADR-011-prevalence-wrapper.md)
-
----
-
-## 12. Threshold Selection
-
-### 12.1 Objectives
-
-**Objectives:** Choose decision threshold to optimize a specific criterion.
-
-**Available Objectives:**
-- `youden` - Youden's J statistic (sensitivity + specificity - 1)
-- `max_f1` - Maximize F1 score
-- `fixed_spec` - Achieve fixed specificity (e.g., 0.95)
-- `fixed_ppv` - Achieve fixed positive predictive value
-- `fixed_sens` - Achieve fixed sensitivity
-
-**Default:** `youden` (balances sensitivity and specificity).
-
-**Where in code:**
-- [metrics/thresholds.py:326-377](../src/ced_ml/metrics/thresholds.py#L326-L377) - `choose_threshold_objective`
-
-**Tests:**
-- `tests/test_metrics_thresholds.py` - Validates threshold selection
-
-### 12.2 Configuration
-
-**ThresholdConfig:**
-```python
-objective: str = "youden"               # Objective function
-threshold_source: str = "val"           # val | train (never test!)
-fixed_spec: float | None = None         # For fixed_spec objective
-target_prevalence_source: str = "test"  # test | val | train | fixed
-```
-
-**Where in code:**
-- [config/schema.py:392-399](../src/ced_ml/config/schema.py#L392-L399) - `ThresholdConfig`
-
-**See ADRs:**
-- [ADR-011: Threshold on VAL](adr/ADR-011-threshold-on-val.md)
-- [ADR-012: Fixed Spec 95%](adr/ADR-012-fixed-spec-95.md)
-
----
-
-## 13. Evaluation & Metrics
-
-### 13.1 Discrimination Metrics
-
-**Metrics:**
-- `AUROC` - Area under ROC curve (discrimination)
-- `PR-AUC` - Area under Precision-Recall curve
-- `Brier Score` - Mean squared error of predicted probabilities
-- `Sensitivity` - True positive rate
-- `Specificity` - True negative rate
-- `PPV` - Positive predictive value
-- `NPV` - Negative predictive value
-
-**Where in code:**
-- [metrics/discrimination.py](../src/ced_ml/metrics/discrimination.py) - `auroc`, `prauc`, `compute_brier_score`
-
-**Tests:**
-- `tests/test_metrics_discrimination.py` - Validates metric computations
-
-### 13.2 Decision Curve Analysis (DCA)
-
-**Purpose:** Evaluate net benefit of using the model for clinical decisions across a range of threshold probabilities.
-
-**Metric:** Net benefit = (TP / N) - (FP / N) × (p_t / (1 - p_t))
-
-**Where:**
-- `p_t` = Threshold probability
-- `TP` = True positives
-- `FP` = False positives
-- `N` = Total samples
-
-**Where in code:**
-- [metrics/dca.py](../src/ced_ml/metrics/dca.py) - `compute_net_benefit`
-
-**Auto-Range Configuration:**
-DCA threshold range now auto-configured based on prevalence:
-- Prevalence 0.003 (0.3%) -> range 0.0003 to 0.03
-- Prevalence 0.10 (10%) -> range 0.01 to 0.50
-
-**Tests:**
-- `tests/test_metrics_dca.py` - Validates DCA computations including auto-range
-
-### 13.3 Bootstrap Confidence Intervals
-
-**Purpose:** Estimate 95% CIs for metrics via stratified bootstrap resampling.
-
-**Method:**
-1. Resample TEST set with replacement (stratified by target)
-2. Compute metrics on each bootstrap sample
-3. Compute 2.5th and 97.5th percentiles
-
-**Default:** 500 bootstrap iterations.
-
-**Where in code:**
-- [metrics/bootstrap.py](../src/ced_ml/metrics/bootstrap.py) - `bootstrap_ci`
-
-**Tests:**
-- `tests/test_metrics_bootstrap.py` - Validates bootstrap logic
-
-### 13.4 Model Selection Scoring
-
-**Purpose:** Formal model selection using composite metrics combining discrimination, calibration quality, and prediction quality.
-
-**Composite Score Formula:**
-```
-score = (AUROC * w_auroc) + ((1 - Brier) * w_brier) + ((1 - |slope - 1|) * w_slope)
-```
-
-**Default Weights:**
-- AUROC: 50% (discrimination)
-- Brier: 30% (prediction quality)
-- Slope: 20% (calibration quality)
-
-**Functions:**
-- `compute_selection_score()` - Compute composite score for single model
-- `compute_selection_scores_for_models()` - Batch computation
-- `rank_models_by_selection_score()` - Rank models by score
-
-**Where in code:**
-- [evaluation/scoring.py](../src/ced_ml/evaluation/scoring.py) - Scoring utilities
-
-**Tests:**
-- `tests/test_evaluation_scoring.py` - Validates scoring logic (22 tests)
-
-**See ADR:**
-- [ADR-015: Model Selection Scoring](adr/ADR-015-model-selection-scoring.md)
-
----
-
-## 14. Output Artifacts & Reports
-
-### 13.1 Directory Structure
-
-**Output Directory Pattern:** `{outdir}/split_seed{N}/`
-
-The output directory structure uses split-specific subdirectories to support parallel training with different split seeds.
-
-**Contents:**
-```
-{outdir}/split_seed42/
-  core/
-    final_model.pkl               # PrevalenceAdjustedModel wrapper
-    oof_predictions.csv           # OOF predictions (TRAIN set)
-    val_predictions.csv           # VAL predictions
-    test_predictions.csv          # TEST predictions
-    train_metrics.json            # TRAIN metrics
-    val_metrics.json              # VAL metrics
-    test_metrics.json             # TEST metrics
-    run_settings.json             # Full config + metadata
-    stable_features.txt           # Stable panel proteins
-  cv/
-    cv_repeat_metrics.csv         # Per-repeat OOF metrics
-    best_params.csv               # Best hyperparameters per fold
-    optuna/                       # (if Optuna enabled)
-      optuna_config.json          # Optuna configuration
-      best_params_optuna.csv      # Best params with trial metadata
-  plots/
-    roc_pr.png                    # ROC + PR curves
-    calibration.png               # Calibration plot
-    risk_dist.png                 # Risk distribution
-    dca.png                       # Decision curve analysis
-    oof_roc.png                   # OOF ROC with confidence bands
-    oof_pr.png                    # OOF PR with confidence bands
-    oof_calibration.png           # OOF calibration plot
-  diag_splits/
-    train_test_split_trace.csv    # Split assignment trace (WIP)
-```
-
-**Where in code:**
-- [evaluation/reports.py](../src/ced_ml/evaluation/reports.py) - `ResultsWriter`, `OutputDirectories`
-
-**Tests:**
-- `tests/test_evaluation_reports.py` - Validates output generation
-
-### 14.2 Plots
-
-**Generated Plots:**
-1. **ROC + PR Curves** - Discrimination metrics visualization
-2. **Calibration Plot** - Predicted vs. observed probabilities
-3. **Risk Distribution** - Histogram of predicted probabilities
-4. **Decision Curve Analysis** - Net benefit vs. threshold probability
-5. **OOF Combined Plots** - Out-of-fold predictions with confidence bands across CV repeats (ROC, PR, calibration)
-6. **Optuna Plots** (if enabled) - Optimization history, parameter importances, parallel coordinates, slice plots
-
-**Where in code:**
-- [plotting/roc_pr.py](../src/ced_ml/plotting/roc_pr.py) - ROC/PR plots
-- [plotting/calibration.py](../src/ced_ml/plotting/calibration.py) - Calibration plots
-- [plotting/risk_dist.py](../src/ced_ml/plotting/risk_dist.py) - Risk distribution plots
-- [plotting/dca.py](../src/ced_ml/plotting/dca.py) - DCA plots
-- [plotting/oof.py](../src/ced_ml/plotting/oof.py) - OOF combined plots
-- [plotting/optuna_plots.py](../src/ced_ml/plotting/optuna_plots.py) - Optuna visualization
-
-**Tests:**
-- `tests/test_plotting_*.py` - Validates plotting functions
-
----
-
-## 15. Reproducibility & Determinism
-
-### 15.1 Seeds
-
-**Random Seeds:**
-- `split_seed` - Data split generation
-- `random_state` (CVConfig) - Cross-validation fold assignment, RandomizedSearchCV
-
-**Where in code:**
-- [config/schema.py](../src/ced_ml/config/schema.py) - `TrainingConfig.split_seed`, `CVConfig.random_state`
-- [utils/random.py](../src/ced_ml/utils/random.py) - RNG utilities
-
-### 15.2 Split Persistence
-
-**Mechanism:** Save split indices as CSV files for exact reproducibility.
-
-**Benefits:**
-- Same splits across multiple runs
-- Comparable results across different models
-- Auditable and version-controllable
-
-**Where in code:**
-- [data/persistence.py](../src/ced_ml/data/persistence.py) - `save_split_indices`, `load_split_indices`
-- [cli/train.py](../src/ced_ml/cli/train.py) - `--split-dir` flag
-
-### 15.3 Metadata Logging
-
-**`run_settings.json`** - Contains:
-- Full resolved configuration (all parameters)
-- Resolved metadata columns (auto-detected or explicit)
-- Split seed, random state
-- Model hyperparameters
-- Feature selection parameters
-- Threshold selection settings
-- Software versions (Python, numpy, sklearn, etc.)
-- Timestamp, runtime
-
-**Where in code:**
-- [evaluation/reports.py](../src/ced_ml/evaluation/reports.py) - `ResultsWriter.save_run_settings`
-
----
-
-## 16. HPC Orchestration
-
-### 16.1 LSF Template
-
-**Job Array:** 4 models (RF, XGBoost, LinSVM_cal, LR_EN) run in parallel.
-
-**Resource Allocation:**
-- 16 cores per job
-- 8 GB/core = 128 GB total per job
-- 12-hour wall time
-
-**Where in code:**
-- `CeD_hpc.lsf.template` - LSF batch script template
-
-### 16.2 Setup Script
-
-**Purpose:** Initialize HPC environment (modules, virtual environment, dependencies).
-
-**Where in code:**
-- `scripts/hpc_setup.sh` - Environment setup script
-
-### 16.3 Workflow
-
-**Steps:**
-1. Generate splits: `ced save-splits`
-2. Submit job array: `bsub < CeD_hpc.lsf`
-3. Monitor jobs: `bjobs`
-4. Aggregate results: `ced aggregate-splits`
-5. Holdout evaluation: `ced eval-holdout` (run ONCE)
-
-**Where in code:**
-- `run_hpc.sh` - Pipeline orchestration script
-
----
-
-## 17. Extension Points
-
-### 17.1 New Models
-
-**Add New Model:**
 1. Create builder function in `models/registry.py`
 2. Add hyperparameter grid in `models/hyperparams.py`
 3. Add config class in `config/schema.py` (if model-specific params needed)
-4. Update model registry mapping
-5. Add tests in `tests/test_models_*.py`
+4. Add tests in `tests/test_models_*.py`
 
-**Where in code:**
-- [models/registry.py](../src/ced_ml/models/registry.py) - Model factory
+### 5.2 Add New Feature Selection Method
 
-### 17.2 New Features
-
-**Add New Feature Selection Method:**
 1. Implement in `features/` module
 2. Add config option in `FeatureConfig`
 3. Integrate in training pipeline (`cli/train.py`)
 4. Add tests in `tests/test_features_*.py`
 
-**Where in code:**
-- [features/](../src/ced_ml/features/) - Feature engineering modules
+### 5.3 Add New Metric
 
-### 17.3 New Metrics
-
-**Add New Metric:**
 1. Implement in `metrics/` module
 2. Add config option in `EvaluationConfig` (if needed)
 3. Integrate in evaluation pipeline (`evaluation/reports.py`)
 4. Add tests in `tests/test_metrics_*.py`
 
-**Where in code:**
-- [metrics/](../src/ced_ml/metrics/) - Metrics modules
-
 ---
 
-## 18. Non-Negotiable Behaviors
+## Reproducibility
 
-These behaviors are enforced by the codebase and must not be violated:
-
-1. **Leakage Prevention**
-   - Prevalent cases never in VAL/TEST (enforced in `add_prevalent_to_train`)
-   - Threshold selected on VAL, never on TEST (enforced in `ThresholdConfig`)
-   - Hyperparameter tuning only on TRAIN (enforced in nested CV logic)
-
-2. **Split Validation**
-   - VAL + TEST fractions must sum to < 1.0 (enforced in `SplitsConfig.validate_split_sizes`)
-
-3. **Threshold Source Validation**
-   - If `threshold_source='val'`, requires `cv.folds >= 2` (enforced in `TrainingConfig.validate_config`)
-
-4. **Prevalence Source Validation**
-   - If `target_prevalence_source='fixed'`, requires `target_prevalence_fixed` is not None (enforced in `TrainingConfig.validate_config`)
-
-5. **Protein Column Suffix**
-   - Protein columns must end with `_resid` suffix (defined in `data/schema.py`)
-
-6. **Metadata Column Flexibility**
-   - Metadata columns are flexible via `ColumnsConfig` (auto-detect or explicit mode)
-   - Protein-only datasets supported (0 metadata columns)
-
-7. **Split Persistence Format**
-   - Indices saved as int64 CSV files (enforced in `data/persistence.py`)
-
-8. **Random State**
-   - All random operations seeded for reproducibility (enforced throughout)
-
-9. **PrevalenceAdjustedModel Wrapper**
-   - Final model must be wrapped in `PrevalenceAdjustedModel` for deployment (enforced in `ResultsWriter.save_model_artifact`)
-
-**Where in code:**
-- [data/splits.py:326-366](../src/ced_ml/data/splits.py#L326-L366) - Prevalent→TRAIN enforcement
-- [config/schema.py](../src/ced_ml/config/schema.py) - Config validation
-- [config/validation.py](../src/ced_ml/config/validation.py) - Cross-field validation
-- [data/schema.py](../src/ced_ml/data/schema.py) - Column constants
-- [data/columns.py](../src/ced_ml/data/columns.py) - Flexible column resolution
-- [data/persistence.py](../src/ced_ml/data/persistence.py) - Split persistence
-- [models/calibration.py:152-188](../src/ced_ml/models/calibration.py#L152-L188) - PrevalenceAdjustedModel wrapper
+**All runs are deterministic via:**
+- Fixed RNG seeds (`split_seed`, `random_state`)
+- Persisted split indices (CSV files)
+- Full config logging (`run_settings.json`)
+- Git commit hash tracking
+- Package version recording
 
 ---
 

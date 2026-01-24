@@ -18,9 +18,26 @@ bjobs -w | grep CeD_
 
 # When all jobs are DONE, run post-processing
 bash scripts/post_training_pipeline.sh --run-id <YOUR_RUN_ID>
+
+# Check results
+cat logs/post/post_20260122_120000/pipeline_summary_20260122_120000.json
+ls results/*/run_20260122_120000/aggregated/
 ```
 
 Replace `<YOUR_RUN_ID>` with the timestamp from `run_hpc.sh` output (e.g., `20260122_120000`).
+
+## post_training_pipeline.sh configurable options avalable
+
+#==============================================================
+### ARGUMENT PARSING
+#==============================================================
+TRAIN_ENSEMBLE=1
+SKIP_ENSEMBLE=0
+RUN_ID=""
+RESULTS_DIR=""
+CONFIG_FILE=""
+BASE_MODELS=""
+MIN_SPLITS=1
 
 ## What the Pipeline Does
 
@@ -38,7 +55,7 @@ Replace `<YOUR_RUN_ID>` with the timestamp from `run_hpc.sh` output (e.g., `2026
 - Trains L2 logistic regression meta-learner
 - Generates ensemble predictions on val/test sets
 - Saves to `results/ENSEMBLE/run_{run_id}/split_seed{X}/`
-- **Skipped by default** (use `--train-ensemble` flag to enable)
+- **Enabled by default** (use `--skip-ensemble` flag to disable)
 
 ### Step 3: Aggregate Results
 - Runs `ced aggregate-splits` for each validated model
@@ -66,113 +83,11 @@ All post-processing steps are logged to:
 logs/post/run_{run_id}/post_training.log
 ```
 
-View in real-time:
-```bash
-tail -f logs/post/run_{run_id}/post_training.log
-```
-
 Log entries include:
 - `[SUCCESS]` - Successful operations
 - `[WARNING]` - Non-critical issues (e.g., missing splits)
 - `[ERROR]` - Critical failures
 - Timestamped entries for tracing
-
-## Options
-
-### Train Ensemble (Opt-In)
-```bash
-bash scripts/post_training_pipeline.sh --run-id 20260122_120000 --train-ensemble
-```
-By default, ensemble training is skipped to save time. Use this flag to train the stacking ensemble.
-
-### Custom Results Directory
-```bash
-bash scripts/post_training_pipeline.sh --run-id 20260122_120000 --results-dir /path/to/results
-```
-
-### Custom Config File
-```bash
-bash scripts/post_training_pipeline.sh --run-id 20260122_120000 --config configs/custom.yaml
-```
-
-### Manual Base Models
-```bash
-bash scripts/post_training_pipeline.sh --run-id 20260122_120000 --base-models LR_EN,RF,XGBoost
-```
-
-### Minimum Splits Required
-```bash
-bash scripts/post_training_pipeline.sh --run-id 20260122_120000 --min-splits 5
-```
-
-## Troubleshooting
-
-### No validated base models
-**Symptom**: Pipeline exits with "No validated base models found"
-
-**Cause**: Model training jobs failed or are still running
-
-**Fix**:
-1. Check job status: `bjobs -w | grep CeD_`
-2. Check error logs: `cat logs/{run_id}/*.err`
-3. Wait for jobs to complete
-4. Re-run post-processing
-
-### Ensemble training fails
-**Symptom**: "Ensemble training failed for seed X"
-
-**Cause**: Missing OOF predictions or calibration files
-
-**Fix**:
-1. Check base model validation output
-2. Verify OOF files exist: `ls results/{MODEL}/run_{id}/split_seed{X}/preds/train_oof/`
-3. Re-train failed base model splits
-4. Re-run post-processing
-
-### Aggregation fails for a model
-**Symptom**: "Aggregation failed for {MODEL}"
-
-**Cause**: Insufficient completed splits or corrupt output files
-
-**Fix**:
-1. Check aggregation log section for details
-2. Verify split directories: `ls results/{MODEL}/run_{id}/`
-3. Manually run: `ced aggregate-splits --results-dir results/{MODEL}/run_{id}`
-
-### Pipeline log not found
-**Symptom**: Cannot find log file
-
-**Fix**:
-```bash
-ls -ltr logs/post/
-# Use most recent log file
-cat logs/post/run_*/post_training.log
-```
-
-## Manual Alternatives
-
-### Train Ensemble Manually
-```bash
-# For each split
-for seed in 0 1 2; do
-  ced train-ensemble \
-    --results-dir results/ \
-    --base-models LR_EN,RF,XGBoost \
-    --split-seed $seed \
-    --outdir results/ENSEMBLE/run_20260122_120000/split_seed${seed}
-done
-```
-
-### Aggregate Manually (Per Model)
-```bash
-# Base models
-ced aggregate-splits --results-dir results/LR_EN/run_20260122_120000
-ced aggregate-splits --results-dir results/RF/run_20260122_120000
-ced aggregate-splits --results-dir results/XGBoost/run_20260122_120000
-
-# Ensemble (if trained)
-ced aggregate-splits --results-dir results/ENSEMBLE/run_20260122_120000
-```
 
 ## Expected Output
 
@@ -225,51 +140,11 @@ ced aggregate-splits --results-dir results/ENSEMBLE/run_20260122_120000
 }
 ```
 
-## Integration with HPC Workflow
-
-### Full Workflow
-```bash
-# 1. Submit training jobs
-cd analysis/
-./run_hpc.sh
-# Note the RUN_ID from output (e.g., 20260122_120000)
-
-# 2. Monitor jobs
-bjobs -w | grep CeD_
-tail -f logs/20260122_120000/*.live.log
-
-# 3. When all jobs complete, run post-processing
-bash scripts/post_training_pipeline.sh --run-id 20260122_120000 --train-ensemble
-
-# 4. Check results
-cat logs/post/post_20260122_120000/pipeline_summary_20260122_120000.json
-ls results/*/run_20260122_120000/aggregated/
-```
-
-### Automated Post-Processing (Advanced)
-You can submit the post-processing script as a dependent HPC job:
-
-```bash
-# After run_hpc.sh, get job IDs
-JOB_IDS=$(bjobs -w | grep "CeD_" | awk '{print $1}' | tr '\n' ',' | sed 's/,$//')
-
-# Submit post-processing job with dependency
-bsub -P YOUR_PROJECT \
-  -q medium \
-  -J "CeD_PostProcess" \
-  -n 1 \
-  -W "02:00" \
-  -w "done($JOB_IDS)" \
-  bash scripts/post_training_pipeline.sh --run-id 20260122_120000
-```
-
 ## Best Practices
 
 1. **Always check job status** before post-processing
 2. **Review validation step output** to catch failed models early
 3. **Save log files** for reproducibility
-4. **Run post-processing once per run_id** (idempotent but time-consuming)
-5. **Use --train-ensemble** only when you need the stacking ensemble (adds ~10-30 min per split)
 
 ## See Also
 

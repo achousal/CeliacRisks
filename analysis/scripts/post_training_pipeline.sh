@@ -4,14 +4,14 @@
 #
 # Comprehensive post-training pipeline with detailed logging:
 # 1. Validate base model outputs
-# 2. Train ensemble (if enabled)
+# 2. Train ensemble (if 2+ models available)
 # 3. Aggregate results across splits
 # 4. Generate validation reports
 #
 # Usage:
 #   cd analysis/
 #   bash scripts/post_training_pipeline.sh --run-id 20260122_120000
-#   bash scripts/post_training_pipeline.sh --run-id 20260122_120000 --train-ensemble
+#   bash scripts/post_training_pipeline.sh --run-id 20260122_120000 --skip-ensemble
 #============================================================
 
 set -euo pipefail
@@ -20,7 +20,8 @@ IFS=$'\n\t'
 #==============================================================
 # ARGUMENT PARSING
 #==============================================================
-TRAIN_ENSEMBLE=0
+TRAIN_ENSEMBLE=1
+SKIP_ENSEMBLE=0
 RUN_ID=""
 RESULTS_DIR=""
 CONFIG_FILE=""
@@ -45,8 +46,8 @@ while [[ $# -gt 0 ]]; do
       BASE_MODELS="$2"
       shift 2
       ;;
-    --train-ensemble)
-      TRAIN_ENSEMBLE=1
+    --skip-ensemble)
+      SKIP_ENSEMBLE=1
       shift
       ;;
     --min-splits)
@@ -271,6 +272,18 @@ if [[ ${#MISSING_MODELS[@]} -gt 0 ]]; then
   log_warning "Incomplete models (skipped): ${MISSING_MODELS[*]}"
 fi
 
+# Determine if ensemble should be trained
+if [[ ${#VALIDATED_MODELS[@]} -lt 2 ]]; then
+  log_warning "Ensemble training requires 2+ base models (found ${#VALIDATED_MODELS[@]}). Disabling ensemble."
+  TRAIN_ENSEMBLE=0
+elif [[ ${SKIP_ENSEMBLE} -eq 1 ]]; then
+  log_warning "Ensemble training skipped via --skip-ensemble flag"
+  TRAIN_ENSEMBLE=0
+else
+  log "Ensemble training will proceed (${#VALIDATED_MODELS[@]} base models available)"
+  TRAIN_ENSEMBLE=1
+fi
+
 #==============================================================
 # STEP 2: TRAIN ENSEMBLE (if requested)
 #==============================================================
@@ -327,8 +340,8 @@ if [[ ${TRAIN_ENSEMBLE} -eq 1 ]]; then
     log_warning "No ensemble models trained. Ensure all base models are trained for each split before running ensemble."
   fi
 else
-  log_section "Step 2: Train Ensemble (Skipped)"
-  log "Ensemble training not requested (use --train-ensemble flag to enable)"
+  log_section "Step 2: Train Ensemble Meta-Learner (Conditional)"
+  log "Ensemble training skipped via --skip-ensemble flag (or only 1 model available)"
 fi
 
 #==============================================================

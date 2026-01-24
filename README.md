@@ -1,6 +1,6 @@
 # CeliacRiskML
 
-**A production-ready machine learning pipeline for disease risk prediction from high-dimensional biomarker data**
+**A research-ready machine learning pipeline for disease risk prediction from high-dimensional biomarker data**
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)
 ![Tests](https://img.shields.io/badge/tests-1081%20passing-success)
@@ -18,7 +18,7 @@ CeliacRiskML is a modular, extensible machine learning framework for **disease r
 - **Model stacking ensemble** with OOF meta-learner for improved predictions
 - Rigorous nested cross-validation with feature selection
 - **OOF-posthoc calibration** for unbiased probability estimates
-- Calibration-optimized predictions with prevalence adjustment
+- Probability calibration at training prevalence (16.7%)
 - **Temporal validation** support for chronological splits
 - Clinical decision curve analysis (DCA) with auto-range
 - HPC-ready batch processing (LSF/Slurm)
@@ -35,13 +35,12 @@ CeliacRiskML is a modular, extensible machine learning framework for **disease r
 - Support for incident/prevalent case scenarios
 - Handling of class imbalance via downsampling and class weighting
 
-### Production-Grade ML Pipeline
-- **Four battle-tested models**: Random Forest, XGBoost, Linear SVM, Logistic Regression
+### Research-Grade ML Pipeline
+- **Four models**: Random Forest, XGBoost, Linear SVM, Logistic Regression
 - **Stacking ensemble**: L2 meta-learner combining base model OOF predictions (+2-5% AUROC)
 - **Nested cross-validation**: N-fold outer x N repeats x N-fold inner
 - **Smart feature selection**: Multi-stage screening (effect size, k-best, stability, correlation pruning)
 - **Optuna hyperparameter optimization**: Bayesian TPE with expanded search ranges
-- **Prevalence adjustment**: Recalibrate for deployment prevalence
 - **Temporal validation**: Chronological train/val/test splits for time-series data
 
 ### Comprehensive Evaluation
@@ -78,22 +77,17 @@ ced --help
 
 ### Recommended: Run Complete Pipeline
 
-**Local testing (1 split, 1 model):**
+**Local testing:**
 ```bash
 cd analysis
 ./run_local.sh
 ```
 
-**HPC deployment (10 splits, 4 models):**
+**HPC deployment:**
 ```bash
 cd analysis
 PROJECT=your_allocation ./run_hpc.sh
 ```
-
-These scripts handle the entire pipeline: splits generation, model training, and postprocessing.
-
-For customization options, see [analysis/CLAUDE.md](analysis/CLAUDE.md).
-
 ---
 
 ## Manual Pipeline Execution
@@ -126,7 +120,7 @@ ced aggregate-splits --config configs/aggregate_config.yaml
 Rscript scripts/compare_models.R --results_root results
 ```
 
-For detailed CLI usage, see [analysis/CLAUDE.md](analysis/CLAUDE.md).
+For detailed CLI usage, see [](analysis/docs/reference/CLI_REFERENCE.md).
 
 ---
 
@@ -190,9 +184,6 @@ splits:
   temporal_split: true
   temporal_column: "sample_date"
 ```
-
-For complete configuration options, see [analysis/CLAUDE.md](analysis/CLAUDE.md).
-
 ---
 
 ## Example Use Case: Celiac Disease Risk Prediction
@@ -209,20 +200,17 @@ The pipeline was developed to predict **incident Celiac Disease (CeD) risk** fro
 
 **Biological validation:** Top features include established CeD biomarkers (TGM2, CXCL9, ITGB7, MUC2).
 
-See [analysis/CLAUDE.md](analysis/CLAUDE.md) for the complete case study.
-
 ---
 
 ## Key Design Principles
 
-1. **Discrimination-First with Post-Hoc Calibration** - Optimize AUROC, then calibrate with isotonic regression and prevalence adjustment
+1. **Discrimination-First with Post-Hoc Calibration** - Optimize AUROC, then calibrate with isotonic regression
 2. **Rigorous Validation** - Nested CV, no leakage, three-way split with thresholds on VAL
 3. **Unbiased Calibration** - OOF-posthoc strategy eliminates calibration data leakage
 4. **Ensemble Learning** - Stacking meta-learner combines diverse base models for improved predictions
-5. **Prevalence-Aware** - Models calibrated to deployment prevalence
-6. **Temporal-Aware** - Optional chronological splits prevent future data leakage
-7. **Reproducible** - Fixed seeds, YAML configs, complete provenance tracking
-8. **HPC-Ready** - Non-interactive, resumable, LSF/Slurm array job support
+5. **Temporal-Aware** - Optional chronological splits prevent future data leakage
+6. **Reproducible** - Fixed seeds, YAML configs, complete provenance tracking
+7. **HPC-Ready** - Non-interactive, resumable, LSF/Slurm array job support
 
 ---
 

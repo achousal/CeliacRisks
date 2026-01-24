@@ -20,7 +20,7 @@ prevalent_train_frac: 0.5   # Sample 50% of prevalent cases
 
 # Control downsampling
 train_control_per_case: 5  # 5 controls per case in TRAIN
-eval_control_per_case: 5  # Use all controls in VAL/TEST
+eval_control_per_case: 5  # 5 controls in VAL/TEST
 
 # Temporal splits (optional, for time-based validation)
 # temporal_split: false

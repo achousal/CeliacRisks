@@ -2,7 +2,6 @@
 
 **Status:** Accepted
 **Date:** YYYY-MM-DD
-**Decision Makers:** Elahi Lab + Computational Team
 
 ## Context
 

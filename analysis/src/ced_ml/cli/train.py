@@ -52,10 +52,7 @@ from ced_ml.metrics.thresholds import (
     compute_threshold_bundle,
 )
 from ced_ml.models.calibration import OOFCalibratedModel
-from ced_ml.models.prevalence import (
-    PrevalenceAdjustedModel,
-    adjust_probabilities_for_prevalence,
-)
+from ced_ml.models.prevalence import adjust_probabilities_for_prevalence
 
 # Model modules
 from ced_ml.models.registry import (
@@ -812,17 +809,14 @@ def run_train(
     logger.info(f"Test threshold (from val): {test_metrics['threshold']:.3f}")
 
     # For backward compatibility, use test_target_prev as the canonical target_prev
-    # (used in later sections for model wrapping and logging)
+    # (used in later sections for logging)
     target_prev = test_target_prev
 
-    # Step 13: Wrap in prevalence-adjusted model
-    prevalence_model = PrevalenceAdjustedModel(
-        base_model=final_pipeline,
-        sample_prevalence=train_prev,
-        target_prevalence=target_prev,
-    )
-
-    # Step 14: Save outputs
+    # Step 13: Save outputs
+    # Model saved as-is without wrappers. All training/validation/test sets are at
+    # the same prevalence (16.7%), so no adjustment is needed during pipeline execution.
+    # Note: Real-world deployment prevalence is ~0.34%. Prevalence adjustment for
+    # deployment is a future concern (see ADR-010 and DEPLOYMENT.md).
     log_section(logger, "Saving Results")
 
     writer = ResultsWriter(outdirs)
@@ -835,7 +829,7 @@ def run_train(
     calibration_strategy = config.calibration.get_strategy_for_model(config.model)
 
     model_bundle = {
-        "model": prevalence_model,
+        "model": final_pipeline,
         "scenario": config.scenario,
         "model_name": config.model,
         "thresholds": {
@@ -846,14 +840,11 @@ def run_train(
                 config.thresholds.fixed_spec if hasattr(config.thresholds, "fixed_spec") else None
             ),
         },
-        "prevalence": {
-            # Standardized keys for holdout compatibility
-            "train_sample": train_prev,  # Sample prevalence from training set
-            "target": test_target_prev,  # Target prevalence used for adjustment
-            # Additional keys for detailed tracking
-            "train": train_prev,
-            "val_target": val_target_prev,
-            "test_target": test_target_prev,
+        "metadata": {
+            # Training/test prevalence (all at same 16.7% level after downsampling)
+            "train_prevalence": train_prev,
+            "val_prevalence": val_target_prev,
+            "test_prevalence": test_target_prev,
         },
         "calibration": {
             "enabled": config.calibration.enabled,
@@ -1108,7 +1099,7 @@ def run_train(
         {
             "idx": test_idx,
             "y_true": y_test,
-            "y_prob": prevalence_model.predict_proba(X_test)[:, 1],
+            "y_prob": final_pipeline.predict_proba(X_test)[:, 1],
             "category": cat_test,
         }
     )
@@ -1130,7 +1121,7 @@ def run_train(
         {
             "idx": val_idx,
             "y_true": y_val,
-            "y_prob": prevalence_model.predict_proba(X_val)[:, 1],
+            "y_prob": final_pipeline.predict_proba(X_val)[:, 1],
             "category": cat_val,
         }
     )
