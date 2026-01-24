@@ -2025,12 +2025,13 @@ def run_aggregate_splits(
         logger=logger,
     )
 
-    # Generate ensemble-specific aggregate plots
+    # Generate ensemble-specific aggregate plots and metadata
     if ensemble_dirs and pooled_test_metrics:
         try:
             from ced_ml.plotting.ensemble import (
                 plot_aggregated_weights,
                 plot_model_comparison,
+                save_ensemble_aggregation_metadata,
             )
 
             agg_plots_dir = agg_dir / "diagnostics" / "plots"
@@ -2038,8 +2039,14 @@ def run_aggregate_splits(
 
             # Collect meta-learner coefficients from each ensemble split
             coefs_per_split: dict[int, dict[str, float]] = {}
+            base_models_list = []
+            meta_penalty = "l2"
+            meta_C = 1.0
+
             for ed in ensemble_dirs:
                 settings_path = ed / "core" / "run_settings.json"
+                config_path = ed / "config.yaml"
+
                 if settings_path.exists():
                     try:
                         with open(settings_path) as f:
@@ -2051,7 +2058,24 @@ def run_aggregate_splits(
                     except (json.JSONDecodeError, KeyError) as e:
                         logger.debug(f"Could not read ensemble settings from {ed}: {e}")
 
+                # Extract ensemble config
+                if config_path.exists() and not base_models_list:
+                    try:
+                        import yaml
+
+                        with open(config_path) as f:
+                            config = yaml.safe_load(f)
+                        if "ensemble" in config:
+                            ensemble_cfg = config["ensemble"]
+                            base_models_list = ensemble_cfg.get("base_models", [])
+                            meta_learner_cfg = ensemble_cfg.get("meta_model", {})
+                            meta_penalty = meta_learner_cfg.get("penalty", "l2")
+                            meta_C = meta_learner_cfg.get("C", 1.0)
+                    except Exception as e:
+                        logger.debug(f"Could not read ensemble config from {config_path}: {e}")
+
             if coefs_per_split:
+                # Generate aggregated weights plot
                 plot_aggregated_weights(
                     coefs_per_split=coefs_per_split,
                     out_path=agg_plots_dir / "ensemble_weights_aggregated.png",
@@ -2059,6 +2083,17 @@ def run_aggregate_splits(
                     meta_lines=[f"n_splits={len(coefs_per_split)}"],
                 )
                 logger.info("Aggregated ensemble weights plot saved")
+
+                # Generate and save ensemble metadata JSON
+                save_ensemble_aggregation_metadata(
+                    coefs_per_split=coefs_per_split,
+                    pooled_test_metrics=pooled_test_metrics,
+                    base_models=base_models_list,
+                    meta_penalty=meta_penalty,
+                    meta_C=meta_C,
+                    out_dir=agg_plots_dir,
+                )
+                logger.info("Ensemble aggregation metadata saved")
 
             # Model comparison chart across all discovered models
             if len(pooled_test_metrics) >= 2:
@@ -2499,11 +2534,109 @@ def run_aggregate_splits(
 
     log_section(logger, "Saving Aggregation Metadata")
 
+    # Collect ensemble-specific metadata if ENSEMBLE model present
+    ensemble_metadata = {}
+    if "ENSEMBLE" in all_models and ensemble_dirs:
+        ensemble_coefs_agg = {}
+        ensemble_configs = {}
+
+        for ed in ensemble_dirs:
+            settings_path = ed / "core" / "run_settings.json"
+            config_path = ed / "config.yaml"
+
+            # Extract coefficients
+            if settings_path.exists():
+                try:
+                    with open(settings_path) as f:
+                        settings = json.load(f)
+                    meta_coef = settings.get("meta_coef", {})
+                    split_seed = settings.get("split_seed", 0)
+                    if meta_coef:
+                        ensemble_coefs_agg[split_seed] = meta_coef
+                except Exception as e:
+                    logger.debug(f"Could not read ensemble settings from {ed}: {e}")
+
+            # Extract base model list and meta-learner config
+            if config_path.exists():
+                try:
+                    import yaml
+
+                    with open(config_path) as f:
+                        config = yaml.safe_load(f)
+                    if "ensemble" in config:
+                        ensemble_cfg = config["ensemble"]
+                        split_seed = int(ed.name.replace("split_seed", "").replace("split_", ""))
+                        ensemble_configs[split_seed] = {
+                            "base_models": ensemble_cfg.get("base_models", []),
+                            "meta_penalty": ensemble_cfg.get("meta_model", {}).get("penalty", "l2"),
+                            "meta_C": ensemble_cfg.get("meta_model", {}).get("C", 1.0),
+                        }
+                except Exception as e:
+                    logger.debug(f"Could not read ensemble config from {config_path}: {e}")
+
+        # Aggregate coefficients across splits
+        if ensemble_coefs_agg:
+            all_coef_names = set()
+            for coef_dict in ensemble_coefs_agg.values():
+                all_coef_names.update(coef_dict.keys())
+
+            coef_stats = {}
+            for name in all_coef_names:
+                vals = [cd.get(name) for cd in ensemble_coefs_agg.values() if name in cd]
+                if vals:
+                    coef_stats[name] = {
+                        "mean": float(np.mean(vals)),
+                        "std": float(np.std(vals)),
+                        "min": float(np.min(vals)),
+                        "max": float(np.max(vals)),
+                        "n_splits": len(vals),
+                    }
+
+            ensemble_metadata["meta_learner_coefficients"] = {
+                "aggregated_stats": coef_stats,
+                "per_split": ensemble_coefs_agg,
+                "n_splits_with_coefs": len(ensemble_coefs_agg),
+            }
+
+        # Add ensemble configuration metadata
+        if ensemble_configs:
+            # Get base models from first available config
+            first_config = next(iter(ensemble_configs.values()), {})
+            ensemble_metadata["ensemble_config"] = {
+                "base_models": first_config.get("base_models", []),
+                "n_base_models": len(first_config.get("base_models", [])),
+                "meta_penalty": first_config.get("meta_penalty", "l2"),
+                "meta_C": first_config.get("meta_C", 1.0),
+                "n_splits_with_config": len(ensemble_configs),
+            }
+
+        # Add ENSEMBLE model performance vs best single model
+        if "ENSEMBLE" in pooled_test_metrics and len(all_models) > 1:
+            ensemble_test = pooled_test_metrics["ENSEMBLE"]
+            base_models_test = {m: pooled_test_metrics[m] for m in all_models if m != "ENSEMBLE"}
+
+            if base_models_test:
+                best_base_auroc = max(
+                    (m.get("AUROC", 0) for m in base_models_test.values()), default=0
+                )
+                ensemble_auroc = ensemble_test.get("AUROC", 0)
+
+                if best_base_auroc > 0:
+                    improvement = ((ensemble_auroc - best_base_auroc) / best_base_auroc) * 100
+                    ensemble_metadata["performance"] = {
+                        "test_AUROC": ensemble_auroc,
+                        "best_base_model_AUROC": best_base_auroc,
+                        "AUROC_improvement_percent": improvement,
+                        "test_PR_AUC": ensemble_test.get("PR_AUC"),
+                        "test_Brier": ensemble_test.get("Brier"),
+                    }
+
     agg_metadata: dict[str, Any] = {
         "timestamp": datetime.now().isoformat(),
         "n_splits": n_splits,
         "split_seeds": split_seeds,
         "models": all_models,
+        "n_models": len(all_models),
         "n_boot": n_boot,
         "stability_threshold": stability_threshold,
         "target_specificity": target_specificity,
@@ -2512,6 +2645,7 @@ def run_aggregate_splits(
             "val": pooled_val_metrics,  # Now keyed by model
         },
         "thresholds": threshold_info,  # Now keyed by model
+        "ensemble": ensemble_metadata if ensemble_metadata else None,
         "feature_consensus": {
             "n_features_analyzed": (
                 len(feature_stability_df) if not feature_stability_df.empty else 0

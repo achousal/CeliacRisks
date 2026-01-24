@@ -618,7 +618,7 @@ def test_collect_oof_predictions_from_files():
             oof_df.to_csv(model_dir / f"train_oof__{model}.csv", index=False)
 
         # Collect
-        oof_dict, y_train, train_idx = collect_oof_predictions(
+        oof_dict, y_train, train_idx, cat_train = collect_oof_predictions(
             results_dir,
             base_models=["LR_EN", "RF"],
             split_seed=0,
@@ -629,6 +629,7 @@ def test_collect_oof_predictions_from_files():
         assert oof_dict["LR_EN"].shape == (2, 100)  # 2 repeats, 100 samples
         assert len(y_train) == 100
         assert len(train_idx) == 100
+        assert cat_train is None  # No category column in test data
 
 
 def test_collect_oof_predictions_index_length_mismatch():
@@ -835,7 +836,7 @@ def test_collect_oof_predictions_matching_indices_succeeds():
             ).to_csv(model_dir / f"train_oof__{model}.csv", index=False)
 
         # Should succeed without error
-        oof_dict, y_train, train_idx = collect_oof_predictions(
+        oof_dict, y_train, train_idx, cat_train = collect_oof_predictions(
             results_dir,
             base_models=["LR_EN", "RF", "XGBoost"],
             split_seed=0,
@@ -844,6 +845,7 @@ def test_collect_oof_predictions_matching_indices_succeeds():
         assert len(oof_dict) == 3
         assert len(y_train) == 100
         np.testing.assert_array_equal(train_idx, shared_indices)
+        assert cat_train is None  # No category column in test data
 
 
 def test_ensemble_predictions_directory_structure():

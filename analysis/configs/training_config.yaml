@@ -5,11 +5,11 @@ scenario: IncidentPlusPrevalent  # Options: IncidentOnly, PrevalentOnly, Inciden
 
 # Cross-validation
 cv:
-  folds: 5
-  repeats: 10
+  folds: 2
+  repeats: 2
   scoring: roc_auc  # Options: roc_auc, average_precision, neg_brier_score
   # n_iter: 2  # Default RandomizedSearchCV iterations (can be overridden per-model below)
-  inner_folds: 5
+  inner_folds: 2
   n_jobs: -1  # Use all available CPUs
   random_state: 42
   grid_randomize: true  # Randomize numeric grid values for more diverse search
@@ -93,7 +93,7 @@ lr:
   max_iter: 5000            # Max iterations for convergence (increase if seeing warnings)
 
   # Search algorithm settings:
-  n_iter: 4                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
+  n_iter: 2                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
 
 # Linear SVM (LinSVM_cal) - wrapped in CalibratedClassifierCV
 svm:
@@ -110,7 +110,7 @@ svm:
   max_iter: 5000            # SVM convergence iterations (increase if seeing warnings)
 
   # Search algorithm settings:
-  n_iter: 6                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
+  n_iter: 2                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
 
 # Random Forest (RF)
 rf:

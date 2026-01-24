@@ -14,15 +14,15 @@ paths:
 # Configs
 configs:
   splits: configs/splits_config.yaml
-  training: configs/training_config_L2_multiobjective_fast.yaml
+  training: configs/training_config.yaml
 
 # Execution
 execution:
   models:
     - LR_EN
     - LinSVM_cal
-    - RF
-    - XGBoost
+    # - RF
+    # - XGBoost
   n_boot: 200  # Bootstrap iterations for L2 (adequate for ranking)
   overwrite_splits: false
   dry_run: false

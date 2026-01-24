@@ -635,7 +635,7 @@ def collect_oof_predictions(
     split_seed: int,
     scenario: str = "IncidentOnly",
     run_id: str | None = None,
-) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
+) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray, np.ndarray | None]:
     """Collect OOF predictions from trained base models.
 
     Args:
@@ -649,6 +649,7 @@ def collect_oof_predictions(
         oof_dict: Dict mapping model name to OOF predictions
         y_train: Training labels (from first model)
         train_idx: Training indices (from first model)
+        category: Category labels (Controls/Incident/Prevalent), or None if not available
 
     Raises:
         FileNotFoundError: If OOF predictions file not found for any model
@@ -657,6 +658,7 @@ def collect_oof_predictions(
     oof_dict = {}
     y_train = None
     train_idx = None
+    category = None
     reference_model = None
 
     for model_name in base_models:
@@ -681,10 +683,13 @@ def collect_oof_predictions(
 
         current_idx = oof_df["idx"].values
 
-        # Get labels and indices from first model, validate subsequent models match
+        # Get labels, indices, and category from first model, validate subsequent models match
         if y_train is None:
             y_train = oof_df["y_true"].values
             train_idx = current_idx
+            # Load category if available (Controls/Incident/Prevalent)
+            if "category" in oof_df.columns:
+                category = oof_df["category"].values
             reference_model = model_name
         else:
             # Validate that this model's indices match the reference model
@@ -694,7 +699,7 @@ def collect_oof_predictions(
 
         logger.info(f"Loaded OOF predictions for {model_name}: shape {preds.shape}")
 
-    return oof_dict, y_train, train_idx
+    return oof_dict, y_train, train_idx, category
 
 
 def collect_split_predictions(
@@ -704,7 +709,7 @@ def collect_split_predictions(
     split_name: str = "test",
     run_id: str | None = None,
     calibration_info: dict[str, CalibrationInfo] | None = None,
-) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
+) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray, np.ndarray | None]:
     """Collect validation or test predictions from trained base models.
 
     Args:
@@ -720,6 +725,7 @@ def collect_split_predictions(
         preds_dict: Dict mapping model name to predictions (calibrated if applicable)
         y_true: True labels
         indices: Sample indices
+        category: Category labels (Controls/Incident/Prevalent), or None if not available
 
     Raises:
         FileNotFoundError: If predictions file not found for any model
@@ -728,6 +734,7 @@ def collect_split_predictions(
     preds_dict = {}
     y_true = None
     indices = None
+    category = None
     reference_model = None
 
     for model_name in base_models:
@@ -754,10 +761,13 @@ def collect_split_predictions(
         else:
             preds_dict[model_name] = raw_preds
 
-        # Get labels and indices from first model, validate subsequent models match
+        # Get labels, indices, and category from first model, validate subsequent models match
         if y_true is None:
             y_true = pred_df["y_true"].values
             indices = current_idx
+            # Load category if available (Controls/Incident/Prevalent)
+            if "category" in pred_df.columns:
+                category = pred_df["category"].values
             reference_model = model_name
         else:
             # Validate that this model's indices match the reference model
@@ -767,7 +777,7 @@ def collect_split_predictions(
 
         logger.info(f"Loaded {split_name} predictions for {model_name}")
 
-    return preds_dict, y_true, indices
+    return preds_dict, y_true, indices, category
 
 
 def train_stacking_ensemble(
@@ -893,15 +903,21 @@ def save_ensemble_results(
     results: dict[str, Any],
     output_dir: Path,
     scenario: str = "IncidentOnly",
+    git_version: str | None = None,
+    timestamp: str | None = None,
 ) -> None:
-    """Save ensemble model and results to disk.
+    """Save ensemble model and results to disk with comprehensive metadata.
 
     Args:
         ensemble: Fitted stacking ensemble
         results: Results dict from train_stacking_ensemble
         output_dir: Output directory
         scenario: Scenario name
+        git_version: Optional git commit hash for reproducibility
+        timestamp: Optional timestamp for run metadata
     """
+    from datetime import datetime
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -934,16 +950,63 @@ def save_ensemble_results(
         test_df.to_csv(test_path, index=False)
         logger.info(f"Test predictions saved: {test_path}")
 
-    # Save metadata
+    # Build comprehensive metadata
+    now = timestamp or datetime.now().isoformat()
+
     meta = {
+        # Model configuration
+        "model": "ENSEMBLE",
         "base_models": results["base_models"],
-        "split_seed": results["split_seed"],
+        "n_base_models": len(results["base_models"]),
+        "scenario": scenario,
+        # Meta-learner configuration
         "meta_penalty": results["meta_penalty"],
         "meta_C": results["meta_C"],
         "meta_coef": results.get("meta_coef", {}),
-        "scenario": scenario,
+        # Split information
+        "split_seed": results["split_seed"],
+        # Calibration strategies of base models
+        "calibration_strategies": results.get("calibration_strategies", {}),
+        # Provenance
+        "timestamp": now,
+        "git_version": git_version,
+        # Data summary
+        "n_train_samples": len(results.get("y_train", [])),
+        "train_prevalence": (
+            float(np.mean(results.get("y_train", [])))
+            if results.get("y_train", []) is not None
+            else None
+        ),
+        # Prediction summary
+        "n_val_samples": len(results.get("y_val", [])) if "y_val" in results else None,
+        "val_prevalence": (
+            float(np.mean(results.get("y_val", [])))
+            if results.get("y_val", []) is not None
+            else None
+        ),
+        "n_test_samples": len(results.get("y_test", [])) if "y_test" in results else None,
+        "test_prevalence": (
+            float(np.mean(results.get("y_test", [])))
+            if results.get("y_test", []) is not None
+            else None
+        ),
     }
+
     meta_path = output_dir / "ensemble_metadata.json"
     with open(meta_path, "w") as f:
-        json.dump(meta, f, indent=2)
+        json.dump(meta, f, indent=2, default=str)
     logger.info(f"Ensemble metadata saved: {meta_path}")
+
+    # Also save run settings (like train.py does for single models)
+    run_settings = {
+        "split_seed": results["split_seed"],
+        "base_models": results["base_models"],
+        "meta_penalty": results["meta_penalty"],
+        "meta_C": results["meta_C"],
+        "meta_coef": results.get("meta_coef", {}),
+        "timestamp": now,
+    }
+    settings_path = output_dir / "run_settings.json"
+    with open(settings_path, "w") as f:
+        json.dump(run_settings, f, indent=2, default=str)
+    logger.info(f"Run settings saved: {settings_path}")

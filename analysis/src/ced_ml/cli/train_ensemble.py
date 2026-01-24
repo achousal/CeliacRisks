@@ -291,7 +291,7 @@ def run_train_ensemble(
 
     # Collect OOF predictions
     log_section(logger, "Collecting OOF Predictions")
-    oof_dict, y_train, train_idx = collect_oof_predictions(
+    oof_dict, y_train, train_idx, cat_train = collect_oof_predictions(
         results_path, available_models, split_seed
     )
 
@@ -331,11 +331,14 @@ def run_train_ensemble(
         "meta_coef": coef,
         "random_state": random_state,
         "calibration_strategies": {name: info.strategy for name, info in calibration_info.items()},
+        "y_train": y_train,
+        "train_idx": train_idx,
+        "cat_train": cat_train,
     }
 
     # Validation set (apply calibration to base model predictions)
     try:
-        val_preds_dict, y_val, val_idx = collect_split_predictions(
+        val_preds_dict, y_val, val_idx, cat_val = collect_split_predictions(
             results_path,
             available_models,
             split_seed,
@@ -348,6 +351,7 @@ def run_train_ensemble(
         results["val_proba"] = val_proba
         results["y_val"] = y_val
         results["val_idx"] = val_idx
+        results["cat_val"] = cat_val
 
         val_metrics = compute_ensemble_metrics(y_val, val_proba, "val")
         results["val_metrics"] = val_metrics
@@ -358,7 +362,7 @@ def run_train_ensemble(
 
     # Test set (apply calibration to base model predictions)
     try:
-        test_preds_dict, y_test, test_idx = collect_split_predictions(
+        test_preds_dict, y_test, test_idx, cat_test = collect_split_predictions(
             results_path,
             available_models,
             split_seed,
@@ -371,6 +375,7 @@ def run_train_ensemble(
         results["test_proba"] = test_proba
         results["y_test"] = y_test
         results["test_idx"] = test_idx
+        results["cat_test"] = cat_test
 
         test_metrics = compute_ensemble_metrics(y_test, test_proba, "test")
         results["test_metrics"] = test_metrics
@@ -435,6 +440,9 @@ def run_train_ensemble(
                 "y_prob": results["val_proba"],
             }
         )
+        # Add category if available
+        if "cat_val" in results and results["cat_val"] is not None:
+            val_df["category"] = results["cat_val"]
         val_path = preds_val_dir / "val_preds__ENSEMBLE.csv"
         val_df.to_csv(val_path, index=False)
         logger.info(f"Validation predictions saved: {val_path}")
@@ -447,15 +455,25 @@ def run_train_ensemble(
                 "y_prob": results["test_proba"],
             }
         )
+        # Add category if available
+        if "cat_test" in results and results["cat_test"] is not None:
+            test_df["category"] = results["cat_test"]
         test_path = preds_test_dir / "test_preds__ENSEMBLE.csv"
         test_df.to_csv(test_path, index=False)
         logger.info(f"Test predictions saved: {test_path}")
 
     # Save OOF predictions (aggregated meta-features used for training)
     oof_meta = ensemble._build_meta_features(oof_dict, aggregate_repeats=True)
+    # Get ensemble predictions on OOF meta-features
+    oof_proba_for_csv = ensemble.predict_proba(oof_meta)[:, 1]
+
     oof_df = pd.DataFrame(oof_meta, columns=[f"oof_{m}" for m in available_models])
     oof_df["idx"] = train_idx
     oof_df["y_true"] = y_train
+    oof_df["y_prob"] = oof_proba_for_csv  # Add ensemble's own predictions
+    # Add category if available
+    if cat_train is not None:
+        oof_df["category"] = cat_train
     oof_path = preds_train_oof_dir / "train_oof__ENSEMBLE.csv"
     oof_df.to_csv(oof_path, index=False)
     logger.info(f"OOF predictions saved: {oof_path}")
@@ -560,11 +578,19 @@ def run_train_ensemble(
                 title="ENSEMBLE - Validation DCA",
                 meta_lines=meta_lines_plot,
             )
+            # Get category for validation set if available
+            cat_val_arr = (
+                np.asarray(results["cat_val"])
+                if "cat_val" in results and results["cat_val"] is not None
+                else None
+            )
+
             plot_risk_distribution(
                 y_true=y_val_arr,
                 scores=val_proba_arr,
                 out_path=diag_plots_dir / f"ENSEMBLE__val_risk_dist.{plot_format}",
                 title="ENSEMBLE - Validation Risk Distribution",
+                category_col=cat_val_arr,
                 threshold_bundle=val_bundle,
                 meta_lines=meta_lines_plot,
             )
@@ -608,11 +634,19 @@ def run_train_ensemble(
                 title="ENSEMBLE - Test DCA",
                 meta_lines=meta_lines_plot,
             )
+            # Get category for test set if available
+            cat_test_arr = (
+                np.asarray(results["cat_test"])
+                if "cat_test" in results and results["cat_test"] is not None
+                else None
+            )
+
             plot_risk_distribution(
                 y_true=y_test_arr,
                 scores=test_proba_arr,
                 out_path=diag_plots_dir / f"ENSEMBLE__test_risk_dist.{plot_format}",
                 title="ENSEMBLE - Test Risk Distribution",
+                category_col=cat_test_arr,
                 threshold_bundle=test_bundle,
                 meta_lines=meta_lines_plot,
             )
@@ -682,6 +716,9 @@ def run_train_ensemble(
                     dca_threshold=oof_dca_thr,
                 )
 
+                # Get category for training set if available
+                cat_train_arr = cat_train if cat_train is not None else None
+
                 plot_risk_distribution(
                     y_true=y_train_arr,
                     scores=oof_proba,
@@ -689,6 +726,7 @@ def run_train_ensemble(
                     / f"ENSEMBLE__TRAIN_OOF_risk_distribution.{plot_format}",
                     title="ENSEMBLE - Train OOF",
                     subtitle="Risk Score Distribution (meta-learner on OOF meta-features)",
+                    category_col=cat_train_arr,
                     meta_lines=meta_lines_plot,
                     threshold_bundle=oof_bundle,
                 )

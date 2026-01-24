@@ -126,6 +126,7 @@ def plot_model_comparison(
 
     Shows AUROC, PR-AUC, and Brier side by side for all models.
     The ensemble model is highlighted with a distinct edge/hatch.
+    Includes robust metadata tracking for reproducibility.
 
     Args:
         metrics: Dict mapping model name to dict of metric values.
@@ -232,11 +233,25 @@ def plot_model_comparison(
         full_title += f"\n{subtitle}"
     fig.suptitle(full_title, fontsize=13, fontweight="bold", y=1.02)
 
+    # Add summary statistics to metadata
+    base_meta_lines = meta_lines or []
+    summary_lines = [
+        f"n_models={n_models}",
+        f"highlight={highlight_model}",
+    ]
+    # Add best model info
+    if "AUROC" in metric_names:
+        auroc_values = {m: valid_models[m].get("AUROC", 0) for m in model_names}
+        best_model = max(auroc_values, key=auroc_values.get)
+        best_auroc = auroc_values[best_model]
+        summary_lines.append(f"best_model={best_model} (AUROC={best_auroc:.4f})")
+    all_meta_lines = base_meta_lines + summary_lines
+
     # Apply metadata lines
-    if meta_lines:
+    if all_meta_lines:
         from ced_ml.plotting.dca import apply_plot_metadata
 
-        apply_plot_metadata(fig, meta_lines)
+        apply_plot_metadata(fig, all_meta_lines)
 
     plt.tight_layout()
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
@@ -253,7 +268,8 @@ def plot_aggregated_weights(
 ) -> None:
     """Plot meta-learner coefficients aggregated across splits with error bars.
 
-    Shows mean coefficient +/- 1 SD across multiple split seeds.
+    Shows mean coefficient +/- 1 SD across multiple split seeds. Includes robust
+    metadata tracking for reproducibility.
 
     Args:
         coefs_per_split: Dict mapping split_seed to coefficient dict.
@@ -313,13 +329,14 @@ def plot_aggregated_weights(
     ax.set_xlabel("Coefficient (mean +/- SD)", fontsize=11)
     ax.axvline(0, color="grey", linewidth=0.8, linestyle="--", alpha=0.6)
 
-    # Annotate mean values
+    # Annotate mean values with count
     max_extent = max(abs(means).max() + stds.max(), 0.01)
     for i, (m, s) in enumerate(zip(means, stds, strict=True)):
         offset = 0.02 * max_extent
         ha = "left" if m >= 0 else "right"
         x_pos = m + s + offset if m >= 0 else m - s - offset
-        ax.text(x_pos, i, f"{m:.3f}", va="center", ha=ha, fontsize=9)
+        n_splits_with_model = sum(1 for cd in coefs_per_split.values() if sorted_names[i] in cd)
+        ax.text(x_pos, i, f"{m:.3f} (n={n_splits_with_model})", va="center", ha=ha, fontsize=9)
 
     # Title
     n_splits = len(coefs_per_split)
@@ -330,13 +347,131 @@ def plot_aggregated_weights(
         full_title += f"\n(n_splits={n_splits})"
     ax.set_title(full_title, fontsize=12, fontweight="bold")
 
+    # Add summary statistics to metadata
+    base_meta_lines = meta_lines or []
+    summary_lines = [
+        f"n_splits={n_splits}",
+        f"n_base_models={len(all_names)}",
+        f"coef_range=[{means.min():.3f}, {means.max():.3f}]",
+    ]
+    all_meta_lines = base_meta_lines + summary_lines
+
     # Apply metadata lines
-    if meta_lines:
+    if all_meta_lines:
         from ced_ml.plotting.dca import apply_plot_metadata
 
-        apply_plot_metadata(fig, meta_lines)
+        apply_plot_metadata(fig, all_meta_lines)
 
     plt.tight_layout()
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     logger.info(f"Aggregated weights plot saved: {out_path}")
+
+
+def save_ensemble_aggregation_metadata(
+    coefs_per_split: dict[int, dict[str, float]],
+    pooled_test_metrics: dict[str, dict[str, float]] | None = None,
+    base_models: list[str] | None = None,
+    meta_penalty: str = "l2",
+    meta_C: float = 1.0,
+    out_dir: Path | str | None = None,
+) -> dict[str, any]:
+    """Generate and save comprehensive ensemble aggregation metadata.
+
+    Creates a JSON file with ensemble coefficient statistics, performance metrics,
+    and configuration for reproducibility and interpretation of aggregated figures.
+
+    Args:
+        coefs_per_split: Dict mapping split_seed to coefficient dict
+        pooled_test_metrics: Optional dict of test metrics by model
+        base_models: List of base model names
+        meta_penalty: Meta-learner penalty type
+        meta_C: Meta-learner C value
+        out_dir: Optional output directory for metadata JSON
+
+    Returns:
+        Dict with ensemble aggregation metadata
+    """
+    import json
+    from datetime import datetime
+
+    # Compute coefficient statistics
+    all_names: set[str] = set()
+    for coef_dict in coefs_per_split.values():
+        all_names.update(coef_dict.keys())
+
+    coef_stats = {}
+    for name in all_names:
+        vals = [coef_dict[name] for coef_dict in coefs_per_split.values() if name in coef_dict]
+        if vals:
+            coef_stats[name] = {
+                "mean": float(np.mean(vals)),
+                "std": float(np.std(vals)),
+                "min": float(np.min(vals)),
+                "max": float(np.max(vals)),
+                "median": float(np.median(vals)),
+                "n_splits": len(vals),
+            }
+
+    # Build metadata dict
+    metadata = {
+        "timestamp": datetime.now().isoformat(),
+        "ensemble_type": "stacking",
+        "meta_learner": {
+            "type": "logistic_regression",
+            "penalty": meta_penalty,
+            "C": meta_C,
+        },
+        "base_models": base_models or [],
+        "n_base_models": len(base_models) if base_models else 0,
+        "aggregation": {
+            "n_splits": len(coefs_per_split),
+            "split_seeds": sorted(coefs_per_split.keys()),
+        },
+        "meta_learner_coefficients": coef_stats,
+        "coefficient_summary": {
+            "n_coefficients": len(coef_stats),
+            "positive_count": sum(1 for s in coef_stats.values() if s["mean"] >= 0),
+            "negative_count": sum(1 for s in coef_stats.values() if s["mean"] < 0),
+            "mean_range": [
+                float(min((s["mean"] for s in coef_stats.values()), default=0)),
+                float(max((s["mean"] for s in coef_stats.values()), default=0)),
+            ],
+        },
+    }
+
+    # Add performance comparison if available
+    if pooled_test_metrics and "ENSEMBLE" in pooled_test_metrics:
+        ensemble_perf = pooled_test_metrics["ENSEMBLE"]
+        base_models_perf = {
+            m: pooled_test_metrics[m] for m in pooled_test_metrics if m != "ENSEMBLE"
+        }
+
+        best_base_auroc = max((m.get("AUROC", 0) for m in base_models_perf.values()), default=0)
+        ensemble_auroc = ensemble_perf.get("AUROC", 0)
+
+        metadata["performance_comparison"] = {
+            "ensemble_auroc": ensemble_auroc,
+            "best_base_model_auroc": best_base_auroc,
+            "auroc_improvement": ensemble_auroc - best_base_auroc,
+            "auroc_improvement_percent": (
+                ((ensemble_auroc - best_base_auroc) / best_base_auroc * 100)
+                if best_base_auroc > 0
+                else 0
+            ),
+            "ensemble_prauc": ensemble_perf.get("PR_AUC"),
+            "ensemble_brier": ensemble_perf.get("Brier"),
+        }
+
+    # Save metadata JSON if output dir provided
+    if out_dir:
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        metadata_path = out_dir / "ensemble_aggregation_metadata.json"
+
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f, indent=2, default=str)
+
+        logger.info(f"Ensemble aggregation metadata saved: {metadata_path}")
+
+    return metadata
