@@ -10,7 +10,7 @@ After running `run_hpc.sh`, you noticed:
 
 ## Solution: Post-Training Pipeline
 
-A new automated workflow handles everything after base model training:
+A automated workflow handles everything after base model training:
 
 ```bash
 cd analysis/
