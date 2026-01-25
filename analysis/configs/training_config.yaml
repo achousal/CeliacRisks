@@ -5,15 +5,16 @@ scenario: IncidentPlusPrevalent  # Options: IncidentOnly, PrevalentOnly, Inciden
 
 # Cross-validation
 cv:
-  folds: 2
+  folds: 3
   repeats: 2
   scoring: roc_auc  # Options: roc_auc, average_precision, neg_brier_score
   # n_iter: 2  # Default RandomizedSearchCV iterations (can be overridden per-model below)
-  inner_folds: 2
+  inner_folds: 3
   n_jobs: -1  # Use all available CPUs
   random_state: 42
   grid_randomize: true  # Randomize numeric grid values for more diverse search
   verbose: 1
+  # Local testing: 3 folds x 2 repeats = 6 CV splits (lightweight)
 
 # Ensemble configuration (stacking multiple models)
 # NOTE: Ensemble training is now a separate CLI command: `ced train-ensemble`
@@ -33,24 +34,24 @@ ensemble:
 
 # Optuna hyperparameter optimization (optional alternative to RandomizedSearchCV)
 optuna:
-  enabled: false  # Set to true to use Optuna instead of RandomizedSearchCV
-  n_trials: 10  # Number of hyperparameter trials
+  enabled: true  # Set to true to use Optuna instead of RandomizedSearchCV
+  n_trials: 20  # Number of hyperparameter trials (exploratory local testing)
   timeout: null  # Optional timeout in seconds (null = no limit)
   sampler: tpe  # Options: tpe, random, cmaes, grid
   sampler_seed: 42  # Seed for reproducibility
   pruner: hyperband  # Options: median, percentile, hyperband, none
   pruner_n_startup_trials: 5  # Number of trials before pruning starts
-  pruner_percentile: 25.0  # Percentile for percentile pruner (0-100)
+  pruner_percentile: 20.0  # Percentile for percentile pruner (0-100)
   n_jobs: -1  # Number of parallel jobs for Optuna
   save_study: true  # Save Optuna study object
   save_trials_csv: true  # Save trials as CSV
 
 # Feature selection
 features:
-  feature_select: kbest  # "none", "kbest", "l1_stability", "hybrid"
+  feature_select: hybrid  # "none", "kbest", "l1_stability", "hybrid" (exploratory)
   kbest_scope: protein
-  kbest_max: 100  # Fallback max k (if k_grid not provided)
-  k_grid: [25, 50, 100]  # Tuned k values during CV
+  kbest_max: 800  # Expanded for exploration
+  k_grid: [25, 50, 100, 150, 200, 300, 400]  # Expanded exploratory k values
   l1_c_min: 0.001  # For l1_stability method
   l1_c_max: 1.0
   l1_c_points: 4
@@ -60,10 +61,10 @@ features:
 
   # Screening (two-stage: Mann-Whitney top-N, then k_grid tuning)
   screen_method: mannwhitney  # "mannwhitney" or "f_classif"
-  screen_top_n: 1000  # 0 = no screening. Stage 1: Mann-Whitney → keep top 1000
+  screen_top_n: 1000  # Stage 1: Mann-Whitney → keep top 1000
 
   # Stability selection
-  stability_thresh: 0.75  # Minimum frequency across folds
+  stability_thresh: 0.70  # Slightly relaxed threshold for exploration
 
   # Correlation pruning
   stable_corr_thresh: 0.85  # Remove features with r > 0.85
@@ -78,57 +79,56 @@ features:
 # Logistic Regression (LR_EN, LR_L1)
 lr:
   # Tuned parameters (explored by RandomizedSearchCV/Optuna):
-  C_min: 0.001             # Min regularization strength (log-spaced)
-  C_max: 1.0              # Max regularization strength
-  C_points: 10               # Number of C values in search grid
-  l1_ratio: [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5] # ElasticNet mixing (0=L2, 1=L1) - tuned for LR_EN only
+  C_min: 0.0001            # Expanded range for exploration
+  C_max: 10.0              # (was 1.0)
+  C_points: 20             # (was 10)
+  l1_ratio: [0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0] # Expanded to include L1-heavy
   class_weight_options: "balanced"  # Options: "None", "balanced", "{0:1,1:5}"
 
   # Optuna-specific ranges (optional, override C_min/C_max):
-  # optuna_C: [1.0e-5, 100.0]                 # (min, max) for C (log-scale sampling)
-  # optuna_l1_ratio: [0.0, 1.0]               # (min, max) for l1_ratio (continuous)
+  optuna_C: [1.0e-5, 100.0]         # Expanded for exploratory search
+  optuna_l1_ratio: [0.0, 1.0]        # Full range
 
   # Fixed parameters (used as baseline for all trials):
   solver: saga              # Solver supporting L1/ElasticNet
-  max_iter: 5000            # Max iterations for convergence (increase if seeing warnings)
+  max_iter: 10000           # Increased for convergence (was 5000)
 
   # Search algorithm settings:
-  n_iter: 2                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
+  n_iter: 4                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
 
 # Linear SVM (LinSVM_cal) - wrapped in CalibratedClassifierCV
 svm:
   # Tuned parameters (explored by RandomizedSearchCV/Optuna):
-  C_min: 0.001               # Min regularization
-  C_max: 1.0               # Max regularization
-  C_points: 10               # Number of C values
+  C_min: 0.0001             # Expanded range
+  C_max: 10.0               # (was 1.0)
+  C_points: 15              # (was 10)
   class_weight_options: "balanced"
 
   # Optuna-specific ranges (optional, override C_min/C_max):
-  # optuna_C: [1.0e-3, 100.0]                 # (min, max) for C (log-scale sampling)
+  optuna_C: [1.0e-4, 100.0]         # Expanded for exploration
 
   # Fixed parameters (used as baseline for all trials):
-  max_iter: 5000            # SVM convergence iterations (increase if seeing warnings)
+  max_iter: 10000           # Increased for convergence (was 5000)
 
   # Search algorithm settings:
-  n_iter: 2                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
+  n_iter: 6                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
 
 # Random Forest (RF)
 rf:
   # Tuned parameters (explored by RandomizedSearchCV/Optuna):
-  n_estimators_grid: [100, 300, 500]          # Number of trees
-  max_depth_grid: [null, 10, 20, 30]          # Tree depth (null = unlimited)
-  min_samples_split_grid: [2, 5, 10]          # Min samples to split node
-  min_samples_leaf_grid: [1, 2, 4]            # Min samples in leaf
-  max_features_grid: ["sqrt", "log2", 0.5]    # Features per split
+  n_estimators_grid: [100, 300, 500, 700]    # Expanded (was [100, 300, 500])
+  max_depth_grid: [null, 10, 20, 30, 50]     # Expanded (was [null, 10, 20, 30])
+  min_samples_split_grid: [2, 5, 10, 20]     # Expanded (was [2, 5, 10])
+  min_samples_leaf_grid: [1, 2, 4, 8]        # Expanded (was [1, 2, 4])
+  max_features_grid: ["sqrt", "log2", 0.3, 0.5, 0.7]  # Expanded (was ["sqrt", "log2", 0.5])
   class_weight_options: "balanced"
 
   # Optuna-specific ranges (optional, override grid-derived ranges)
-  # Uncomment to enable wider continuous search with Optuna:
-  # optuna_n_estimators: [50, 500]            # (min, max) for n_estimators
-  # optuna_max_depth: [3, 20]                 # (min, max) for max_depth
-  # optuna_min_samples_split: [2, 20]         # (min, max) for min_samples_split
-  # optuna_min_samples_leaf: [1, 10]          # (min, max) for min_samples_leaf
-  # optuna_max_features: [0.1, 1.0]           # (min, max) fraction for max_features
+  optuna_n_estimators: [100, 800]            # Exploratory range
+  optuna_max_depth: [5, 50]                  # Exploratory range
+  optuna_min_samples_split: [2, 30]          # Exploratory range
+  optuna_min_samples_leaf: [1, 15]           # Exploratory range
+  optuna_max_features: [0.05, 0.8]           # Exploratory range
 
   # Search algorithm settings:
   n_iter: 2                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
@@ -136,40 +136,27 @@ rf:
 # XGBoost
 xgboost:
   # Tuned parameters (explored by RandomizedSearchCV/Optuna):
-  n_estimators_grid: [100, 200, 400, 800, 1200]        # Boosting rounds (need larger range w/o early stopping)
-  max_depth_grid: [3, 4, 5, 6, 7, 8]                   # Tree depth (drop 10 for stability; add mid-depths)
-  learning_rate_grid: [0.02, 0.05, 0.1, 0.2]           # Step size (remove 0.01/0.3 since n_estimators is fixed)
-  subsample_grid: [0.7, 0.85, 1.0]                     # Row subsampling (slightly denser)
-  colsample_bytree_grid: [0.7, 0.85, 1.0]              # Column subsampling (slightly denser)
-  scale_pos_weight_grid: [2.0, 3.0, 4.0, 5.0, 6.0, 7.0] # Class imbalance (covers your best ~3–7 region)
-  min_child_weight_grid: [1, 2, 4, 6, 10]              # Min child weight (wider for generalization)
-  gamma_grid: [0.0, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0]     # Min split loss (wider than 0.3 cap)
-  reg_alpha_grid: [0.0, 0.001, 0.01, 0.1, 1.0]         # L1 regularization (log-ish coverage + 0)
-  reg_lambda_grid: [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0] # L2 regularization (extends beyond 5)
-
-  # n_estimators_grid: [100, 300, 500]          # Boosting rounds
-  # max_depth_grid: [3, 5, 7, 10]               # Tree depth
-  # learning_rate_grid: [0.01, 0.05, 0.1, 0.3]  # Step size shrinkage
-  # subsample_grid: [0.7, 0.8, 1.0]             # Row subsampling
-  # colsample_bytree_grid: [0.7, 0.8, 1.0]      # Column subsampling
-  # scale_pos_weight_grid: [1.0, 2.0, 5.0]      # Class imbalance handling
-  # min_child_weight_grid: [1, 3, 5]            # Regularization: min child weight
-  # gamma_grid: [0.0, 0.1, 0.3]                 # Regularization: min split loss
-  # reg_alpha_grid: [0.0, 0.01, 0.1]            # L1 regularization
-  # reg_lambda_grid: [1.0, 2.0, 5.0]
+  n_estimators_grid: [100, 200, 400, 800, 1200]        # Boosting rounds
+  max_depth_grid: [3, 4, 5, 6, 7, 8]                   # Tree depth
+  learning_rate_grid: [0.01, 0.03, 0.05, 0.1, 0.2]     # Exploratory learning rates
+  subsample_grid: [0.5, 0.7, 0.85, 1.0]                # Expanded row subsampling
+  colsample_bytree_grid: [0.3, 0.5, 0.7, 0.85, 1.0]    # Expanded column subsampling
+  scale_pos_weight_grid: [3.0, 5.0, 6.0, 7.0, 10.0]    # Expanded class weight range
+  min_child_weight_grid: [1, 2, 4, 6, 10]              # Min child weight
+  gamma_grid: [0.0, 0.05, 0.1, 0.5, 1.0, 2.0]          # Expanded min split loss
+  reg_alpha_grid: [0.0, 0.001, 0.01, 0.1, 1.0]         # L1 regularization
+  reg_lambda_grid: [0.01, 0.1, 1.0, 5.0, 10.0, 50.0]   # Expanded L2 regularization
 
   # Optuna-specific ranges (optional, override grid-derived ranges)
-  # These enable wider continuous search with proper log-scale sampling.
-  # Uncomment to customize ranges (defaults are used if not specified):
-  # optuna_n_estimators: [50, 500]            # (min, max) for n_estimators
-  # optuna_max_depth: [2, 12]                 # (min, max) for max_depth
-  # optuna_learning_rate: [0.001, 0.3]        # (min, max) for learning_rate (log-scale)
-  # optuna_min_child_weight: [0.1, 10.0]      # (min, max) for min_child_weight (log-scale)
-  # optuna_gamma: [0.0, 1.0]                  # (min, max) for gamma
-  # optuna_subsample: [0.5, 1.0]              # (min, max) for subsample
-  # optuna_colsample_bytree: [0.5, 1.0]       # (min, max) for colsample_bytree
-  # optuna_reg_alpha: [1.0e-8, 1.0]           # (min, max) for reg_alpha (log-scale)
-  # optuna_reg_lambda: [1.0e-8, 10.0]         # (min, max) for reg_lambda (log-scale)
+  optuna_n_estimators: [50, 1500]            # Exploratory range
+  optuna_max_depth: [3, 10]                  # Exploratory range
+  optuna_learning_rate: [0.005, 0.3]         # Exploratory range
+  optuna_min_child_weight: [0.1, 20.0]       # Exploratory range
+  optuna_gamma: [0.0, 2.0]                   # Exploratory range
+  optuna_subsample: [0.5, 1.0]               # Exploratory range
+  optuna_colsample_bytree: [0.3, 1.0]        # Exploratory range
+  optuna_reg_alpha: [1.0e-8, 10.0]           # Exploratory range (log-scale)
+  optuna_reg_lambda: [1.0e-2, 50.0]          # Exploratory range (log-scale)
 
   # Fixed parameters (used as baseline for all trials):
   tree_method: hist                            # Algorithm: hist (fast), exact, approx
@@ -207,16 +194,13 @@ thresholds:
 # Evaluation
 evaluation:
   test_ci_bootstrap: true
-  n_boot: 500
+  n_boot: 100  # Reduced for local testing (was 500, production: 1000)
   boot_random_state: 0
   learning_curve: true
   lc_train_sizes: [0.1, 0.25, 0.5, 0.75, 1.0]
   feature_reports: true
   feature_report_max: 200
   # Specificity targets for multi-target reporting
-  # Computes sensitivity/precision at each target specificity
-  # Output keys: sens_ctrl_90, prec_ctrl_90, thr_ctrl_90, etc.
-  # Useful for clinical decision-making across risk tolerance levels
   control_spec_targets: [0.90, 0.95, 0.99]
   toprisk_fracs: [0.01, 0.05, 0.10]
 
