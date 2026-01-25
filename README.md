@@ -121,8 +121,6 @@ calibration:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and guidelines.
 
-**Rules:** No secrets, no emojis, tests pass, no debug artifacts.
-
 ---
 
 ## Citation
