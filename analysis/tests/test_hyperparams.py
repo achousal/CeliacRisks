@@ -413,39 +413,60 @@ def test_params_are_json_serializable(minimal_config):
 
 
 # ==================== Per-Model n_iter Tests ====================
+# Priority: 1) global cv.n_iter (if set), 2) per-model n_iter, 3) default (30)
 
 
-def test_get_model_n_iter_global_fallback():
-    """Test that global n_iter is used when model-specific is None."""
-    from ced_ml.models.training import get_model_n_iter
-
-    config = make_mock_config()
-    config.cv.n_iter = 30
-
-    # Model configs have no n_iter set (default None)
-    for model_name in ["LR_EN", "LR_L1", "LinSVM_cal", "RF", "XGBoost"]:
-        assert get_model_n_iter(model_name, config) == 30
-
-
-def test_get_model_n_iter_model_override():
-    """Test that model-specific n_iter overrides global."""
+def test_get_model_n_iter_global_override():
+    """Test that global cv.n_iter overrides all per-model n_iter values."""
     from types import SimpleNamespace
 
     from ced_ml.models.training import get_model_n_iter
 
     config = make_mock_config()
-    config.cv.n_iter = 10
+    config.cv.n_iter = 5  # Global override
 
-    # Set model-specific n_iter
+    # Set model-specific n_iter (should be ignored when global is set)
     config.lr = SimpleNamespace(
-        n_iter=25,  # Override for LR
+        n_iter=25,
         C_min=0.01,
         C_max=100.0,
         C_points=5,
         class_weight_options="balanced",
     )
     config.rf = SimpleNamespace(
-        n_iter=50,  # Override for RF
+        n_iter=50,
+        n_estimators_grid=[100],
+        max_depth_grid=[5],
+        min_samples_split_grid=[2],
+        min_samples_leaf_grid=[1],
+        max_features_grid=[0.5],
+        class_weight_options="balanced",
+    )
+
+    # Global cv.n_iter takes precedence over per-model
+    assert get_model_n_iter("LR_EN", config) == 5
+    assert get_model_n_iter("RF", config) == 5
+
+
+def test_get_model_n_iter_per_model_when_global_none():
+    """Test that per-model n_iter is used when global is None."""
+    from types import SimpleNamespace
+
+    from ced_ml.models.training import get_model_n_iter
+
+    config = make_mock_config()
+    config.cv.n_iter = None  # No global override
+
+    # Set model-specific n_iter
+    config.lr = SimpleNamespace(
+        n_iter=25,
+        C_min=0.01,
+        C_max=100.0,
+        C_points=5,
+        class_weight_options="balanced",
+    )
+    config.rf = SimpleNamespace(
+        n_iter=50,
         n_estimators_grid=[100],
         max_depth_grid=[5],
         min_samples_split_grid=[2],
@@ -454,7 +475,7 @@ def test_get_model_n_iter_model_override():
         class_weight_options="balanced",
     )
     config.xgboost = SimpleNamespace(
-        n_iter=100,  # Override for XGBoost
+        n_iter=100,
         n_estimators_grid=[100],
         max_depth_grid=[3],
         learning_rate_grid=[0.1],
@@ -464,37 +485,53 @@ def test_get_model_n_iter_model_override():
         scale_pos_weight_grid=[1.0],
     )
     config.svm = SimpleNamespace(
-        n_iter=15,  # Override for SVM
+        n_iter=15,
         C_min=0.01,
         C_max=100.0,
         C_points=5,
         class_weight_options="balanced",
     )
 
-    # LR models use config.lr
+    # Per-model values used when global is None
     assert get_model_n_iter("LR_EN", config) == 25
     assert get_model_n_iter("LR_L1", config) == 25
-
-    # SVM uses config.svm
     assert get_model_n_iter("LinSVM_cal", config) == 15
-
-    # RF uses config.rf
     assert get_model_n_iter("RF", config) == 50
-
-    # XGBoost uses config.xgboost
     assert get_model_n_iter("XGBoost", config) == 100
 
 
-def test_get_model_n_iter_partial_override():
-    """Test mixed scenario: some models have override, others use global."""
+def test_get_model_n_iter_default_fallback():
+    """Test fallback to default (30) when both global and per-model are None."""
     from types import SimpleNamespace
 
-    from ced_ml.models.training import get_model_n_iter
+    from ced_ml.models.training import _DEFAULT_N_ITER, get_model_n_iter
 
     config = make_mock_config()
-    config.cv.n_iter = 20
+    config.cv.n_iter = None  # No global override
 
-    # Only override RF, leave others as None
+    # LR has no n_iter attribute
+    config.lr = SimpleNamespace(
+        C_min=0.01,
+        C_max=100.0,
+        C_points=5,
+        class_weight_options="balanced",
+    )
+
+    # Falls back to default
+    assert get_model_n_iter("LR_EN", config) == _DEFAULT_N_ITER
+    assert get_model_n_iter("UnknownModel", config) == _DEFAULT_N_ITER
+
+
+def test_get_model_n_iter_partial_per_model():
+    """Test mixed scenario: some models have n_iter, others fall back to default."""
+    from types import SimpleNamespace
+
+    from ced_ml.models.training import _DEFAULT_N_ITER, get_model_n_iter
+
+    config = make_mock_config()
+    config.cv.n_iter = None  # No global override
+
+    # Only RF has n_iter set
     config.rf = SimpleNamespace(
         n_iter=75,
         n_estimators_grid=[100],
@@ -504,7 +541,7 @@ def test_get_model_n_iter_partial_override():
         max_features_grid=[0.5],
         class_weight_options="balanced",
     )
-    # LR has no n_iter attribute (uses global)
+    # LR has no n_iter attribute
     config.lr = SimpleNamespace(
         C_min=0.01,
         C_max=100.0,
@@ -512,22 +549,11 @@ def test_get_model_n_iter_partial_override():
         class_weight_options="balanced",
     )
 
-    # RF uses override
+    # RF uses its per-model setting
     assert get_model_n_iter("RF", config) == 75
 
-    # LR uses global (no n_iter attr)
-    assert get_model_n_iter("LR_EN", config) == 20
-
-
-def test_get_model_n_iter_unknown_model():
-    """Test that unknown models fall back to global n_iter."""
-    from ced_ml.models.training import get_model_n_iter
-
-    config = make_mock_config()
-    config.cv.n_iter = 42
-
-    # Unknown model falls back to global
-    assert get_model_n_iter("UnknownModel", config) == 42
+    # LR falls back to default
+    assert get_model_n_iter("LR_EN", config) == _DEFAULT_N_ITER
 
 
 # ==================== Optuna Parameter Distribution Tests ====================

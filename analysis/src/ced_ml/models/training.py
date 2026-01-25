@@ -31,9 +31,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_DEFAULT_N_ITER = 30  # Fallback when neither global nor per-model n_iter is set
+
+
 def get_model_n_iter(model_name: str, config: TrainingConfig) -> int:
     """
-    Get n_iter for a model, using model-specific override or global fallback.
+    Get n_iter for a model.
+
+    Priority order:
+    1. Global cv.n_iter (if set, overrides all per-model values)
+    2. Per-model n_iter (lr.n_iter, rf.n_iter, etc.)
+    3. Default fallback (30)
 
     Args:
         model_name: Model identifier (LR_EN, LR_L1, LinSVM_cal, RF, XGBoost)
@@ -42,6 +50,11 @@ def get_model_n_iter(model_name: str, config: TrainingConfig) -> int:
     Returns:
         n_iter value (>= 1)
     """
+    # Global override takes precedence
+    if config.cv.n_iter is not None:
+        return config.cv.n_iter
+
+    # Per-model setting
     model_configs = {
         "LR_EN": config.lr,
         "LR_L1": config.lr,
@@ -52,7 +65,8 @@ def get_model_n_iter(model_name: str, config: TrainingConfig) -> int:
     model_cfg = model_configs.get(model_name)
     if model_cfg is not None and getattr(model_cfg, "n_iter", None) is not None:
         return model_cfg.n_iter
-    return config.cv.n_iter
+
+    return _DEFAULT_N_ITER
 
 
 def _convert_numpy_types(obj: Any) -> Any:

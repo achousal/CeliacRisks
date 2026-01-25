@@ -54,7 +54,7 @@ DEFAULT_CV_CONFIG: dict[str, Any] = {
     "repeats": 3,
     "inner_folds": 5,
     "scoring": "average_precision",
-    "n_iter": 30,
+    "n_iter": None,  # None = use per-model n_iter; set value to override all
     "random_state": 0,
     "tune_n_jobs": "auto",
     "error_score": "nan",

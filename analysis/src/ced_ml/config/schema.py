@@ -80,7 +80,11 @@ class CVConfig(BaseModel):
     inner_folds: int = Field(default=5, ge=2)
     scoring: str = "average_precision"
     scoring_target_fpr: float | None = Field(default=0.05, ge=0.0, le=1.0)
-    n_iter: int = Field(default=30, ge=1)
+    n_iter: int | None = Field(
+        default=None,
+        ge=1,
+        description="Global n_iter override. If set, overrides all per-model n_iter values.",
+    )
     random_state: int = 0
     tune_n_jobs: int | str = "auto"
     error_score: str = "nan"

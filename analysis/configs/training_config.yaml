@@ -8,7 +8,7 @@ cv:
   folds: 3
   repeats: 2
   scoring: roc_auc  # Options: roc_auc, average_precision, neg_brier_score
-  # n_iter: 2  # Default RandomizedSearchCV iterations (can be overridden per-model below)
+  # n_iter: 2  # Global override: if set, overrides ALL per-model n_iter values below
   inner_folds: 3
   n_jobs: -1  # Use all available CPUs
   random_state: 42
