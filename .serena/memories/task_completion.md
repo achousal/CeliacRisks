@@ -32,9 +32,9 @@ git diff | grep -iE "(password|secret|key|token|credential)"
 - No `browser()` or `debug()` in R
 
 ### 6. Documentation Updated (if user-facing changes)
-- Update `analysis/CLAUDE.MD` for workflow changes
-- Update `analysis/README.md` for API/CLI changes
+- Update `README.md` for workflow/API/CLI changes
 - Update docstrings for function signature changes
+- Update `analysis/SETUP_README.md` for setup/configuration changes
 
 ### 7. Pre-commit Passes
 ```bash
@@ -51,4 +51,4 @@ If change affects results/metrics:
 - Document rationale
 - Compare before/after
 - Add regression test
-- Note in CLAUDE.md
+- Note in README.md and relevant ADR

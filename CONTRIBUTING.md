@@ -69,14 +69,14 @@ If changes affect results:
 1. Document scientific rationale
 2. Validate before/after metrics
 3. Add regression tests
-4. Update [CLAUDE.md](.claude/CLAUDE.md)
+4. Update [README.md](.claude/README.md)
 
 ## PR Checklist
 
 - [ ] Tests pass locally
 - [ ] Code formatted (black, ruff)
 - [ ] No secrets committed
-- [ ] [CLAUDE.md](.claude/CLAUDE.md) updated (if user-facing changes)
+- [ ] [README.md](.claude/README.md) updated (if user-facing changes)
 
 ## HPC Code
 

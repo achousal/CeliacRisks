@@ -5,7 +5,7 @@
 **Package**: ced-ml
 **Python**: 3.10+
 
-Primary documentation: [.claude/CLAUDE.md](../../.claude/CLAUDE.md)
+Primary documentation: [README.md](../../README.md)
 
 ## Quick Facts
 
@@ -80,8 +80,7 @@ ced postprocess --results-dir ../results --n-boot 500
 
 ## Documentation Map
 
-- `.claude/CLAUDE.md` - Primary project documentation (this is the source of truth)
-- `README.md` - Public landing page
+- `README.md` - Primary project documentation (this is the source of truth)
 - `SETUP_README.md` - Environment setup guide
 - `docs/ARCHITECTURE.md` - Technical architecture
 - `docs/adr/` - 19 Architecture Decision Records

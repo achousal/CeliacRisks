@@ -487,7 +487,7 @@ python --version > python_version.txt
 ## Documentation
 
 - **This guide**: [SETUP_README.md](SETUP_README.md) - Environment setup and getting started
-- **Project overview**: [CLAUDE.md](CLAUDE.md) - High-level project context
+- **Project overview**: [README.md](../README.md) - High-level project context
 - **Architecture**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - Technical design and data flow
 - **CLI Reference**: [docs/reference/CLI_REFERENCE.md](docs/reference/CLI_REFERENCE.md) - Command-line interface guide
 

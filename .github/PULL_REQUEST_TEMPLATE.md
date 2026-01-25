@@ -31,7 +31,7 @@ Brief summary of changes and motivation.
 - [ ] Code follows project style guidelines
 - [ ] No secrets or credentials committed
 - [ ] No debug artifacts (console.log, browser(), print())
-- [ ] CLAUDE.md updated (if user-facing changes)
+- [ ] README.md updated (if user-facing changes)
 - [ ] Config files validated
 - [ ] No emojis in code/comments/docs
 

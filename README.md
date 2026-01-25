@@ -87,7 +87,13 @@ cd analysis
 ```bash
 cd analysis
 PROJECT=your_allocation ./run_hpc.sh
+
+# After jobs complete, run post-training pipeline
+bash scripts/post_training_pipeline.sh --run-id <RUN_ID>
 ```
+
+For detailed workflows, see "Post-Training Pipeline (HPC)" section below.
+
 ---
 
 ## Manual Pipeline Execution
@@ -120,7 +126,138 @@ ced aggregate-splits --config configs/aggregate_config.yaml
 Rscript scripts/compare_models.R --results_root results
 ```
 
-For detailed CLI usage, see [](analysis/docs/reference/CLI_REFERENCE.md).
+For detailed CLI usage, see [CLI Reference](analysis/docs/reference/CLI_REFERENCE.md).
+
+---
+
+## Post-Training Pipeline (HPC)
+
+After submitting HPC jobs via `./run_hpc.sh`, a comprehensive post-processing pipeline automates ensemble training, result aggregation, and validation reporting.
+
+### What It Does
+
+The `post_training_pipeline.sh` script performs four automated steps:
+
+1. **Validate Base Model Outputs** - Checks that all base models completed successfully for each split
+2. **Train Ensemble Meta-Learner** - Combines base model predictions using stacking (if 2+ models available)
+3. **Aggregate Results** - Computes bootstrap confidence intervals across all splits
+4. **Generate Validation Report** - Creates summary JSON with pipeline status and metrics
+
+### Usage
+
+**Basic:**
+```bash
+cd analysis/
+bash scripts/post_training_pipeline.sh --run-id 20260122_120000
+```
+
+**Skip ensemble training:**
+```bash
+bash scripts/post_training_pipeline.sh --run-id 20260122_120000 --skip-ensemble
+```
+
+**Custom configuration:**
+```bash
+bash scripts/post_training_pipeline.sh \
+  --run-id 20260122_120000 \
+  --results-dir ../results \
+  --config configs/pipeline_hpc.yaml \
+  --base-models LR_EN,RF,XGBoost \
+  --min-splits 8
+```
+
+### Key Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--run-id` | HPC run identifier (required) | - |
+| `--results-dir` | Results directory path | From config |
+| `--config` | Pipeline config file | `configs/pipeline_hpc.yaml` |
+| `--base-models` | Comma-separated model list | From config |
+| `--skip-ensemble` | Skip ensemble training | false |
+| `--min-splits` | Minimum required splits | 1 |
+
+### Expected Outputs
+
+**Per-model aggregated results** (under `results/{MODEL}/run_{RUN_ID}/aggregated/`):
+- `aggregation_metadata.json` - Run provenance and configuration
+- `test_metrics_agg.csv` - Bootstrap CI for AUROC, PR-AUC, Brier score
+- `calibration_agg.csv` - Calibration slope/intercept across splits
+- `feature_stability.csv` - Feature selection frequency and importance
+- `dca_net_benefit.csv` - Decision curve analysis metrics
+- Plots: ROC curves, calibration plots, risk distributions
+
+**Ensemble outputs** (if trained, under `results/ENSEMBLE/run_{RUN_ID}/`):
+- Same structure as base models
+- Expected improvement: +2-5% AUROC over best single model
+
+**Pipeline logs** (under `logs/post/run_{RUN_ID}/`):
+- `post_training.log` - Detailed execution log with timestamps
+- `pipeline_summary.json` - Validation report and file counts
+
+### Configuration
+
+The pipeline reads settings from `configs/pipeline_hpc.yaml`:
+
+```yaml
+execution:
+  models: [LR_EN, RF, LinSVM_cal, XGBoost]  # Base models to aggregate
+  n_boot: 1000  # Bootstrap iterations for CIs
+
+ensemble:
+  base_models: [LR_EN, RF, XGBoost]  # Models to combine in ensemble
+  meta_model:
+    type: logistic_regression
+    penalty: l2
+    C: 1.0
+```
+
+Ensemble training uses the `train-ensemble` CLI command internally. For manual ensemble training:
+
+```bash
+# After training base models for a single split
+ced train-ensemble \
+  --config configs/training_config.yaml \
+  --base-models LR_EN,RF,XGBoost \
+  --split-seed 0 \
+  --results-dir ../results \
+  --outdir ../results/ENSEMBLE/run_20260122/split_seed0
+```
+
+### Typical HPC Workflow
+
+```bash
+# 1. Submit training jobs
+cd analysis/
+./run_hpc.sh
+
+# 2. Monitor job progress
+bjobs -w | grep CeD_
+# or for Slurm: squeue -u $USER | grep CeD_
+
+# 3. When all jobs complete, run post-processing
+bash scripts/post_training_pipeline.sh --run-id 20260122_120000
+
+# 4. Review results
+cat logs/post/run_20260122_120000/pipeline_summary.json
+ls results/*/run_20260122_120000/aggregated/
+```
+
+### Troubleshooting
+
+**Ensemble training skipped:**
+- Check that at least 2 base models completed successfully
+- Verify OOF prediction files exist: `results/{MODEL}/run_{RUN_ID}/split_seed*/preds/train_oof/*.csv`
+- Use `--skip-ensemble` if ensemble is not needed
+
+**Aggregation failed:**
+- Check individual split outputs: `results/{MODEL}/run_{RUN_ID}/split_seed*/core/test_metrics.csv`
+- Ensure minimum required splits completed (default: 1, configurable via `--min-splits`)
+- Review log file: `logs/post/run_{RUN_ID}/post_training.log`
+
+**Missing run ID:**
+- Check HPC job logs for run timestamp: `logs/training/CeD_*.log`
+- List results directories: `ls -d results/*/run_*`
 
 ---
 
@@ -218,11 +355,12 @@ The pipeline was developed to predict **incident Celiac Disease (CeD) risk** fro
 
 | Document | Description |
 |----------|-------------|
-| [analysis/CLAUDE.md](analysis/CLAUDE.md) | Primary project documentation with case study |
 | [analysis/docs/ARCHITECTURE.md](analysis/docs/ARCHITECTURE.md) | Technical architecture with code pointers |
 | [analysis/docs/adr/](analysis/docs/adr/) | Architecture Decision Records (15 decisions) |
-| [analysis/docs/reference/HYPERPARAMETER_TUNING.md](analysis/docs/HYPERPARAMETER_TUNING.md) | Hyperparameter tuning guide |
+| [analysis/docs/reference/CLI_REFERENCE.md](analysis/docs/reference/CLI_REFERENCE.md) | Complete CLI command reference |
+| [analysis/docs/reference/HYPERPARAMETER_TUNING.md](analysis/docs/reference/HYPERPARAMETER_TUNING.md) | Hyperparameter tuning guide |
 | [analysis/docs/reference/METRICS_REFERENCE.md](analysis/docs/reference/METRICS_REFERENCE.md) | Metrics behavior reference |
+| [analysis/docs/reference/ARTIFACTS.md](analysis/docs/reference/ARTIFACTS.md) | Output structure and file formats |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
 
 ---

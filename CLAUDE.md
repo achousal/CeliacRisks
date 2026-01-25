@@ -65,7 +65,7 @@ ced aggregate-splits --config configs/aggregate_config.yaml
 
 **Stats**: ~26,000 lines of code, 1,081 tests (65% coverage).
 
-For detailed architecture with code pointers, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+For detailed architecture with code pointers, see [docs/ARCHITECTURE.md](analysis/docs/ARCHITECTURE.md).
 
 ### Library Modules
 | Layer | Modules | Purpose |
@@ -83,30 +83,30 @@ For output structure details, see [docs/reference/ARTIFACTS.md](analysis/docs/re
 
 ## Key Architecture Decisions
 
-The [docs/adr/](../analysis/docs/adr/) directory contains 15 Architecture Decision Records documenting critical statistical and methodological design choices, organized by pipeline stage:
+The [docs/adr/](analysis/docs/adr/) directory contains 15 Architecture Decision Records documenting critical statistical and methodological design choices, organized by pipeline stage:
 
 **Stage 1: Data Preparation**
-- [ADR-001](../analysis/docs/adr/ADR-001-split-strategy.md): 50/25/25 train/val/test split strategy
-- [ADR-002](../analysis/docs/adr/ADR-002-prevalent-train-only.md): Prevalent cases in training only
-- [ADR-003](../analysis/docs/adr/ADR-003-control-downsampling.md): Control downsampling ratio
+- [ADR-001](analysis/docs/adr/ADR-001-split-strategy.md): 50/25/25 train/val/test split strategy
+- [ADR-002](analysis/docs/adr/ADR-002-prevalent-train-only.md): Prevalent cases in training only
+- [ADR-003](analysis/docs/adr/ADR-003-control-downsampling.md): Control downsampling ratio
 
 **Stage 2: Feature Selection**
-- [ADR-004](../analysis/docs/adr/ADR-004-hybrid-feature-selection.md): Hybrid feature selection (effect size → k-best → stability → correlation)
-- [ADR-005](../analysis/docs/adr/ADR-005-stability-panel.md): Stability-based feature panel
+- [ADR-004](analysis/docs/adr/ADR-004-hybrid-feature-selection.md): Hybrid feature selection (effect size → k-best → stability → correlation)
+- [ADR-005](analysis/docs/adr/ADR-005-stability-panel.md): Stability-based feature panel
 
 **Stage 3: Model Training & Ensembling**
-- [ADR-006](../analysis/docs/adr/ADR-006-nested-cv.md): Nested cross-validation structure
-- [ADR-007](../analysis/docs/adr/ADR-007-auroc-optimization.md): AUROC as optimization metric
-- [ADR-008](../analysis/docs/adr/ADR-008-optuna-hyperparameter-optimization.md): Optuna Bayesian hyperparameter optimization
-- [ADR-009](../analysis/docs/adr/ADR-009-oof-stacking-ensemble.md): Out-of-fold stacking ensemble (implemented 2026-01-22)
+- [ADR-006](analysis/docs/adr/ADR-006-nested-cv.md): Nested cross-validation structure
+- [ADR-007](analysis/docs/adr/ADR-007-auroc-optimization.md): AUROC as optimization metric
+- [ADR-008](analysis/docs/adr/ADR-008-optuna-hyperparameter-optimization.md): Optuna Bayesian hyperparameter optimization
+- [ADR-009](analysis/docs/adr/ADR-009-oof-stacking-ensemble.md): Out-of-fold stacking ensemble (implemented 2026-01-22)
 
 **Stage 4: Calibration**
-- [ADR-010](../analysis/docs/adr/ADR-010-prevalence-adjustment.md): Prevalence adjustment (speculative deployment concern)
-- [ADR-014](../analysis/docs/adr/ADR-014-oof-posthoc-calibration.md): OOF-posthoc calibration strategy
+- [ADR-010](analysis/docs/adr/ADR-010-prevalence-adjustment.md): Prevalence adjustment (speculative deployment concern)
+- [ADR-014](analysis/docs/adr/ADR-014-oof-posthoc-calibration.md): OOF-posthoc calibration strategy
 
 **Stage 5: Evaluation & Thresholds**
-- [ADR-011](../analysis/docs/adr/ADR-011-threshold-on-val.md): Threshold optimization on validation set
-- [ADR-012](../analysis/docs/adr/ADR-012-fixed-spec-95.md): Fixed specificity 0.95 for high-specificity screening
+- [ADR-011](analysis/docs/adr/ADR-011-threshold-on-val.md): Threshold optimization on validation set
+- [ADR-012](analysis/docs/adr/ADR-012-fixed-spec-95.md): Fixed specificity 0.95 for high-specificity screening
 
 ---
 
@@ -283,7 +283,7 @@ thresholds:
 
 ## CLI Reference
 
-For complete CLI documentation, see [docs/reference/CLI_REFERENCE.md](docs/reference/CLI_REFERENCE.md)
+For complete CLI documentation, see [analysis/docs/reference/CLI_REFERENCE.md](analysis/docs/reference/CLI_REFERENCE.md)
 
 ### CLI Commands
 | Command | Module | Purpose |
@@ -340,12 +340,12 @@ These files control:
 
 | Document | Purpose |
 |----------|---------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical architecture with code pointers |
-| [docs/adr/](docs/adr/) | Architecture Decision Records (19 decisions) |
-| [docs/reference/CLI_REFERENCE.md](docs/reference/CLI_REFERENCE.md) | Complete CLI command reference |
-| [SETUP_README.md](SETUP_README.md) | Environment setup and getting started |
-| [../README.md](../README.md) | Root project overview |
-| [../CONTRIBUTING.md](../CONTRIBUTING.md) | Contribution guidelines |
+| [analysis/docs/ARCHITECTURE.md](analysis/docs/ARCHITECTURE.md) | Technical architecture with code pointers |
+| [analysis/docs/adr/](analysis/docs/adr/) | Architecture Decision Records (19 decisions) |
+| [analysis/docs/reference/CLI_REFERENCE.md](analysis/docs/reference/CLI_REFERENCE.md) | Complete CLI command reference |
+| [analysis/SETUP_README.md](analysis/SETUP_README.md) | Environment setup and getting started |
+| [README.md](README.md) | Root project overview |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
 ---
 
 ## Development Workflow
@@ -426,7 +426,7 @@ pytest tests/ -m "not slow"
 ## Common Tasks
 
 ### Add a new model
-1. Edit [src/ced_ml/models/registry.py](src/ced_ml/models/registry.py)
+1. Edit [analysis/src/ced_ml/models/registry.py](analysis/src/ced_ml/models/registry.py)
 2. Add param grid and model factory
 3. Add tests
 4. Update configs
@@ -501,15 +501,15 @@ ls results/{MODEL}/run_{RUN_ID}/split_seed*/preds/train_oof/
 ## Key Files to Know
 
 **Core modules**:
-- [src/ced_ml/cli/main.py](src/ced_ml/cli/main.py) - CLI entrypoint
-- [src/ced_ml/cli/train_ensemble.py](src/ced_ml/cli/train_ensemble.py) - Ensemble training (NEW)
-- [src/ced_ml/data/splits.py](src/ced_ml/data/splits.py) - Splitting with temporal support
-- [src/ced_ml/models/stacking.py](src/ced_ml/models/stacking.py) - Stacking meta-learner (NEW)
-- [src/ced_ml/models/calibration.py](src/ced_ml/models/calibration.py) - OOF calibration (NEW)
+- [analysis/src/ced_ml/cli/main.py](analysis/src/ced_ml/cli/main.py) - CLI entrypoint
+- [analysis/src/ced_ml/cli/train_ensemble.py](analysis/src/ced_ml/cli/train_ensemble.py) - Ensemble training (NEW)
+- [analysis/src/ced_ml/data/splits.py](analysis/src/ced_ml/data/splits.py) - Splitting with temporal support
+- [analysis/src/ced_ml/models/stacking.py](analysis/src/ced_ml/models/stacking.py) - Stacking meta-learner (NEW)
+- [analysis/src/ced_ml/models/calibration.py](analysis/src/ced_ml/models/calibration.py) - OOF calibration (NEW)
 
 **Helper scripts**:
-- [scripts/post_training_pipeline.sh](scripts/post_training_pipeline.sh) - HPC post-processing (NEW)
-- [scripts/hpc_setup.sh](scripts/hpc_setup.sh) - HPC environment setup
+- [analysis/scripts/post_training_pipeline.sh](analysis/scripts/post_training_pipeline.sh) - HPC post-processing (NEW)
+- [analysis/scripts/hpc_setup.sh](analysis/scripts/hpc_setup.sh) - HPC environment setup
 
 ---
 

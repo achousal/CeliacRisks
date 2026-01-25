@@ -148,6 +148,6 @@ Log entries include:
 
 ## See Also
 
-- [CLAUDE.md](../.claude/CLAUDE.md) - Full project documentation
-- [ARCHITECTURE.md](../analysis/docs/ARCHITECTURE.md) - Technical architecture
-- [ADR-009](../analysis/docs/adr/ADR-009-oof-stacking-ensemble.md) - Ensemble design
+- [README.md](../../README.md) - Project overview
+- [ARCHITECTURE.md](../ARCHITECTURE.md) - Technical architecture
+- [ADR-009](../adr/ADR-009-oof-stacking-ensemble.md) - Ensemble design

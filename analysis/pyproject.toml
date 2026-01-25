@@ -59,7 +59,7 @@ ced = "ced_ml.cli.main:cli"
 
 [project.urls]
 Homepage = "https://github.com/elahi-lab/CeliacRiskML"
-Documentation = "https://github.com/elahi-lab/CeliacRiskML/blob/main/analysis/CLAUDE.md"
+Documentation = "https://github.com/elahi-lab/CeliacRiskML/blob/main/README.md"
 Repository = "https://github.com/elahi-lab/CeliacRiskML"
 
 [tool.setuptools.packages.find]
