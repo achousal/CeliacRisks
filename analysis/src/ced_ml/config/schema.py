@@ -493,33 +493,6 @@ class OptunaConfig(BaseModel):
         return self
 
 
-class MetaModelConfig(BaseModel):
-    """Configuration for ensemble meta-learner."""
-
-    type: Literal["logistic_regression"] = "logistic_regression"
-    penalty: Literal["l2", "l1", "elasticnet", "none"] = "l2"
-    C: float = Field(default=1.0, gt=0)
-    max_iter: int = Field(default=1000, ge=100)
-    solver: str = "lbfgs"
-
-
-class EnsembleConfig(BaseModel):
-    """Configuration for model stacking ensemble.
-
-    When enabled, collects OOF predictions from base models and trains
-    a meta-learner to combine them. Supports configurable base model
-    selection and meta-model hyperparameters.
-    """
-
-    enabled: bool = False
-    method: Literal["stacking", "blending", "weighted_avg"] = "stacking"
-    base_models: list[str] = Field(default_factory=lambda: ["LR_EN", "RF", "XGBoost", "LinSVM_cal"])
-    meta_model: MetaModelConfig = Field(default_factory=MetaModelConfig)
-    use_probabilities: bool = True  # Use probabilities (True) or logits (False)
-    passthrough: bool = False  # Include original features in meta-learner input
-    cv_for_meta: int = Field(default=5, ge=2)  # CV folds for meta-model calibration
-
-
 # ============================================================================
 # Threshold Selection Configuration
 # ============================================================================
@@ -677,7 +650,6 @@ class TrainingConfig(BaseModel):
     xgboost: XGBoostConfig = Field(default_factory=XGBoostConfig)
     calibration: CalibrationConfig = Field(default_factory=CalibrationConfig)
     optuna: OptunaConfig = Field(default_factory=OptunaConfig)
-    ensemble: EnsembleConfig = Field(default_factory=EnsembleConfig)
 
     # Output
     outdir: Path = Field(default=Path("results"))

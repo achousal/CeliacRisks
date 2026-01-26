@@ -16,9 +16,6 @@ cv:
   verbose: 1
   # Production: 5 folds x 3 repeats = 15 CV splits (robust)
 
-# Ensemble training: Use separate CLI command `ced train-ensemble`
-# See docs/reference/CLI_REFERENCE.md for usage
-
 # Optuna hyperparameter optimization - PRODUCTION SETTINGS
 optuna:
   enabled: true
@@ -64,7 +61,7 @@ features:
 # Model-specific hyperparameter search spaces
 # These define the ranges for RandomizedSearchCV or Optuna optimization
 #
-# IMPORTANT: Parameters like max_iter and solver are FIXED (not tuned).
+# IMPORTANT: Parameters like max_iter and solver are FIXED.
 # They are set as baseline model parameters used by BOTH RandomizedSearchCV and Optuna.
 # Only parameters with grids/ranges (C, l1_ratio, class_weight) are tuned.
 
