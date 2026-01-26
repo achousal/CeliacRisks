@@ -195,24 +195,37 @@ echo "Investigation completed successfully"
 echo "End time: $(date '+%Y-%m-%d %H:%M:%S')"
 JOBSCRIPT
 
-# Replace placeholders in job script
-sed -i "s|ARRAY_SIZE|$TOTAL_JOBS|g" "$SUBMIT_FILE"
-sed -i "s|CORES|$CORES|g" "$SUBMIT_FILE"
-sed -i "s|MEMORY|$MEMORY|g" "$SUBMIT_FILE"
-sed -i "s|WALLTIME|$WALLTIME|g" "$SUBMIT_FILE"
-sed -i "s|QUEUE|$QUEUE|g" "$SUBMIT_FILE"
-sed -i "s|ANALYSIS_DIR|$ANALYSIS_DIR|g" "$SUBMIT_FILE"
-sed -i "s|TOTAL_JOBS|$TOTAL_JOBS|g" "$SUBMIT_FILE"
+# Replace simple placeholders in job script
+perl -i -pe "s|ARRAY_SIZE|$TOTAL_JOBS|g" "$SUBMIT_FILE"
+perl -i -pe "s|CORES|$CORES|g" "$SUBMIT_FILE"
+perl -i -pe "s|MEMORY|$MEMORY|g" "$SUBMIT_FILE"
+perl -i -pe "s|WALLTIME|$WALLTIME|g" "$SUBMIT_FILE"
+perl -i -pe "s|QUEUE|$QUEUE|g" "$SUBMIT_FILE"
+perl -i -pe "s|TOTAL_JOBS|$TOTAL_JOBS|g" "$SUBMIT_FILE"
 
-# Build and insert job mapping
-JOB_MAPPING_LINES=""
+# Replace ANALYSIS_DIR using escaped version
+ANALYSIS_DIR_ESCAPED=$(printf '%s\n' "$ANALYSIS_DIR" | sed 's/[\/&]/\\&/g')
+perl -i -pe "s|ANALYSIS_DIR|$ANALYSIS_DIR_ESCAPED|g" "$SUBMIT_FILE"
+
+# Build and insert job mapping - create temporary file with mapping
+TEMP_JOBS=$(mktemp)
 for i in "${!JOB_LIST[@]}"; do
-    JOB_MAPPING_LINES+="JOBS_ARRAY[$i]=\"${JOB_LIST[$i]}\""$'\n'
+    echo "JOBS_ARRAY[$i]=\"${JOB_LIST[$i]}\"" >> "$TEMP_JOBS"
 done
 
-# Replace placeholder with actual mapping
-sed -i "/JOBS_ARRAY+=(JOBS_PLACEHOLDER)/c\\
-$JOB_MAPPING_LINES" "$SUBMIT_FILE"
+# Use awk to replace the placeholder line with the actual job mapping
+awk -v jobs_file="$TEMP_JOBS" '
+    /JOBS_ARRAY\+=\(JOBS_PLACEHOLDER\)/ {
+        while ((getline line < jobs_file) > 0) {
+            print line
+        }
+        close(jobs_file)
+        next
+    }
+    { print }
+' "$SUBMIT_FILE" > "$SUBMIT_FILE.tmp" && mv "$SUBMIT_FILE.tmp" "$SUBMIT_FILE"
+
+rm -f "$TEMP_JOBS"
 
 chmod +x "$SUBMIT_FILE"
 
