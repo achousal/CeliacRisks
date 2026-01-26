@@ -35,11 +35,13 @@ def get_param_distributions(
     randomize = grid_rng is not None
 
     # Feature selection parameters (if applicable)
-    feature_select = config.features.feature_select
-    if feature_select in ("kbest", "hybrid"):
+    strategy = config.features.feature_selection_strategy
+    if strategy == "hybrid_stability":
         k_grid = config.features.k_grid
         if not k_grid:
-            raise ValueError(f"feature_select={feature_select} requires features.k_grid")
+            raise ValueError(
+                "feature_selection_strategy='hybrid_stability' requires features.k_grid"
+            )
 
         # Always use 'sel' step name regardless of kbest_scope
         param_dists["sel__k"] = k_grid
@@ -463,8 +465,8 @@ def get_param_distributions_optuna(
     optuna_dists = {}
 
     # Feature selection parameters (if applicable)
-    feature_select = config.features.feature_select
-    if feature_select in ("kbest", "hybrid"):
+    strategy = config.features.feature_selection_strategy
+    if strategy == "hybrid_stability":
         k_grid = config.features.k_grid
         if k_grid:
             # Use the k_grid as categorical for feature selection

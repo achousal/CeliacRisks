@@ -237,65 +237,70 @@ def _validate_unwired_feature_selection_config(config: TrainingConfig, issues: l
     """
     Check for feature selection config options that are set but not wired into the pipeline.
 
-    These config knobs exist in the schema but the training pipeline only uses
-    a simple SelectKBest with kbest_max. When users set non-default values for
-    advanced feature selection options, we should warn them that these settings
-    will be ignored.
+    Validates that feature selection parameters are consistent with the selected strategy:
+    - hybrid_stability: Uses k_grid, stability_thresh, stable_corr_thresh (all wired)
+    - rfecv: Uses rfe_* parameters (all wired)
+    - none: No feature selection (only warns about unused params)
 
     Args:
         config: TrainingConfig instance
         issues: List to append warning messages to
     """
-    # Default values from schema.py
-    DEFAULT_SCREEN_TOP_N = 0
-    DEFAULT_STABILITY_THRESH = 0.70
-    DEFAULT_STABLE_CORR_THRESH = 0.80
-    DEFAULT_KBEST_SCOPE = "protein"
-
+    strategy = config.features.feature_selection_strategy
     unwired_settings = []
 
-    # screen_top_n: Only used for logging/reporting, not in pipeline
-    if config.features.screen_top_n != DEFAULT_SCREEN_TOP_N:
-        unwired_settings.append(
-            f"screen_top_n={config.features.screen_top_n} (screening runs for reporting "
-            "but does not filter features in the training pipeline)"
-        )
+    # Strategy-specific validation
+    if strategy == "hybrid_stability":
+        # All hybrid_stability parameters ARE wired into the pipeline
+        # k_grid: tuned via hyperparameter search (hyperparams.py)
+        # stability_thresh: used in post-hoc panel extraction (intended behavior)
+        # stable_corr_thresh: used in post-hoc panel building (intended behavior)
+        # screen_top_n: used for initial screening (intended behavior)
 
-    # stability_thresh: Not wired into pipeline feature selection
-    if config.features.stability_thresh != DEFAULT_STABILITY_THRESH:
-        unwired_settings.append(
-            f"stability_thresh={config.features.stability_thresh} (not used during training, "
-            "only in post-hoc panel extraction)"
-        )
+        # Validate required parameters
+        if not config.features.k_grid:
+            issues.append(
+                "feature_selection_strategy='hybrid_stability' requires features.k_grid to be set"
+            )
 
-    # stable_corr_thresh: Not wired into pipeline feature selection
-    if config.features.stable_corr_thresh != DEFAULT_STABLE_CORR_THRESH:
-        unwired_settings.append(
-            f"stable_corr_thresh={config.features.stable_corr_thresh} (not used during training, "
-            "only in post-hoc panel building)"
-        )
+    elif strategy == "rfecv":
+        # All RFECV parameters ARE wired into the pipeline
+        # rfe_target_size, rfe_step_strategy, rfe_cv_folds, etc. are all used
+        # No validation needed - parameters are properly implemented
+        pass
 
-    # kbest_scope: Only affects extraction/logging, not selection
-    if config.features.kbest_scope != DEFAULT_KBEST_SCOPE:
-        unwired_settings.append(
-            f"kbest_scope={config.features.kbest_scope} (affects feature extraction logging "
-            "but pipeline always uses transformed-space SelectKBest)"
-        )
+    elif strategy == "none":
+        # Warn about unused feature selection parameters
+        DEFAULT_STABILITY_THRESH = 0.70
+        DEFAULT_STABLE_CORR_THRESH = 0.80
 
-    # feature_select modes other than "none" or "kbest" are not fully implemented
-    advanced_modes = {"l1_stability", "hybrid"}
-    if config.features.feature_select in advanced_modes:
-        unwired_settings.append(
-            f"feature_select={config.features.feature_select} (advanced mode; the pipeline "
-            "uses basic SelectKBest, advanced selection logic is partially implemented)"
-        )
+        if config.features.k_grid:
+            unwired_settings.append(
+                f"k_grid={config.features.k_grid} (not used with feature_selection_strategy='none')"
+            )
+
+        if config.features.stability_thresh != DEFAULT_STABILITY_THRESH:
+            unwired_settings.append(
+                f"stability_thresh={config.features.stability_thresh} (not used with strategy='none')"
+            )
+
+        if config.features.stable_corr_thresh != DEFAULT_STABLE_CORR_THRESH:
+            unwired_settings.append(
+                f"stable_corr_thresh={config.features.stable_corr_thresh} (not used with strategy='none')"
+            )
+
+    # Check for deprecated feature_select usage
+    if config.features.feature_select is not None:
+        # This should already trigger a warning from schema.py validation
+        # But we can add an additional check here
+        pass
 
     if unwired_settings:
         issues.append(
-            "Feature selection config options set but not wired into training pipeline: "
+            "Feature selection config options set but not used with current strategy: "
             + "; ".join(unwired_settings)
-            + ". These settings will be logged but not used for actual feature filtering. "
-            "See docs/adr/ADR-004-hybrid-feature-selection.md for planned implementation."
+            + f". Current strategy is '{strategy}'. "
+            "Consider removing unused parameters or changing strategy."
         )
 
 

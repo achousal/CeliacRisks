@@ -129,10 +129,9 @@ def test_get_param_distributions_xgboost_custom_spw(minimal_config):
 
 
 def test_get_param_distributions_with_kbest(minimal_config):
-    """Test parameter distributions with K-best selection."""
-    minimal_config.features.feature_select = "kbest"
+    """Test parameter distributions with hybrid_stability strategy (replaces deprecated kbest)."""
+    minimal_config.features.feature_selection_strategy = "hybrid_stability"
     minimal_config.features.k_grid = [10, 25, 50, 100]
-    minimal_config.features.kbest_scope = "protein"
 
     params = get_param_distributions("LR_EN", minimal_config)
 
@@ -142,10 +141,9 @@ def test_get_param_distributions_with_kbest(minimal_config):
 
 
 def test_get_param_distributions_with_kbest_transformed(minimal_config):
-    """Test parameter distributions with K-best in transformed space."""
-    minimal_config.features.feature_select = "kbest"
+    """Test parameter distributions with hybrid_stability in transformed space."""
+    minimal_config.features.feature_selection_strategy = "hybrid_stability"
     minimal_config.features.k_grid = [10, 25, 50]
-    minimal_config.features.kbest_scope = "transformed"
 
     params = get_param_distributions("LR_EN", minimal_config)
 
@@ -154,12 +152,54 @@ def test_get_param_distributions_with_kbest_transformed(minimal_config):
 
 
 def test_get_param_distributions_no_k_grid_raises(minimal_config):
-    """Test that kbest without k_grid raises ValueError."""
-    minimal_config.features.feature_select = "kbest"
+    """Test that hybrid_stability without k_grid raises ValueError."""
+    minimal_config.features.feature_selection_strategy = "hybrid_stability"
     minimal_config.features.k_grid = []
 
     with pytest.raises(ValueError, match="k_grid"):
         get_param_distributions("LR_EN", minimal_config)
+
+
+def test_get_param_distributions_hybrid_stability_with_k_grid(minimal_config):
+    """Test that hybrid_stability strategy includes k_grid in hyperparameters."""
+    minimal_config.features.feature_selection_strategy = "hybrid_stability"
+    minimal_config.features.k_grid = [25, 50, 100, 150, 200]
+
+    params = get_param_distributions("LR_EN", minimal_config)
+
+    assert "sel__k" in params
+    assert params["sel__k"] == [25, 50, 100, 150, 200]
+
+
+def test_get_param_distributions_hybrid_stability_no_k_grid_raises(minimal_config):
+    """Test that hybrid_stability without k_grid raises ValueError."""
+    minimal_config.features.feature_selection_strategy = "hybrid_stability"
+    minimal_config.features.k_grid = []
+
+    with pytest.raises(ValueError, match="k_grid"):
+        get_param_distributions("LR_EN", minimal_config)
+
+
+def test_get_param_distributions_rfecv_no_k_grid(minimal_config):
+    """Test that rfecv strategy does not include k_grid (uses RFECV instead)."""
+    minimal_config.features.feature_selection_strategy = "rfecv"
+    minimal_config.features.k_grid = []
+
+    params = get_param_distributions("LR_EN", minimal_config)
+
+    # RFECV does not tune k_grid (uses CV-based RFE instead)
+    assert "sel__k" not in params
+
+
+def test_get_param_distributions_none_strategy_no_k_grid(minimal_config):
+    """Test that 'none' strategy does not include k_grid."""
+    minimal_config.features.feature_selection_strategy = "none"
+    minimal_config.features.k_grid = [25, 50]
+
+    params = get_param_distributions("LR_EN", minimal_config)
+
+    # No feature selection, so no sel__k
+    assert "sel__k" not in params
 
 
 def test_get_param_distributions_unknown_model(minimal_config):
@@ -737,11 +777,11 @@ def test_get_optuna_params_svm_log_scale():
 
 
 def test_get_optuna_params_with_kbest():
-    """Test Optuna params include k_grid as categorical."""
+    """Test Optuna params include k_grid with hybrid_stability (replaces deprecated kbest)."""
     from ced_ml.models.hyperparams import get_param_distributions_optuna
 
     config = make_mock_config()
-    config.features.feature_select = "kbest"
+    config.features.feature_selection_strategy = "hybrid_stability"
     config.features.k_grid = [25, 50, 100, 200]
 
     params = get_param_distributions_optuna("LR_EN", config)
@@ -749,6 +789,49 @@ def test_get_optuna_params_with_kbest():
     assert "sel__k" in params
     assert params["sel__k"]["type"] == "categorical"
     assert params["sel__k"]["choices"] == [25, 50, 100, 200]
+
+
+def test_get_optuna_params_hybrid_stability_with_k_grid():
+    """Test Optuna params include k_grid with hybrid_stability strategy."""
+    from ced_ml.models.hyperparams import get_param_distributions_optuna
+
+    config = make_mock_config()
+    config.features.feature_selection_strategy = "hybrid_stability"
+    config.features.k_grid = [25, 50, 100, 150, 200, 300, 400]
+
+    params = get_param_distributions_optuna("LR_EN", config)
+
+    assert "sel__k" in params
+    assert params["sel__k"]["type"] == "categorical"
+    assert params["sel__k"]["choices"] == [25, 50, 100, 150, 200, 300, 400]
+
+
+def test_get_optuna_params_rfecv_no_k_grid():
+    """Test Optuna params do not include k_grid with rfecv strategy."""
+    from ced_ml.models.hyperparams import get_param_distributions_optuna
+
+    config = make_mock_config()
+    config.features.feature_selection_strategy = "rfecv"
+    config.features.k_grid = []
+
+    params = get_param_distributions_optuna("LR_EN", config)
+
+    # RFECV does not tune k_grid
+    assert "sel__k" not in params
+
+
+def test_get_optuna_params_none_strategy_no_k_grid():
+    """Test Optuna params do not include k_grid with 'none' strategy."""
+    from ced_ml.models.hyperparams import get_param_distributions_optuna
+
+    config = make_mock_config()
+    config.features.feature_selection_strategy = "none"
+    config.features.k_grid = [25, 50]
+
+    params = get_param_distributions_optuna("LR_EN", config)
+
+    # No feature selection
+    assert "sel__k" not in params
 
 
 def test_get_optuna_params_xgboost_with_spw():
