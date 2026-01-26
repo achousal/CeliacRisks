@@ -97,39 +97,138 @@ class CVConfig(BaseModel):
 
 
 class FeatureConfig(BaseModel):
-    """Configuration for feature selection methods."""
+    """Configuration for feature selection methods.
 
-    feature_select: Literal["none", "kbest", "l1_stability", "hybrid"] = "none"
+    Two mutually exclusive strategies:
+    1. hybrid_stability (default): screen → kbest (tuned) → stability → model
+       - Robust, interpretable, uses k_grid tuning
+       - Best for: production models, reproducibility
+    2. rfecv: screen → light kbest cap → RFECV → model
+       - Automatic size discovery, can churn across folds
+       - Best for: scientific discovery, understanding feature stability
+    """
+
+    # Feature selection strategy (mutually exclusive paths)
+    feature_selection_strategy: Literal["hybrid_stability", "rfecv", "none"] = Field(
+        default="hybrid_stability",
+        description=(
+            "Feature selection strategy:\n"
+            "  - hybrid_stability: screen → kbest (tuned) → stability → model (recommended default)\n"
+            "  - rfecv: screen → light kbest cap → RFECV → model (automatic size discovery)\n"
+            "  - none: no feature selection"
+        ),
+    )
+
+    # Screening (common to both strategies)
     screen_method: Literal["mannwhitney", "f_classif"] = "mannwhitney"
     screen_top_n: int = Field(default=0, ge=0)
 
-    # KBest selection
+    # Hybrid+Stability strategy parameters (used when strategy="hybrid_stability")
     kbest_scope: Literal["protein", "transformed"] = "protein"
     kbest_max: int = Field(default=500, ge=1)
-    k_grid: list[int] = Field(default_factory=lambda: [50, 100, 200, 500])
+    k_grid: list[int] = Field(
+        default_factory=lambda: [50, 100, 200, 500],
+        description="k values for SelectKBest tuning (hybrid_stability strategy only)",
+    )
+    stability_thresh: float = Field(
+        default=0.70,
+        ge=0.0,
+        le=1.0,
+        description="Stability threshold for post-hoc panel building",
+    )
+    stable_corr_thresh: float = Field(
+        default=0.80, ge=0.0, le=1.0, description="Correlation threshold for pruning"
+    )
+    stable_corr_method: Literal["pearson", "spearman"] = Field(
+        default="spearman",
+        description="Correlation method for pruning (spearman recommended for proteomics)",
+    )
 
-    # Stability-based selection
-    stability_thresh: float = Field(default=0.70, ge=0.0, le=1.0)
-    stable_corr_thresh: float = Field(default=0.80, ge=0.0, le=1.0)
+    # RFECV strategy parameters (used when strategy="rfecv")
+    rfe_target_size: int = Field(
+        default=50,
+        ge=5,
+        description="Minimum features for RFECV (stops elimination at rfe_target_size // 2)",
+    )
+    rfe_step_strategy: Literal["adaptive", "linear", "geometric"] = Field(
+        default="adaptive",
+        description="RFECV step strategy: adaptive (10% per iter), linear (1 per iter), geometric (same as adaptive)",
+    )
+    rfe_min_auroc_frac: float = Field(
+        default=0.90,
+        ge=0.5,
+        le=1.0,
+        description="Early stop if AUROC drops below this fraction of max (currently unused in nested RFECV)",
+    )
+    rfe_consensus_thresh: float = Field(
+        default=0.80,
+        ge=0.5,
+        le=1.0,
+        description="Consensus panel threshold: include features selected in >= this fraction of CV folds",
+    )
+    rfe_cv_folds: int = Field(
+        default=3, ge=2, description="Internal CV folds for RFECV (within each outer fold)"
+    )
+    rfe_kbest_prefilter: bool = Field(
+        default=True,
+        description="Apply k-best univariate pre-filter before RFECV to reduce computational cost (~5× speedup)",
+    )
+    rfe_kbest_k: int = Field(
+        default=100,
+        ge=10,
+        description="Maximum features to retain before RFECV (reduces ~300 proteins → ~100 for 5× speedup)",
+    )
 
-    # L1 stability
+    # Legacy support (deprecated, mapped to feature_selection_strategy)
+    feature_select: Literal["none", "kbest", "l1_stability", "hybrid"] | None = Field(
+        default=None,
+        description="DEPRECATED: Use feature_selection_strategy instead. Maps: hybrid→hybrid_stability, none→none",
+    )
+
+    # L1 stability (not currently used, placeholder for future)
     l1_c_min: float = 0.001
     l1_c_max: float = 1.0
     l1_c_points: int = 4
     l1_stability_thresh: float = Field(default=0.70, ge=0.0, le=1.0)
 
-    # Hybrid mode
+    # Hybrid mode (not currently used, placeholder)
     hybrid_kbest_first: bool = True
     hybrid_k_for_stability: int = 200
 
-    # RF permutation importance (for hybrid mode)
+    # RF permutation importance (not currently used, placeholder)
     rf_use_permutation: bool = False
     rf_perm_repeats: int = Field(default=5, ge=1)
     rf_perm_min_importance: float = Field(default=0.0, ge=0.0)
     rf_perm_top_n: int = Field(default=100, ge=1)
 
-    # Coefficient threshold (for L1 selection)
+    # Coefficient threshold (not currently used, placeholder)
     coef_threshold: float = Field(default=0.01, ge=0.0)
+
+    @model_validator(mode="after")
+    def validate_strategy(self) -> "FeatureConfig":
+        """Validate feature selection strategy configuration."""
+        # Legacy support: map old feature_select to new feature_selection_strategy
+        if self.feature_select is not None:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            if self.feature_select == "hybrid":
+                self.feature_selection_strategy = "hybrid_stability"
+                logger.warning(
+                    "feature_select='hybrid' is deprecated. Use feature_selection_strategy='hybrid_stability'"
+                )
+            elif self.feature_select == "none":
+                self.feature_selection_strategy = "none"
+                logger.warning(
+                    "feature_select='none' is deprecated. Use feature_selection_strategy='none'"
+                )
+            else:
+                logger.warning(
+                    f"feature_select='{self.feature_select}' not supported. "
+                    "Use feature_selection_strategy instead."
+                )
+
+        return self
 
 
 # ============================================================================
@@ -143,7 +242,7 @@ class PanelConfig(BaseModel):
     build_panels: bool = False
     panel_sizes: list[int] = Field(default_factory=lambda: [10, 25, 50, 100])
     panel_corr_thresh: float = Field(default=0.80, ge=0.0, le=1.0)
-    panel_corr_method: Literal["pearson", "spearman"] = "pearson"
+    panel_corr_method: Literal["pearson", "spearman"] = "spearman"
     panel_rep_tiebreak: Literal["first", "random"] = "first"
     panel_refit: bool = True
     panel_stability_mode: Literal["frequency", "rank"] = "frequency"

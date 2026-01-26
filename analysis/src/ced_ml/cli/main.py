@@ -195,6 +195,12 @@ def save_splits(ctx, config, **kwargs):
     help="Output directory for results",
 )
 @click.option(
+    "--fixed-panel",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to CSV with fixed feature panel (bypasses feature selection)",
+)
+@click.option(
     "--override",
     multiple=True,
     help="Override config values (format: key=value or nested.key=value)",

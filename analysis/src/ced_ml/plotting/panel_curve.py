@@ -262,3 +262,143 @@ def plot_feature_ranking(
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+
+
+def plot_rfecv_selection_curve(
+    cv_scores_curve_path: Path | str,
+    out_path: Path | str,
+    title: str = "RFECV Feature Selection Curve",
+    model_name: str = "",
+) -> None:
+    """Plot RFECV internal CV scores vs number of features across folds.
+
+    Shows how cross-validation AUROC varies with feature count during RFECV,
+    helping visualize the automatic optimal size selection per fold.
+
+    Args:
+        cv_scores_curve_path: Path to cv_scores_curve.csv (from nested_rfe).
+        out_path: Output file path for plot.
+        title: Plot title.
+        model_name: Model name for subtitle.
+
+    Returns:
+        None. Saves plot to out_path.
+    """
+    if not _HAS_PLOTTING:
+        return
+
+    import pandas as pd
+
+    cv_scores_curve_path = Path(cv_scores_curve_path)
+    if not cv_scores_curve_path.exists():
+        return
+
+    # Load CV scores data
+    df = pd.read_csv(cv_scores_curve_path)
+    if df.empty:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Get unique folds
+    folds = sorted(df["fold"].unique())
+    n_folds = len(folds)
+
+    # Color palette for folds
+    colors = plt.cm.tab10(np.linspace(0, 1, n_folds))
+
+    # Plot each fold
+    for i, fold in enumerate(folds):
+        fold_data = df[df["fold"] == fold].sort_values("n_features")
+        ax.plot(
+            fold_data["n_features"],
+            fold_data["cv_score"],
+            "o-",
+            color=colors[i],
+            linewidth=1.5,
+            markersize=4,
+            alpha=0.7,
+            label=f"Fold {fold}",
+        )
+
+        # Mark optimal point (max CV score)
+        optimal_idx = fold_data["cv_score"].idxmax()
+        optimal_row = fold_data.loc[optimal_idx]
+        ax.scatter(
+            [optimal_row["n_features"]],
+            [optimal_row["cv_score"]],
+            s=100,
+            c=[colors[i]],
+            marker="*",
+            zorder=10,
+            edgecolors="white",
+            linewidths=1,
+        )
+
+    # Aggregate mean curve across folds
+    mean_curve = df.groupby("n_features")["cv_score"].agg(["mean", "std"]).reset_index()
+    ax.plot(
+        mean_curve["n_features"],
+        mean_curve["mean"],
+        "k--",
+        linewidth=2.5,
+        alpha=0.8,
+        label="Mean across folds",
+    )
+
+    # Add shaded error region
+    ax.fill_between(
+        mean_curve["n_features"],
+        mean_curve["mean"] - mean_curve["std"],
+        mean_curve["mean"] + mean_curve["std"],
+        color="gray",
+        alpha=0.2,
+    )
+
+    # Styling
+    ax.set_xlabel("Number of Features", fontsize=11)
+    ax.set_ylabel("CV AUROC (Internal)", fontsize=11)
+    ax.set_xlim(0, df["n_features"].max() * 1.05)
+
+    # Y-axis: reasonable range
+    y_min = df["cv_score"].min() - 0.02
+    y_max = df["cv_score"].max() + 0.02
+    y_min = max(0.5, y_min)
+    y_max = min(1.0, y_max)
+    ax.set_ylim(y_min, y_max)
+
+    ax.legend(loc="best", fontsize=9, ncol=2)
+    ax.grid(True, alpha=0.3)
+
+    # Title
+    if model_name:
+        ax.set_title(f"{title}\n{model_name}", fontsize=12, fontweight="bold")
+    else:
+        ax.set_title(title, fontsize=12, fontweight="bold")
+
+    # Summary text
+    optimal_sizes = []
+    for fold in folds:
+        fold_data = df[df["fold"] == fold]
+        optimal_n = fold_data.loc[fold_data["cv_score"].idxmax(), "n_features"]
+        optimal_sizes.append(int(optimal_n))
+
+    summary_text = (
+        f"Folds: {n_folds}\n"
+        f"Mean optimal size: {np.mean(optimal_sizes):.1f} ± {np.std(optimal_sizes):.1f}\n"
+        f"Range: [{min(optimal_sizes)}, {max(optimal_sizes)}]"
+    )
+    ax.text(
+        0.98,
+        0.02,
+        summary_text,
+        transform=ax.transAxes,
+        fontsize=9,
+        verticalalignment="bottom",
+        horizontalalignment="right",
+        bbox={"facecolor": "white", "alpha": 0.9, "edgecolor": "gray", "pad": 4},
+    )
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)

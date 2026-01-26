@@ -174,11 +174,22 @@ def build_training_pipeline(
 ) -> Pipeline:
     """Build complete training pipeline with preprocessing, feature selection, and classifier.
 
-    Pipeline order (when screening enabled):
+    Two mutually exclusive feature selection strategies:
+    1. hybrid_stability: screen → kbest (tuned k_grid) → stability → model
+    2. rfecv: screen → (light kbest cap) → RFECV (within CV) → model
+
+    Pipeline order (hybrid_stability):
     1. Screening: Univariate Mann-Whitney/F-test → keep top-N proteins (operates on raw DataFrame)
     2. Preprocessing: StandardScaler + OneHotEncoder (adds metadata columns)
     3. SelectKBest: Tuned k value (from k_grid) during CV
     4. Classifier
+
+    Pipeline order (rfecv):
+    1. Screening: Univariate Mann-Whitney/F-test → keep top-N proteins
+    2. Preprocessing: StandardScaler + OneHotEncoder
+    3. (Optional light kbest cap if enabled)
+    4. RFECV (handled within CV loop, not as pipeline step)
+    5. Classifier
 
     Args:
         config: TrainingConfig object
@@ -190,54 +201,68 @@ def build_training_pipeline(
     Returns:
         Pipeline with named steps: [screen], pre, [sel], clf
 
-    Example:
-        Screening (top 1000 Mann-Whitney features) + SelectKBest tuning (k=25-800):
-        >>> config.features.feature_select = "kbest"
+    Example (hybrid_stability):
+        >>> config.features.feature_selection_strategy = "hybrid_stability"
         >>> config.features.screen_top_n = 1000
         >>> config.features.k_grid = [25, 50, 100, 200, 400, 800]
         Pipeline stages: screen → pre → sel → clf
+
+    Example (rfecv):
+        >>> config.features.feature_selection_strategy = "rfecv"
+        >>> config.features.screen_top_n = 1000
+        Pipeline stages: screen → pre → clf (RFECV runs within CV loop)
     """
     logger = logging.getLogger(__name__)
 
+    strategy = config.features.feature_selection_strategy
     steps = []
 
     # Stage 0: Screening (BEFORE preprocessing, operates on raw DataFrame)
-    if config.features.feature_select and config.features.feature_select != "none":
-        screen_top_n = getattr(config.features, "screen_top_n", 0)
-        screen_method = getattr(config.features, "screen_method", "mannwhitney")
+    # Common to both strategies
+    screen_top_n = getattr(config.features, "screen_top_n", 0)
+    screen_method = getattr(config.features, "screen_method", "mannwhitney")
 
-        if screen_top_n > 0 and screen_method:
-            from ced_ml.features.kbest import ScreeningTransformer
+    if strategy != "none" and screen_top_n > 0 and screen_method:
+        from ced_ml.features.kbest import ScreeningTransformer
 
-            screener = ScreeningTransformer(
-                method=screen_method,
-                top_n=screen_top_n,
-                protein_cols=protein_cols,
-            )
-            steps.append(("screen", screener))
-            logger.debug(f"Feature screening: {screen_method} → top {screen_top_n} features")
+        screener = ScreeningTransformer(
+            method=screen_method,
+            top_n=screen_top_n,
+            protein_cols=protein_cols,
+        )
+        steps.append(("screen", screener))
+        logger.debug(f"Feature screening: {screen_method} → top {screen_top_n} features")
 
     # Stage 1: Preprocessing (StandardScaler + OneHotEncoder)
     # Note: If screening is enabled, protein_cols will be reduced by screener
-    # We need to build preprocessor dynamically or make it flexible
     preprocessor = build_preprocessor(protein_cols, cat_cols, meta_num_cols)
     steps.append(("pre", preprocessor))
 
-    # Stage 2: SelectKBest with k_grid tuning (operates on preprocessed features)
-    if config.features.feature_select and config.features.feature_select != "none":
+    # Stage 2: Strategy-specific feature selection
+    if strategy == "hybrid_stability":
+        # Hybrid+Stability: SelectKBest with k_grid tuning
         k_grid = getattr(config.features, "k_grid", None)
         if k_grid:
             # Use first k value as default (will be tuned during CV)
             k_default = k_grid[0] if isinstance(k_grid, list | tuple) else k_grid
             kbest = build_kbest_pipeline_step(k=k_default)
             steps.append(("sel", kbest))
-            logger.debug(f"Feature selection: SelectKBest k_grid={k_grid}")
+            logger.debug(f"Feature selection: hybrid_stability with k_grid={k_grid}")
         else:
             # Fallback: use kbest_max as fixed k (no tuning)
             k_val = getattr(config.features, "kbest_max", 500)
             kbest = build_kbest_pipeline_step(k=k_val)
             steps.append(("sel", kbest))
-            logger.debug(f"Feature selection: SelectKBest(k={k_val})")
+            logger.debug(f"Feature selection: hybrid_stability with fixed k={k_val}")
+
+    elif strategy == "rfecv":
+        # RFECV: No SelectKBest here (RFECV runs within CV loop in training.py)
+        # Optional: add a light kbest cap if you want to limit RFECV search space
+        # For now, RFECV operates on all screened features
+        logger.debug("Feature selection: rfecv (RFECV runs within CV loop)")
+
+    elif strategy == "none":
+        logger.debug("Feature selection: none")
 
     # Stage 3: Classifier
     steps.append(("clf", classifier))
@@ -260,9 +285,9 @@ def _log_unwired_feature_selection_settings(config: Any, logger: logging.Logger)
     if getattr(config.features, "stable_corr_thresh", 0.85) != 0.85:
         unwired.append("stable_corr_thresh (post-hoc panel building only)")
 
-    # Hybrid feature selection logic (not yet fully implemented)
-    if getattr(config.features, "feature_select", "none") in ("l1_stability", "hybrid"):
-        unwired.append("feature_select='hybrid' (partial implementation; using kbest only)")
+    # Warn if legacy feature_select is used
+    if getattr(config.features, "feature_select", None) is not None:
+        unwired.append("feature_select (DEPRECATED: use feature_selection_strategy instead)")
 
     if unwired:
         logger.warning(
@@ -638,6 +663,43 @@ def run_train(
 
     feature_cols = resolved.all_feature_cols
 
+    # Handle fixed panel (if provided via CLI)
+    fixed_panel = cli_args.get("fixed_panel") if cli_args else None
+    fixed_panel_proteins = None
+
+    if fixed_panel:
+        log_section(logger, "Fixed Panel Mode")
+        logger.info(f"Loading fixed panel from: {fixed_panel}")
+
+        # Load fixed panel CSV
+        fixed_panel_df = pd.read_csv(fixed_panel)
+
+        # Expect a column named 'protein' or use first column
+        if "protein" in fixed_panel_df.columns:
+            fixed_panel_proteins = fixed_panel_df["protein"].tolist()
+        else:
+            fixed_panel_proteins = fixed_panel_df.iloc[:, 0].tolist()
+
+        # Validate that all fixed panel proteins exist in data
+        missing_proteins = set(fixed_panel_proteins) - set(protein_cols)
+        if missing_proteins:
+            logger.error(f"Fixed panel contains {len(missing_proteins)} proteins not in dataset")
+            logger.error(f"Missing proteins (first 10): {list(missing_proteins)[:10]}")
+            raise ValueError(
+                f"Fixed panel contains {len(missing_proteins)} proteins not found in dataset. "
+                f"Check that protein names match exactly (e.g., 'PROT_123_resid')."
+            )
+
+        # Override protein_cols to use only fixed panel
+        protein_cols = fixed_panel_proteins
+        logger.info(f"Fixed panel loaded: {len(fixed_panel_proteins)} proteins")
+        logger.info("Feature selection will be BYPASSED (using pre-specified panel)")
+
+        # Override config to disable feature selection
+        config.features.feature_selection_strategy = "none"
+        config.features.screen_top_n = 0
+        logger.info("Feature selection strategy set to 'none'")
+
     X_train = df_scenario.iloc[train_idx][feature_cols]
     y_train = df_scenario.iloc[train_idx]["y"].values
 
@@ -683,19 +745,25 @@ def run_train(
     # Create grid RNG if grid randomization is enabled
     grid_rng = np.random.default_rng(seed) if config.cv.grid_randomize else None
 
-    oof_preds, elapsed_sec, best_params_df, selected_proteins_df, oof_calibrator = (
-        oof_predictions_with_nested_cv(
-            pipeline=pipeline,
-            model_name=config.model,
-            X=X_train,
-            y=y_train,
-            protein_cols=protein_cols,
-            config=config,
-            random_state=seed,
-            grid_rng=grid_rng,
-        )
+    (
+        oof_preds,
+        elapsed_sec,
+        best_params_df,
+        selected_proteins_df,
+        oof_calibrator,
+        nested_rfecv_result,
+    ) = oof_predictions_with_nested_cv(
+        pipeline=pipeline,
+        model_name=config.model,
+        X=X_train,
+        y=y_train,
+        protein_cols=protein_cols,
+        config=config,
+        random_state=seed,
+        grid_rng=grid_rng,
     )
     # oof_calibrator is saved to model bundle for stacking ensemble consumption
+    # nested_rfecv_result contains consensus panel if rfe_enabled=true
 
     logger.info(f"CV completed in {elapsed_sec:.1f}s")
 
@@ -859,6 +927,12 @@ def run_train(
             "numeric_metadata": resolved.numeric_metadata,
             "categorical_metadata": resolved.categorical_metadata,
         },
+        # Fixed panel metadata (if used)
+        "fixed_panel": {
+            "enabled": fixed_panel is not None,
+            "path": str(fixed_panel) if fixed_panel else None,
+            "n_proteins": len(fixed_panel_proteins) if fixed_panel_proteins else None,
+        },
         "config": config.model_dump() if hasattr(config, "model_dump") else config.dict(),
         "seed": seed,
         "versions": {
@@ -885,6 +959,28 @@ def run_train(
     selected_proteins_path = Path(outdirs.cv) / "selected_proteins_per_split.csv"
     selected_proteins_df.to_csv(selected_proteins_path, index=False)
     logger.info(f"Selected proteins saved: {selected_proteins_path}")
+
+    # Save nested RFECV results (if enabled)
+    if nested_rfecv_result is not None:
+        from ced_ml.features.nested_rfe import save_nested_rfecv_results
+
+        rfecv_dir = Path(outdirs.cv) / "rfecv"
+        save_nested_rfecv_results(
+            result=nested_rfecv_result,
+            output_dir=rfecv_dir,
+            model_name=config.model,
+            split_seed=seed,
+        )
+        logger.info(f"Nested RFECV results saved: {rfecv_dir}")
+        logger.info(
+            f"  Consensus panel: {len(nested_rfecv_result.consensus_panel)} proteins "
+            f"(selected in >= {config.features.rfe_consensus_thresh:.0%} of folds)"
+        )
+        logger.info(f"  Mean optimal size: {nested_rfecv_result.mean_optimal_size:.1f} proteins")
+        logger.info(
+            f"  Mean val AUROC: {np.mean(nested_rfecv_result.fold_val_aurocs):.4f} "
+            f"(std: {np.std(nested_rfecv_result.fold_val_aurocs):.4f})"
+        )
 
     # Save final test panel (proteins used in final model for test predictions)
     if final_selected_proteins:
@@ -1678,12 +1774,14 @@ def run_train(
             panel_sizes = getattr(config.panels, "panel_sizes", [10, 25, 50])
             if panel_sizes and len(selection_freq) >= min(panel_sizes):
                 corr_threshold = getattr(config.panels, "panel_corr_thresh", 0.80)
+                corr_method = getattr(config.panels, "panel_corr_method", "spearman")
                 panels = build_multi_size_panels(
                     df=X_train,
                     y=y_train,
                     selection_freq=selection_freq,
                     panel_sizes=panel_sizes,
                     corr_threshold=corr_threshold,
+                    corr_method=corr_method,
                     pool_limit=1000,
                 )
                 for size, (_comp_map, panel_proteins) in panels.items():

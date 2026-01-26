@@ -19,7 +19,7 @@ from scipy import stats
 def compute_correlation_matrix(
     df: pd.DataFrame,
     proteins: list[str],
-    method: Literal["pearson", "spearman"] = "pearson",
+    method: Literal["pearson", "spearman"] = "spearman",
 ) -> pd.DataFrame:
     """Compute correlation matrix for protein features.
 
@@ -335,7 +335,7 @@ def prune_correlated_proteins(
     proteins: list[str],
     selection_freq: dict[str, float] | None,
     corr_threshold: float = 0.80,
-    corr_method: Literal["pearson", "spearman"] = "pearson",
+    corr_method: Literal["pearson", "spearman"] = "spearman",
     tiebreak_method: Literal["freq", "freq_then_univariate"] = "freq",
 ) -> tuple[pd.DataFrame, list[str]]:
     """Collapse highly correlated proteins into components and select representatives.
@@ -450,7 +450,7 @@ def refill_panel_to_target_size(
     ranked_candidates: list[str],
     target_size: int,
     corr_threshold: float = 0.80,
-    corr_method: Literal["pearson", "spearman"] = "pearson",
+    corr_method: Literal["pearson", "spearman"] = "spearman",
     pool_limit: int = 3000,
 ) -> list[str]:
     """Refill pruned panel to target size while avoiding high correlations.
@@ -534,7 +534,7 @@ def prune_and_refill_panel(
     selection_freq: dict[str, float],
     target_size: int,
     corr_threshold: float = 0.80,
-    corr_method: Literal["pearson", "spearman"] = "pearson",
+    corr_method: Literal["pearson", "spearman"] = "spearman",
     tiebreak_method: Literal["freq", "freq_then_univariate"] = "freq",
     pool_limit: int = 3000,
 ) -> tuple[pd.DataFrame, list[str]]:

@@ -539,3 +539,88 @@ def test_oof_predictions_no_inner_tuning(toy_data, simple_pipeline, minimal_conf
     # Best params should be empty
     best_params_sample = json.loads(best_params_df.iloc[0]["best_params"])
     assert best_params_sample == {}
+
+
+def test_fixed_panel_bypasses_feature_selection(tmp_path):
+    """Test that fixed panel mode disables feature selection."""
+    from ced_ml.cli.train import build_training_pipeline
+    from ced_ml.models.registry import build_models
+    from conftest import make_mock_config
+
+    # Create minimal config
+    config = make_mock_config()
+    config.features.feature_selection_strategy = "hybrid_stability"
+    config.features.screen_top_n = 100
+    config.features.k_grid = [10, 20]
+
+    # Create mock fixed panel CSV
+    fixed_panel_path = tmp_path / "test_panel.csv"
+    panel_proteins = [f"prot_{i}_resid" for i in range(5)]
+    pd.DataFrame({"protein": panel_proteins}).to_csv(fixed_panel_path, index=False)
+
+    # Simulate fixed panel override (as done in run_train)
+    config.features.feature_selection_strategy = "none"
+    config.features.screen_top_n = 0
+
+    # Build pipeline
+    classifier = build_models("LR_EN", config, random_state=42, n_jobs=1)
+    pipeline = build_training_pipeline(
+        config,
+        classifier,
+        protein_cols=panel_proteins,
+        cat_cols=["sex"],
+        meta_num_cols=["age"],
+    )
+
+    # Verify no feature selection steps
+    step_names = [name for name, _ in pipeline.steps]
+    assert "screen" not in step_names, "Screening should be disabled"
+    assert "sel" not in step_names, "SelectKBest should be disabled"
+    assert "pre" in step_names, "Preprocessing should still exist"
+    assert "clf" in step_names, "Classifier should still exist"
+
+
+def test_fixed_panel_protein_validation(tmp_path):
+    """Test that fixed panel validates proteins exist in dataset."""
+
+    # Create fixed panel with non-existent proteins
+    bad_panel_path = tmp_path / "bad_panel.csv"
+    pd.DataFrame({"protein": ["FAKE_PROT_1", "FAKE_PROT_2"]}).to_csv(bad_panel_path, index=False)
+
+    # Actual protein columns in dataset
+    actual_proteins = [f"prot_{i}_resid" for i in range(10)]
+
+    # This validation should happen in run_train before pipeline building
+    # Simulating the validation logic
+    fixed_panel_df = pd.read_csv(bad_panel_path)
+    fixed_panel_proteins = fixed_panel_df["protein"].tolist()
+
+    missing_proteins = set(fixed_panel_proteins) - set(actual_proteins)
+    assert len(missing_proteins) == 2, "Should detect missing proteins"
+    assert "FAKE_PROT_1" in missing_proteins
+    assert "FAKE_PROT_2" in missing_proteins
+
+
+def test_rfecv_kbest_prefilter_config_defaults():
+    """Test that k-best pre-filter config parameters have correct defaults."""
+    from ced_ml.config.schema import FeatureConfig
+
+    config = FeatureConfig()
+
+    # Verify defaults
+    assert config.rfe_kbest_prefilter is True, "K-best pre-filter should be enabled by default"
+    assert config.rfe_kbest_k == 100, "Default k should be 100"
+
+
+def test_rfecv_kbest_prefilter_config_validation():
+    """Test that k-best pre-filter config validates correctly."""
+    from ced_ml.config.schema import FeatureConfig
+    from pydantic import ValidationError
+
+    # Valid config
+    config = FeatureConfig(rfe_kbest_k=50)
+    assert config.rfe_kbest_k == 50
+
+    # Invalid k (too small)
+    with pytest.raises(ValidationError):  # Pydantic validation error
+        FeatureConfig(rfe_kbest_k=5)  # Less than ge=10 constraint

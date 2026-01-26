@@ -98,7 +98,7 @@ def prune_correlated_proteins(
     proteins: list[str],
     selection_freq: dict[str, float] | None = None,
     corr_threshold: float = 0.80,
-    corr_method: Literal["pearson", "spearman"] = "pearson",
+    corr_method: Literal["pearson", "spearman"] = "spearman",
     tiebreak_method: Literal["freq", "freq_then_univariate"] = "freq",
 ) -> tuple[pd.DataFrame, list[str]]:
     """Prune correlated proteins using connected components graph algorithm.
@@ -272,7 +272,7 @@ def prune_and_refill_panel(
     target_size: int,
     corr_threshold: float,
     pool_limit: int,
-    corr_method: Literal["pearson", "spearman"] = "pearson",
+    corr_method: Literal["pearson", "spearman"] = "spearman",
     tiebreak_method: Literal["freq", "freq_then_univariate"] = "freq",
 ) -> tuple[pd.DataFrame, list[str]]:
     """Build correlation-pruned panel of fixed size with backfill.
@@ -416,7 +416,7 @@ def build_multi_size_panels(
     panel_sizes: list[int],
     corr_threshold: float = 0.80,
     pool_limit: int = 1000,
-    corr_method: Literal["pearson", "spearman"] = "pearson",
+    corr_method: Literal["pearson", "spearman"] = "spearman",
     tiebreak_method: Literal["freq", "freq_then_univariate"] = "freq",
 ) -> dict[int, tuple[pd.DataFrame, list[str]]]:
     """Build multiple panels of different sizes with correlation pruning.

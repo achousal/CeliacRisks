@@ -114,6 +114,7 @@ def make_mock_config(**overrides):
         ),
         "features": SimpleNamespace(
             feature_select="none",
+            feature_selection_strategy="none",
             k_grid=[],
             kbest_scope="protein",
             coef_threshold=1e-12,

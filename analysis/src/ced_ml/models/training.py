@@ -26,6 +26,8 @@ from ..config import TrainingConfig
 from ..metrics.scorers import get_scorer
 
 if TYPE_CHECKING:
+    from ced_ml.features.nested_rfe import NestedRFECVResult
+
     from .calibration import OOFCalibrator
 
 logger = logging.getLogger(__name__)
@@ -93,12 +95,20 @@ def oof_predictions_with_nested_cv(
     config: TrainingConfig,
     random_state: int,
     grid_rng: np.random.Generator | None = None,
-) -> tuple[np.ndarray, float, pd.DataFrame, pd.DataFrame, "OOFCalibrator | None"]:
+) -> tuple[
+    np.ndarray,
+    float,
+    pd.DataFrame,
+    pd.DataFrame,
+    "OOFCalibrator | None",
+    "NestedRFECVResult | None",
+]:
     """
     Generate out-of-fold predictions using nested cross-validation.
 
     Outer CV: Repeated stratified K-fold for robust OOF predictions
     Inner CV: Hyperparameter tuning via RandomizedSearchCV
+    Optional RFECV: Feature selection within each fold (no leakage)
 
     Args:
         pipeline: Unfitted sklearn pipeline (pre + feature selection + clf)
@@ -118,11 +128,23 @@ def oof_predictions_with_nested_cv(
         selected_proteins_df: DataFrame with selected proteins per fold
         oof_calibrator: OOFCalibrator instance if strategy is "oof_posthoc", else None.
                         Use this calibrator for val/test predictions.
+        rfecv_result: NestedRFECVResult if rfe_enabled, else None.
+                      Contains consensus panel and fold-wise feature selection.
 
     Raises:
         RuntimeError: If any repeat has missing OOF predictions (CV split bug)
     """
     from .calibration import OOFCalibrator
+
+    # Import RFECV utilities (lazy to avoid circular imports)
+    rfecv_enabled = config.features.feature_selection_strategy == "rfecv"
+    if rfecv_enabled:
+        from ced_ml.features.nested_rfe import (
+            RFECVFoldResult,
+            aggregate_rfecv_results,
+            extract_estimator_for_rfecv,
+            run_rfecv_within_fold,
+        )
 
     n_splits = config.cv.folds
     n_repeats = config.cv.repeats
@@ -135,6 +157,9 @@ def oof_predictions_with_nested_cv(
     preds = np.full((n_repeats, n_samples), np.nan, dtype=float)
     best_params_rows: list[dict[str, Any]] = []
     selected_proteins_rows: list[dict[str, Any]] = []
+
+    # RFECV tracking (if enabled)
+    rfecv_fold_results: list[RFECVFoldResult] = [] if rfecv_enabled else []
 
     # Validate outer CV folds
     if n_splits < 2:
@@ -209,6 +234,90 @@ def oof_predictions_with_nested_cv(
             random_state,
         )
 
+        # Extract selected proteins from this fold (initial feature selection)
+        selected_proteins = _extract_selected_proteins_from_fold(
+            fitted_model,
+            model_name,
+            protein_cols,
+            config,
+            X.iloc[train_idx],
+            y[train_idx],
+            random_state,
+        )
+
+        # --- RFECV within fold (if enabled) ---
+        if rfecv_enabled and selected_proteins:
+            try:
+                logger.info(
+                    f"Fold {split_idx}: Running RFECV on {len(selected_proteins)} proteins..."
+                )
+
+                # Extract estimator for RFECV
+                estimator = extract_estimator_for_rfecv(fitted_model, model_name)
+
+                # Prepare data with only selected proteins
+                X_train_proteins = X.iloc[train_idx][selected_proteins]
+                X_test_proteins = X.iloc[test_idx][selected_proteins]
+
+                # Optional k-best pre-filter to reduce computational cost
+                if getattr(config.features, "rfe_kbest_prefilter", True):
+                    k_max = getattr(config.features, "rfe_kbest_k", 100)
+                    if len(selected_proteins) > k_max:
+                        from sklearn.feature_selection import SelectKBest, f_classif
+
+                        logger.info(
+                            f"Fold {split_idx}: Applying k-best pre-filter "
+                            f"({len(selected_proteins)} → {k_max} proteins) before RFECV..."
+                        )
+                        selector = SelectKBest(f_classif, k=k_max)
+                        selector.fit(X_train_proteins, y[train_idx])
+                        kbest_mask = selector.get_support()
+                        selected_proteins = [
+                            p
+                            for p, keep in zip(selected_proteins, kbest_mask, strict=False)
+                            if keep
+                        ]
+                        X_train_proteins = X_train_proteins.iloc[:, kbest_mask]
+                        X_test_proteins = X_test_proteins.iloc[:, kbest_mask]
+                        logger.info(
+                            f"Fold {split_idx}: K-best pre-filter retained {len(selected_proteins)} proteins"
+                        )
+
+                # Resolve RFECV parameters from config
+                rfecv_min_features = max(5, getattr(config.features, "rfe_target_size", 50) // 2)
+                rfecv_step = _resolve_rfecv_step(
+                    getattr(config.features, "rfe_step_strategy", "adaptive"),
+                    len(selected_proteins),
+                )
+
+                # Run RFECV within this fold
+                rfecv_result = run_rfecv_within_fold(
+                    X_train_fold=X_train_proteins,
+                    y_train_fold=y[train_idx],
+                    X_val_fold=X_test_proteins,
+                    y_val_fold=y[test_idx],
+                    estimator=estimator,
+                    feature_names=selected_proteins,
+                    fold_idx=split_idx,
+                    min_features=rfecv_min_features,
+                    step=rfecv_step,
+                    cv_folds=getattr(config.cv, "inner_folds", 3),
+                    scoring="roc_auc",
+                    n_jobs=getattr(config, "n_jobs", -1),
+                    random_state=random_state,
+                )
+                rfecv_fold_results.append(rfecv_result)
+
+                # Update selected_proteins to RFECV-selected features
+                selected_proteins = rfecv_result.selected_features
+                logger.info(
+                    f"Fold {split_idx}: RFECV reduced to {len(selected_proteins)} proteins "
+                    f"(val AUROC = {rfecv_result.val_auroc:.4f})"
+                )
+
+            except Exception as e:
+                logger.warning(f"Fold {split_idx}: RFECV failed: {e}. Using initial selection.")
+
         # Generate OOF predictions for this fold
         proba = fitted_model.predict_proba(X.iloc[test_idx])[:, 1]
         proba = np.clip(proba, 0.0, 1.0)
@@ -236,17 +345,7 @@ def oof_predictions_with_nested_cv(
 
         best_params_rows.append(best_params_row)
 
-        # Extract selected proteins from this fold
-        selected_proteins = _extract_selected_proteins_from_fold(
-            fitted_model,
-            model_name,
-            protein_cols,
-            config,
-            X.iloc[train_idx],
-            y[train_idx],
-            random_state,
-        )
-
+        # Record selected proteins (post-RFECV if enabled)
         if selected_proteins:
             selected_proteins_rows.append(
                 {
@@ -255,6 +354,7 @@ def oof_predictions_with_nested_cv(
                     "outer_split": split_idx,
                     "n_selected_proteins": len(selected_proteins),
                     "selected_proteins": json.dumps(sorted(selected_proteins)),
+                    "rfecv_applied": rfecv_enabled,
                 }
             )
 
@@ -283,12 +383,25 @@ def oof_predictions_with_nested_cv(
         for r in range(n_repeats):
             preds[r] = oof_calibrator.transform(preds[r])
 
+    # Aggregate RFECV results (if enabled)
+    nested_rfecv_result = None
+    if rfecv_enabled and rfecv_fold_results:
+        consensus_threshold = getattr(config.features, "rfe_consensus_thresh", 0.80)
+        nested_rfecv_result = aggregate_rfecv_results(
+            rfecv_fold_results, consensus_threshold=consensus_threshold
+        )
+        logger.info(
+            f"RFECV complete: consensus panel has {len(nested_rfecv_result.consensus_panel)} proteins "
+            f"(mean optimal size: {nested_rfecv_result.mean_optimal_size:.1f})"
+        )
+
     return (
         preds,
         elapsed_sec,
         pd.DataFrame(best_params_rows),
         pd.DataFrame(selected_proteins_rows),
         oof_calibrator,
+        nested_rfecv_result,
     )
 
 
@@ -323,6 +436,38 @@ def _compute_xgb_scale_pos_weight(y_train: np.ndarray, config: TrainingConfig) -
     return max(1.0, spw)
 
 
+def _resolve_rfecv_step(strategy: str, n_features: int) -> int | float:
+    """
+    Resolve RFECV step parameter from strategy string.
+
+    Args:
+        strategy: Step strategy ("adaptive", "linear", "geometric", or integer string)
+        n_features: Number of features being evaluated
+
+    Returns:
+        Step size (int) or fraction (float) for RFECV
+
+    Notes:
+        - "adaptive"/"geometric": Remove ~10% of features per iteration (fast)
+        - "linear": Remove 1 feature per iteration (thorough but slow)
+        - Integer string: Use as fixed step size
+    """
+    if strategy in ("adaptive", "geometric"):
+        # Remove ~10% per iteration (sklearn RFECV convention for geometric)
+        return max(1, int(0.1 * n_features))
+    elif strategy == "linear":
+        # Remove 1 feature per iteration (thorough)
+        return 1
+    else:
+        # Try parsing as integer
+        try:
+            step = int(strategy)
+            return max(1, step)
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid rfe_step_strategy '{strategy}', defaulting to adaptive (10%)")
+            return max(1, int(0.1 * n_features))
+
+
 def _scoring_to_direction(scoring: str) -> str:
     """
     Infer Optuna optimization direction from sklearn scoring metric.
@@ -353,7 +498,7 @@ def _scoring_to_direction(scoring: str) -> str:
     if scoring in maximize_metrics or scoring.startswith("neg_"):
         return "maximize"
 
-    return "maximize"  # Default to maximize for unknown metrics  # Default to maximize for unknown metrics
+    return "maximize"  # Default to maximize for unknown metrics
 
 
 def _build_hyperparameter_search(
@@ -632,9 +777,9 @@ def _extract_selected_proteins_from_fold(
             selected_proteins.update(screen_selected)
 
     # Strategy 2: Extract from K-best selection (if present)
-    feature_select = config.features.feature_select
+    strategy = config.features.feature_selection_strategy
 
-    if feature_select in ("kbest", "hybrid"):
+    if strategy in ("hybrid_stability", "rfecv"):
         kbest_scope = config.features.kbest_scope
 
         if kbest_scope == "protein" and "prot_sel" in pipeline.named_steps:
@@ -650,7 +795,8 @@ def _extract_selected_proteins_from_fold(
                 selected_proteins.update(kbest_proteins)
 
     # Strategy 3: Extract from model coefficients (linear models)
-    if feature_select in ("l1_stability", "hybrid"):
+    # Only relevant for hybrid_stability strategy
+    if strategy == "hybrid_stability":
         model_proteins = _extract_from_model_coefficients(
             pipeline, model_name, protein_cols, config
         )
@@ -658,7 +804,7 @@ def _extract_selected_proteins_from_fold(
             selected_proteins.update(model_proteins)
 
     # Strategy 4: Permutation importance for RF (if enabled and hybrid mode)
-    if feature_select == "hybrid" and model_name == "RF" and config.features.rf_use_permutation:
+    if strategy == "hybrid_stability" and model_name == "RF" and config.features.rf_use_permutation:
         perm_proteins = _extract_from_rf_permutation(
             pipeline, X_train, y_train, protein_cols, config, random_state
         )

@@ -1,14 +1,32 @@
-"""Recursive Feature Elimination (RFE) for minimum viable panel selection.
+"""Post-hoc RFE for clinical deployment panel optimization.
 
 Identifies the smallest protein panel that maintains acceptable AUROC through
-iterative feature removal. Outputs a Pareto curve showing the size-performance
-trade-off for clinical decision-making.
+iterative feature removal. Runs AFTER training on a single trained model to
+generate Pareto curves showing size-performance trade-offs for clinical
+decision-making.
 
 Design:
 - Uses validation set AUROC for elimination decisions (test reserved for final eval)
-- Supports adaptive (geometric) step strategy for efficiency
+- Supports adaptive (geometric) step strategy for efficiency (~45× faster than nested RFECV)
 - Model-specific importance: coefficients for linear, permutation for trees
-- Outputs: curve CSV, recommendations JSON, feature ranking
+- Outputs: curve CSV, recommendations JSON, feature ranking, Pareto plots
+
+Complementary to features/nested_rfe.py (robust feature discovery):
+- rfe.py (this module): Clinical deployment after training
+  → "What's the minimum panel size maintaining AUROC ≥ 0.90?"
+  → Use for: Stakeholder decisions, cost-benefit analysis, rapid iteration
+  → Output: Pareto curve (panel size vs. AUROC)
+  → Speed: Fast (single model evaluation per size)
+
+- nested_rfe.py (during training): Scientific discovery within CV
+  → "What features are robustly selected across CV folds?"
+  → Use for: Publishing, understanding stability, early discovery
+  → Output: Consensus panel (features in ≥80% of folds)
+  → Speed: Slower (~45× more model fits due to nested CV)
+
+Typical workflow: Use both sequentially
+  1. Enable rfe_enabled: true during training (robust discovery)
+  2. Run ced optimize-panel after training (deployment trade-offs)
 """
 
 import json

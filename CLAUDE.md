@@ -72,7 +72,7 @@ For detailed architecture with code pointers, see [docs/ARCHITECTURE.md](analysi
 | Layer | Modules | Purpose |
 |-------|---------|---------|
 | Data | `io`, `splits`, `persistence`, `filters`, `schema`, `columns` | Data loading, split generation, column resolution |
-| Features | `screening`, `kbest`, `stability`, `corr_prune`, `panels` | Feature selection |
+| Features | `screening`, `kbest`, `stability`, `corr_prune`, `panels`, `rfe`, `nested_rfe` | Feature selection (rfe=post-hoc, nested_rfe=during training) |
 | Models | `registry`, `hyperparams`, `optuna_search`, `training`, `calibration`, `prevalence` | Model training and hyperparameter optimization |
 | Metrics | `discrimination`, `thresholds`, `dca`, `bootstrap` | Performance metrics |
 | Evaluation | `predict`, `reports`, `holdout` | Prediction and reporting |
@@ -140,13 +140,36 @@ ced train \
 Trains single model on one split with:
 - Nested CV (5-fold outer x 3 repeats x 3-fold inner by default)
 - Optuna hyperparameter tuning (100 trials, TPE sampler, median pruner)
-- Feature selection (effect size → k-best → stability → correlation pruning)
+- **Feature selection** (choose one strategy):
+  - **hybrid_stability** (default): screen → kbest (tuned) → stability → model
+  - **rfecv**: screen → RFECV (within CV) → model
 - Calibration (isotonic regression + prevalence adjustment)
 - Threshold optimization (fixed specificity 0.95 on validation set)
 
 Output: `../results/{model}/split_seed{N}/`
 
-### 3. Train Ensemble (Optional)
+### 3. Feature Selection
+
+The pipeline provides **four** distinct feature selection methods, each optimized for different use cases:
+
+| Method | Type | Use Case | Speed |
+|--------|------|----------|-------|
+| **Hybrid Stability** | During training | Production models (default) | Fast (~30 min) |
+| **Nested RFECV** | During training | Scientific discovery | Slow (~22 hours) |
+| **Post-hoc RFE** | After training | Deployment optimization | Very fast (~5 min) |
+| **Fixed Panel** | During training | Panel validation | Fast (~30 min) |
+
+**Quick Start:**
+- Default: `feature_selection_strategy: hybrid_stability` (recommended)
+- For feature stability analysis: `feature_selection_strategy: rfecv`
+- For deployment trade-offs: `ced optimize-panel` (post-training)
+- For panel validation: `ced train --fixed-panel panel.csv --split-seed 10`
+
+**IMPORTANT:** Methods 1-2 are mutually exclusive (choose during training). Methods 3-4 are post-training tools.
+
+**For detailed documentation, see [docs/reference/FEATURE_SELECTION.md](analysis/docs/reference/FEATURE_SELECTION.md)**
+
+### 4. Train Ensemble (Optional)
 ```bash
 # Train base models first
 ced train --model LR_EN --split-seed 0
@@ -161,7 +184,7 @@ Expected improvement: +2-5% AUROC over best single model.
 
 Output: `../results/ENSEMBLE/split_seed{N}/`
 
-### 4. Post-Training Pipeline (HPC only)
+### 5. Post-Training Pipeline (HPC only)
 After HPC jobs complete, run the comprehensive post-processing script:
 ```bash
 # Check job status
@@ -191,7 +214,7 @@ Output: `../results/{MODEL}/run_{RUN_ID}/aggregated/`
 ced aggregate-splits --config configs/aggregate_config.yaml
 ```
 
-### 5. Visualize (Optional)
+### 6. Visualize (Optional)
 ```bash
 Rscript scripts/compare_models.R --results_root ../results
 ```
@@ -251,10 +274,19 @@ optuna:
   pruner: median
 
 features:
+  feature_selection_strategy: hybrid_stability  # Options: hybrid_stability, rfecv, none
   screen_method: mannwhitney
   screen_top_n: 1000
-  stability_thresh: 0.75
-  corr_thresh: 0.85
+
+  # Hybrid Stability parameters
+  k_grid: [25, 50, 100, 150, 200, 300, 400]
+  stability_thresh: 0.70
+  stable_corr_thresh: 0.85
+
+  # Nested RFECV parameters (used if strategy=rfecv)
+  rfe_target_size: 50        # Minimum features (stops at 50//2 = 25)
+  rfe_step_strategy: adaptive
+  rfe_consensus_thresh: 0.80
 
 calibration:
   enabled: true
@@ -345,6 +377,8 @@ These files control:
 | [analysis/docs/ARCHITECTURE.md](analysis/docs/ARCHITECTURE.md) | Technical architecture with code pointers |
 | [analysis/docs/adr/](analysis/docs/adr/) | Architecture Decision Records (19 decisions) |
 | [analysis/docs/reference/CLI_REFERENCE.md](analysis/docs/reference/CLI_REFERENCE.md) | Complete CLI command reference |
+| [analysis/docs/reference/FEATURE_SELECTION.md](analysis/docs/reference/FEATURE_SELECTION.md) | Feature selection methods and use cases |
+| [analysis/docs/reference/OPTIMIZE_PANEL.md](analysis/docs/reference/OPTIMIZE_PANEL.md) | Post-hoc panel optimization guide |
 | [analysis/SETUP_README.md](analysis/SETUP_README.md) | Environment setup and getting started |
 | [README.md](README.md) | Root project overview |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
@@ -443,7 +477,8 @@ ced train-ensemble --base-models LR_EN,RF,XGBoost --split-seed 0
 ```
 
 ### Optimize panel size for clinical deployment
-Find minimum viable protein panel via RFE (after training):
+
+Run post-hoc RFE to explore panel size trade-offs (AFTER training):
 ```bash
 ced optimize-panel \
   --model-path results/LR_EN/split_seed0/core/LR_EN__final_model.joblib \
@@ -451,8 +486,36 @@ ced optimize-panel \
   --split-dir ../splits/ \
   --start-size 100 --min-size 5
 ```
-Outputs: Pareto curve, recommended panel sizes at 95%/90%/85% AUROC thresholds.
-See [docs/reference/OPTIMIZE_PANEL.md](analysis/docs/reference/OPTIMIZE_PANEL.md) for details.
+
+**Use when:** Stakeholder decisions (cost vs. AUROC), rapid iteration, deployment sizing
+
+See [docs/reference/FEATURE_SELECTION.md](analysis/docs/reference/FEATURE_SELECTION.md) for comparison with in-training methods.
+
+### Validate a deployment panel (fixed-panel training)
+
+Validate a specific panel with unbiased AUROC estimate:
+
+```bash
+# Step 1: Extract consensus panel from previous training
+awk -F',' 'NR==1 || $2 >= 0.70 {print $1}' \
+  results/LR_EN/aggregated/feature_stability.csv \
+  > deployment_panel.csv
+
+# Step 2: Validate with NEW split seed (critical for unbiased estimate)
+ced train \
+  --model LR_EN \
+  --fixed-panel deployment_panel.csv \
+  --split-seed 10 \
+  --config configs/training_config.yaml
+```
+
+**Key points:**
+- Always use a **new split seed** (prevents peeking at discovery splits)
+- Feature selection is completely bypassed (trains on exact panel)
+- Provides regulatory-grade performance estimate
+- Use for FDA submission, clinical deployment, literature comparison
+
+See [docs/reference/FEATURE_SELECTION.md](analysis/docs/reference/FEATURE_SELECTION.md) for detailed workflows.
 
 ### Use OOF-posthoc calibration
 Set `calibration.strategy: oof_posthoc` in `configs/training_config.yaml`

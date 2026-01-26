@@ -1,4 +1,4 @@
-# Panel Size Optimization via RFE
+# Panel Size Optimization via Post-hoc RFE
 
 ## Overview
 
@@ -7,6 +7,46 @@ The `ced optimize-panel` command finds the **minimum viable protein panel** for 
 **Use case**: After training ML models, you want to reduce the number of proteins tested per patient—from 2,920 features to a practical 5–50 protein panel—while maintaining acceptable discrimination (AUROC).
 
 **Output**: A Pareto curve showing the size-performance trade-off, with recommendations for practical panel sizes.
+
+---
+
+## When to Use This vs. Nested RFECV
+
+The CeD-ML pipeline offers two complementary RFE implementations:
+
+| Tool | Purpose | Phase | Speed | Output |
+|------|---------|-------|-------|--------|
+| **Post-hoc RFE** (`ced optimize-panel`) | Clinical deployment decisions | After training | Fast (~5 min) | Pareto curve (size vs. AUROC) |
+| **Nested RFECV** (`rfe_enabled: true`) | Scientific feature discovery | During training | Slow (~45× slower) | Consensus panel (≥80% of folds) |
+
+### Use Post-hoc RFE (this tool) when:
+- **Stakeholder decisions**: "What's the cost-benefit of 10 vs. 50 proteins?"
+- **Rapid iteration**: Testing multiple panel sizes in minutes
+- **Clinical deployment**: "What's the smallest panel maintaining AUROC ≥ 0.90?"
+- **Single model analysis**: Fine-grained Pareto frontier for one trained model
+
+### Use Nested RFECV instead when:
+- **Publishing research**: Need feature stability metrics across CV folds
+- **Understanding robustness**: "Which proteins are selected in ≥80% of folds?"
+- **Early discovery**: Identifying consistently informative biomarkers
+- **Scientific validation**: Proving feature selection isn't overfitting
+
+### Typical workflow (use both):
+```bash
+# Step 1: Train with nested RFECV for robust feature discovery
+ced train --model LR_EN --config training_config.yaml  # rfe_enabled: true
+# Output: results/LR_EN/split_seed0/cv/rfecv/consensus_panel.csv
+
+# Step 2: Use post-hoc RFE for deployment trade-offs
+ced optimize-panel --model-path results/LR_EN/split_seed0/core/LR_EN__final_model.joblib ...
+# Output: results/LR_EN/split_seed0/optimize_panel/panel_curve.png
+
+# Result: Scientific validation + clinical implementation guidance
+```
+
+**Key difference**: Nested RFECV answers "what's robust?", post-hoc RFE answers "what's sufficient?"
+
+See [CLAUDE.md:481-523](../../CLAUDE.md#L481-L523) for decision tree.
 
 ---
 
