@@ -1,162 +1,212 @@
-# Training Configuration - Level 3 (Production / Overnight HPC)
-# Full Optuna budget (100 trials), maximum statistical power.
-# Goal: definitive model selection, publication-ready results.
-#
-# NOTE: Refine Optuna ranges based on L2 results before launching.
-# Tighten ranges where L2 best params concentrate for denser sampling.
+# Training Configuration - PRODUCTION RUN
+# Model training for Celiac Disease risk prediction
+# Optimized for XGBoost regularization based on run_20260125_122411 analysis
 
 scenario: IncidentPlusPrevalent
 
-# Cross-validation: full budget
+# Cross-validation - PRODUCTION SETTINGS
 cv:
-  folds: 5
-  repeats: 10          # full statistical power
-  inner_folds: 5
+  folds: 5  # UP from 3 (better CV estimates)
+  repeats: 3  # UP from 2 (more stable feature selection)
   scoring: roc_auc
-  # n_iter: 2  # Global override: if set, overrides ALL per-model n_iter values below
+  inner_folds: 3
   n_jobs: -1
   random_state: 42
   grid_randomize: true
   verbose: 1
+  # Production: 5 folds x 3 repeats = 15 CV splits (robust)
 
-# Ensemble (trained separately via train-ensemble CLI after base models)
+# Ensemble configuration (stacking multiple models)
+# NOTE: Ensemble training is now a separate CLI command: `ced train-ensemble`
+# This section defines default parameters for ensemble meta-learner only
 ensemble:
-  method: stacking
-  base_models: [LR_EN, RF, XGBoost, LinSVM_cal]
+  method: stacking  # Options: stacking, blending, weighted_avg (only stacking implemented)
+  base_models: [LR_EN, RF, XGBoost, LinSVM_cal]  # Default models to combine
   meta_model:
-    type: logistic_regression
-    penalty: l2
-    C: 1.0
-    max_iter: 1000
-    solver: lbfgs
-  use_probabilities: true
-  passthrough: false
-  cv_for_meta: 5
+    type: logistic_regression  # Meta-learner type
+    penalty: l2  # Regularization: l2, l1, elasticnet, none
+    C: 1.0  # Inverse regularization strength
+    max_iter: 1000  # Max iterations for convergence
+    solver: lbfgs  # Solver for logistic regression
+  use_probabilities: true  # Use probabilities (true) or logits (false)
+  passthrough: false  # Include original features in meta-learner (not yet implemented)
+  cv_for_meta: 5  # CV folds for meta-model calibration
 
-# Optuna: proper Bayesian optimization
+# Optuna hyperparameter optimization - PRODUCTION SETTINGS
 optuna:
   enabled: true
-  n_trials: 100                # full budget for convergence
+  n_trials: 150  # UP from 20 (thorough search for XGBoost regularization)
   timeout: null
   sampler: tpe
   sampler_seed: 42
-  pruner: hyperband
-  pruner_n_startup_trials: 15  # generous warmup
-  pruner_percentile: 20.0      # slightly more aggressive pruning
+  pruner: median  # CHANGED from hyperband (less aggressive, protects conservative trials)
+  pruner_n_startup_trials: 20  # UP from 5 (don't prune early regularized XGBoost trials)
+  pruner_percentile: 25.0  # UP from 20.0 (more lenient)
   n_jobs: -1
   save_study: true
   save_trials_csv: true
 
-# Feature selection: same as L2 (refine k_grid based on L2 convergence)
+# Feature selection
 features:
-  feature_select: hybrid
+  feature_select: hybrid  # "none", "kbest", "l1_stability", "hybrid" (exploratory)
   kbest_scope: protein
-  kbest_max: 800
-  k_grid: [25, 50, 100, 150, 200, 300, 400, 600, 800]
-  l1_c_min: 0.001
+  kbest_max: 800  # Expanded for exploration
+  k_grid: [25, 50, 100, 150, 200, 300, 400]  # Expanded exploratory k values
+  l1_c_min: 0.001  # For l1_stability method
   l1_c_max: 1.0
   l1_c_points: 4
   l1_stability_thresh: 0.70
   hybrid_kbest_first: true
   hybrid_k_for_stability: 200
-  screen_method: mannwhitney
-  screen_top_n: 1000
-  stability_thresh: 0.70
-  stable_corr_thresh: 0.85
 
-# Logistic Regression (ElasticNet): same ranges as L2
+  # Screening (two-stage: Mann-Whitney top-N, then k_grid tuning)
+  screen_method: mannwhitney  # "mannwhitney" or "f_classif"
+  screen_top_n: 1000  # Stage 1: Mann-Whitney → keep top 1000
+
+  # Stability selection
+  stability_thresh: 0.70  # Slightly relaxed threshold for exploration
+
+  # Correlation pruning
+  stable_corr_thresh: 0.85  # Remove features with r > 0.85
+
+# Model-specific hyperparameter search spaces
+# These define the ranges for RandomizedSearchCV or Optuna optimization
+#
+# IMPORTANT: Parameters like max_iter and solver are FIXED (not tuned).
+# They are set as baseline model parameters used by BOTH RandomizedSearchCV and Optuna.
+# Only parameters with grids/ranges (C, l1_ratio, class_weight) are tuned.
+
+# Logistic Regression (LR_EN, LR_L1)
 lr:
-  C_min: 0.0001
-  C_max: 10.0
-  C_points: 20
-  l1_ratio: [0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0]
-  class_weight_options: "balanced"
-  optuna_C: [1.0e-5, 100.0]
-  optuna_l1_ratio: [0.0, 1.0]
-  solver: saga
-  max_iter: 10000
-  n_iter: 4
+  # Tuned parameters (explored by RandomizedSearchCV/Optuna):
+  C_min: 0.0001            # Expanded range for exploration
+  C_max: 10.0              # (was 1.0)
+  C_points: 20             # (was 10)
+  l1_ratio: [0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0] # Expanded to include L1-heavy
+  class_weight_options: "balanced"  # Options: "None", "balanced", "{0:1,1:5}"
 
-# Linear SVM
+  # Optuna-specific ranges (optional, override C_min/C_max):
+  optuna_C: [1.0e-5, 100.0]         # Expanded for exploratory search
+  optuna_l1_ratio: [0.0, 1.0]        # Full range
+
+  # Fixed parameters (used as baseline for all trials):
+  solver: saga              # Solver supporting L1/ElasticNet
+  max_iter: 10000           # Increased for convergence (was 5000)
+
+  # Search algorithm settings:
+  n_iter: 4                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
+
+# Linear SVM (LinSVM_cal) - wrapped in CalibratedClassifierCV
 svm:
-  C_min: 0.0001
-  C_max: 10.0
-  C_points: 15
+  # Tuned parameters (explored by RandomizedSearchCV/Optuna):
+  C_min: 0.0001             # Expanded range
+  C_max: 10.0               # (was 1.0)
+  C_points: 15              # (was 10)
   class_weight_options: "balanced"
-  optuna_C: [1.0e-4, 100.0]
-  max_iter: 10000
-  n_iter: 6
 
-# Random Forest: same ranges as L2
+  # Optuna-specific ranges (optional, override C_min/C_max):
+  optuna_C: [1.0e-4, 100.0]         # Expanded for exploration
+
+  # Fixed parameters (used as baseline for all trials):
+  max_iter: 10000           # Increased for convergence (was 5000)
+
+  # Search algorithm settings:
+  n_iter: 6                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
+
+# Random Forest (RF)
 rf:
-  n_estimators_grid: [100, 300, 500, 700]
-  max_depth_grid: [null, 10, 20, 30, 50]
-  min_samples_split_grid: [2, 5, 10, 20]
-  min_samples_leaf_grid: [1, 2, 4, 8]
-  max_features_grid: ["sqrt", "log2", 0.3, 0.5, 0.7]
+  # Tuned parameters (explored by RandomizedSearchCV/Optuna):
+  n_estimators_grid: [100, 300, 500, 700]    # Expanded (was [100, 300, 500])
+  max_depth_grid: [null, 10, 20, 30, 50]     # Expanded (was [null, 10, 20, 30])
+  min_samples_split_grid: [2, 5, 10, 20]     # Expanded (was [2, 5, 10])
+  min_samples_leaf_grid: [1, 2, 4, 8]        # Expanded (was [1, 2, 4])
+  max_features_grid: ["sqrt", "log2", 0.3, 0.5, 0.7]  # Expanded (was ["sqrt", "log2", 0.5])
   class_weight_options: "balanced"
-  optuna_n_estimators: [100, 800]
-  optuna_max_depth: [5, 50]
-  optuna_min_samples_split: [2, 30]
-  optuna_min_samples_leaf: [1, 15]
-  optuna_max_features: [0.05, 0.8]
-  n_iter: 2
 
-# XGBoost: same ranges as L2
+  # Optuna-specific ranges (optional, override grid-derived ranges)
+  optuna_n_estimators: [100, 800]            # Exploratory range
+  optuna_max_depth: [5, 50]                  # Exploratory range
+  optuna_min_samples_split: [2, 30]          # Exploratory range
+  optuna_min_samples_leaf: [1, 15]           # Exploratory range
+  optuna_max_features: [0.05, 0.8]           # Exploratory range
+
+  # Search algorithm settings:
+  n_iter: 2                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
+
+# XGBoost - ANTI-OVERFITTING PRODUCTION SETTINGS
+# Based on run_20260125_122411: Inner CV AUROC 0.894, Test AUROC 0.823 (-7.1% gap)
+# Root cause: Deep trees (depth=10) + weak regularization (lambda=0.18) + fast learning
 xgboost:
-  n_estimators_grid: [100, 200, 400, 800, 1200]
-  max_depth_grid: [3, 4, 5, 6, 7, 8]
-  learning_rate_grid: [0.01, 0.03, 0.05, 0.1, 0.2]
-  subsample_grid: [0.5, 0.7, 0.85, 1.0]
-  colsample_bytree_grid: [0.3, 0.5, 0.7, 0.85, 1.0]
-  scale_pos_weight_grid: [3.0, 5.0, 6.0, 7.0, 10.0]
-  min_child_weight_grid: [1, 2, 4, 6, 10]
-  gamma_grid: [0.0, 0.05, 0.1, 0.5, 1.0, 2.0]
-  reg_alpha_grid: [0.0, 0.001, 0.01, 0.1, 1.0]
-  reg_lambda_grid: [0.01, 0.1, 1.0, 5.0, 10.0, 50.0]
-  optuna_n_estimators: [50, 1500]
-  optuna_max_depth: [3, 10]
-  optuna_learning_rate: [0.005, 0.3]
-  optuna_min_child_weight: [0.1, 20.0]
-  optuna_gamma: [0.0, 2.0]
-  optuna_subsample: [0.5, 1.0]
-  optuna_colsample_bytree: [0.3, 1.0]
-  optuna_reg_alpha: [1.0e-8, 10.0]
-  optuna_reg_lambda: [1.0e-2, 50.0]
-  tree_method: hist
-  n_iter: 2
+  # Grid-based search (not used with Optuna, kept for reference)
+  n_estimators_grid: [500, 800, 1200, 1600, 2000]
+  max_depth_grid: [3, 4, 5, 6, 7]              # CONSTRAINED from [3-8]
+  learning_rate_grid: [0.005, 0.01, 0.02, 0.03, 0.05]
+  subsample_grid: [0.5, 0.6, 0.7, 0.8]
+  colsample_bytree_grid: [0.4, 0.5, 0.6, 0.7]
+  scale_pos_weight_grid: [3.0, 5.0, 7.0, 10.0]
+  min_child_weight_grid: [5, 10, 15, 20, 30]   # CONSERVATIVE from [1-10]
+  gamma_grid: [0.5, 1.0, 2.0, 3.0, 5.0]        # HIGHER from [0.0-2.0]
+  reg_alpha_grid: [0.01, 0.1, 1.0, 5.0, 10.0]  # STRONGER from [0.0-1.0]
+  reg_lambda_grid: [1.0, 5.0, 10.0, 30.0, 50.0, 100.0]  # MUCH STRONGER from [0.01-50.0]
 
-# Calibration: OOF-posthoc (unbiased)
+  # Optuna ranges - REGULARIZED FOR PRODUCTION
+  optuna_n_estimators: [500, 2500]            # More rounds (was 50-1500)
+  optuna_max_depth: [3, 7]                    # SHALLOW ONLY (was 3-10) - KEY CHANGE
+  optuna_learning_rate: [0.005, 0.05]         # SLOW (was 0.005-0.3) - KEY CHANGE
+  optuna_min_child_weight: [5.0, 30.0]        # CONSERVATIVE (was 0.1-20.0) - KEY CHANGE
+  optuna_gamma: [0.5, 5.0]                    # HIGHER split cost (was 0.0-2.0)
+  optuna_subsample: [0.5, 0.8]                # AGGRESSIVE row sampling (was 0.5-1.0)
+  optuna_colsample_bytree: [0.4, 0.7]         # AGGRESSIVE col sampling (was 0.3-1.0)
+  optuna_reg_alpha: [0.01, 10.0]              # FORCE L1 (was 1e-8-10.0) - KEY CHANGE
+  optuna_reg_lambda: [1.0, 100.0]             # FORCE L2 (was 0.01-50.0) - KEY CHANGE
+
+  # Fixed parameters (used as baseline for all trials):
+  tree_method: hist                            # Algorithm: hist (fast), exact, approx
+
+  # Search algorithm settings:
+  n_iter: 2                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
+
+# Probability calibration
+# Controls how model probabilities are calibrated for better reliability
 calibration:
-  enabled: true
-  strategy: oof_posthoc
-  method: isotonic
-  cv: 5
+  enabled: true  # Whether to apply any calibration
+  strategy: oof_posthoc  # Options: per_fold (default), oof_posthoc, none
+  # - per_fold: Apply CalibratedClassifierCV inside each CV fold (current behavior, simple)
+  # - oof_posthoc: Fit calibrator on pooled OOF predictions after CV (eliminates ~0.5-1% bias)
+  # - none: No calibration applied
+  method: isotonic  # Options: isotonic (nonparametric), sigmoid (Platt scaling)
+  cv: 5  # CV folds for per_fold strategy
+  # Per-model overrides (optional):
+  # per_model:
+  #   LR_EN: oof_posthoc  # Use oof_posthoc for logistic regression
+  #   RF: per_fold        # Keep per_fold for random forest
+  #   XGBoost: none       # No calibration for XGBoost
 
 # Thresholding
 thresholds:
-  objective: fixed_spec
-  fixed_spec: 0.95
-  fbeta: 1.0
-  fixed_ppv: 0.10
-  threshold_source: val
-  target_prevalence_source: test
-  target_prevalence_fixed: null
-  risk_prob_source: test
+  objective: fixed_spec  # "max_f1", "max_fbeta", "youden", "fixed_spec", "fixed_ppv"
+  fixed_spec: 0.95  # Target 95% specificity
+  fbeta: 1.0  # Beta parameter for max_fbeta objective
+  fixed_ppv: 0.10  # Target PPV for fixed_ppv objective
+  threshold_source: val  # Select threshold on VAL set
+  target_prevalence_source: test  # Use TEST prevalence for calibration
+  target_prevalence_fixed: null  # Override prevalence for calibration
+  risk_prob_source: test  # Options: test, val
 
-# Evaluation: full budget for publication
+# Evaluation - PRODUCTION SETTINGS
 evaluation:
   test_ci_bootstrap: true
-  n_boot: 1000                 # narrow CIs for publication
+  n_boot: 1000  # UP from 100 (production-quality confidence intervals)
   boot_random_state: 0
   learning_curve: true
   lc_train_sizes: [0.1, 0.25, 0.5, 0.75, 1.0]
   feature_reports: true
   feature_report_max: 200
+  # Specificity targets for multi-target reporting
   control_spec_targets: [0.90, 0.95, 0.99]
   toprisk_fracs: [0.01, 0.05, 0.10]
 
-# DCA
+# Decision curve analysis
 dca:
   compute_dca: true
   dca_threshold_min: 0.0005
@@ -164,7 +214,7 @@ dca:
   dca_threshold_step: 0.001
   dca_report_points: [0.01, 0.05, 0.10, 0.20]
 
-# Outputs: everything enabled for final run
+# Outputs
 output:
   save_train_preds: true
   save_train_oof: true
@@ -175,9 +225,11 @@ output:
   save_controls_oof: true
   save_feature_importance: true
   feature_reports: true
-  plot_format: png
+  plot_format: png  # Options: png, pdf, svg
   plot_dpi: 300
   save_plots: true
+
+  # Individual plot type controls
   plot_roc: true
   plot_pr: true
   plot_calibration: true

@@ -1,12 +1,12 @@
 # CeliacRisks Project Documentation
 
 **Project**: Machine Learning Pipeline for Incident Celiac Disease Risk Prediction
-**Version**: 1.1.0
-**Updated**: 2026-01-24
+**Version**: 1.2.0
+**Updated**: 2026-01-26
 **Primary Package**: ced-ml
 **Python**: 3.10+
 **Project Owner**: Andres Chousal (Chowell Lab)
-**Status**: Production-ready with stacking ensemble, OOF-posthoc calibration, and temporal validation
+**Status**: Production-ready with stacking ensemble, OOF-posthoc calibration, temporal validation, and panel optimization
 
 ---
 
@@ -43,6 +43,7 @@ ced --help
 ced save-splits --config configs/splits_config.yaml --infile ../data/input.parquet
 ced train --config configs/training_config.yaml --model LR_EN --infile ../data/input.parquet --split-seed 0
 ced train-ensemble --base-models LR_EN,RF,XGBoost --split-seed 0
+ced optimize-panel --model-path results/LR_EN/split_seed0/core/LR_EN__final_model.joblib --infile ../data/input.parquet --split-dir splits/
 ced aggregate-splits --config configs/aggregate_config.yaml
 ```
 
@@ -63,7 +64,7 @@ ced aggregate-splits --config configs/aggregate_config.yaml
 
 ## Package Architecture
 
-**Stats**: ~26,000 lines of code, 1,081 tests (65% coverage).
+**Stats**: ~27,000 lines of code, 1,130+ tests (65% coverage).
 
 For detailed architecture with code pointers, see [docs/ARCHITECTURE.md](analysis/docs/ARCHITECTURE.md).
 
@@ -291,6 +292,7 @@ For complete CLI documentation, see [analysis/docs/reference/CLI_REFERENCE.md](a
 | `ced save-splits` | `cli/save_splits.py` | Split generation |
 | `ced train` | `cli/train.py` | Model training |
 | `ced train-ensemble` | `cli/train_ensemble.py` | Ensemble meta-learner training |
+| `ced optimize-panel` | `cli/optimize_panel.py` | Panel size optimization via RFE |
 | `ced aggregate-splits` | `cli/aggregate_splits.py` | Results aggregation |
 | `ced eval-holdout` | `cli/eval_holdout.py` | Holdout evaluation |
 | `ced config` | `cli/config_tools.py` | Config validation and diff |
@@ -440,6 +442,18 @@ ced train --model XGBoost --split-seed 0
 ced train-ensemble --base-models LR_EN,RF,XGBoost --split-seed 0
 ```
 
+### Optimize panel size for clinical deployment
+Find minimum viable protein panel via RFE (after training):
+```bash
+ced optimize-panel \
+  --model-path results/LR_EN/split_seed0/core/LR_EN__final_model.joblib \
+  --infile ../data/Celiac_dataset_proteomics_w_demo.parquet \
+  --split-dir ../splits/ \
+  --start-size 100 --min-size 5
+```
+Outputs: Pareto curve, recommended panel sizes at 95%/90%/85% AUROC thresholds.
+See [docs/reference/OPTIMIZE_PANEL.md](analysis/docs/reference/OPTIMIZE_PANEL.md) for details.
+
 ### Use OOF-posthoc calibration
 Set `calibration.strategy: oof_posthoc` in `configs/training_config.yaml`
 
@@ -502,26 +516,29 @@ ls results/{MODEL}/run_{RUN_ID}/split_seed*/preds/train_oof/
 
 **Core modules**:
 - [analysis/src/ced_ml/cli/main.py](analysis/src/ced_ml/cli/main.py) - CLI entrypoint
-- [analysis/src/ced_ml/cli/train_ensemble.py](analysis/src/ced_ml/cli/train_ensemble.py) - Ensemble training (NEW)
+- [analysis/src/ced_ml/cli/train_ensemble.py](analysis/src/ced_ml/cli/train_ensemble.py) - Ensemble training
+- [analysis/src/ced_ml/cli/optimize_panel.py](analysis/src/ced_ml/cli/optimize_panel.py) - Panel optimization (NEW)
 - [analysis/src/ced_ml/data/splits.py](analysis/src/ced_ml/data/splits.py) - Splitting with temporal support
-- [analysis/src/ced_ml/models/stacking.py](analysis/src/ced_ml/models/stacking.py) - Stacking meta-learner (NEW)
-- [analysis/src/ced_ml/models/calibration.py](analysis/src/ced_ml/models/calibration.py) - OOF calibration (NEW)
+- [analysis/src/ced_ml/features/rfe.py](analysis/src/ced_ml/features/rfe.py) - RFE algorithm (NEW)
+- [analysis/src/ced_ml/models/stacking.py](analysis/src/ced_ml/models/stacking.py) - Stacking meta-learner
+- [analysis/src/ced_ml/models/calibration.py](analysis/src/ced_ml/models/calibration.py) - OOF calibration
 
 **Helper scripts**:
-- [analysis/scripts/post_training_pipeline.sh](analysis/scripts/post_training_pipeline.sh) - HPC post-processing (NEW)
+- [analysis/scripts/post_training_pipeline.sh](analysis/scripts/post_training_pipeline.sh) - HPC post-processing
 - [analysis/scripts/hpc_setup.sh](analysis/scripts/hpc_setup.sh) - HPC environment setup
 
 ---
 
-## Recent Major Changes (2026-01-22)
+## Recent Major Changes (2026-01-26)
 
-1. **Model Stacking Ensemble** - L2 meta-learner, +2-5% AUROC expected
-2. **OOF-Posthoc Calibration** - Eliminates ~0.5-1% optimistic bias
-3. **Expanded Optuna Ranges** - Wider hyperparameter search space
-4. **Temporal Validation** - Chronological train/val/test splits
-5. **DCA Auto-Range** - Prevalence-based threshold configuration
+1. **Panel Size Optimization (NEW)** - `ced optimize-panel` command for minimum viable panels via RFE
+2. **Model Stacking Ensemble** - L2 meta-learner, +2-5% AUROC expected
+3. **OOF-Posthoc Calibration** - Eliminates ~0.5-1% optimistic bias
+4. **Expanded Optuna Ranges** - Wider hyperparameter search space
+5. **Temporal Validation** - Chronological train/val/test splits
+6. **DCA Auto-Range** - Prevalence-based threshold configuration
 
 ---
 
-**Last Updated**: 2026-01-24
-**Status**: Fully integrated and ready
+**Last Updated**: 2026-01-26
+**Status**: Fully integrated with panel optimization for clinical deployment

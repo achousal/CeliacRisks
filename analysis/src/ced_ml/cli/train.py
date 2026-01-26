@@ -76,7 +76,7 @@ from ced_ml.plotting import (
 from ced_ml.plotting.dca import plot_dca_curve
 from ced_ml.plotting.learning_curve import save_learning_curve_csv
 from ced_ml.utils.logging import log_section, setup_logger
-from ced_ml.utils.metadata import build_oof_metadata, build_plot_metadata
+from ced_ml.utils.metadata import build_oof_metadata, build_plot_metadata, count_category_breakdown
 
 
 def validate_protein_columns(
@@ -1186,6 +1186,15 @@ def run_train(
         plots_dir = Path(outdirs.diag_plots)
         plots_dir.mkdir(parents=True, exist_ok=True)
 
+        # Extract category breakdowns from splits
+        train_cat_df = pd.DataFrame({"category": cat_train})
+        val_cat_df = pd.DataFrame({"category": cat_val})
+        test_cat_df = pd.DataFrame({"category": cat_test})
+
+        train_breakdown = count_category_breakdown(train_cat_df)
+        val_breakdown = count_category_breakdown(val_cat_df)
+        test_breakdown = count_category_breakdown(test_cat_df)
+
         # Common metadata for plots (enriched with run context)
         meta_lines = build_plot_metadata(
             model=config.model,
@@ -1204,6 +1213,15 @@ def run_train(
             n_train_pos=int(y_train.sum()),
             n_val_pos=int(y_val.sum()),
             n_test_pos=int(y_test.sum()),
+            n_train_controls=train_breakdown.get("controls"),
+            n_train_incident=train_breakdown.get("incident"),
+            n_train_prevalent=train_breakdown.get("prevalent"),
+            n_val_controls=val_breakdown.get("controls"),
+            n_val_incident=val_breakdown.get("incident"),
+            n_val_prevalent=val_breakdown.get("prevalent"),
+            n_test_controls=test_breakdown.get("controls"),
+            n_test_incident=test_breakdown.get("incident"),
+            n_test_prevalent=test_breakdown.get("prevalent"),
             split_mode="development",
             optuna_enabled=config.optuna.enabled,
             n_trials=config.optuna.n_trials if config.optuna.enabled else None,
@@ -1344,6 +1362,9 @@ def run_train(
             train_prev=train_prev,
             n_train=len(y_train),
             n_train_pos=int(y_train.sum()),
+            n_train_controls=train_breakdown.get("controls"),
+            n_train_incident=train_breakdown.get("incident"),
+            n_train_prevalent=train_breakdown.get("prevalent"),
             n_features=len(final_selected_proteins) if final_selected_proteins else None,
             feature_method=config.features.feature_select,
             cv_scoring=config.cv.scoring,
@@ -1520,6 +1541,9 @@ def run_train(
                 feature_method=config.features.feature_select,
                 n_train=len(y_train),
                 n_train_pos=int(y_train.sum()),
+                n_train_controls=train_breakdown.get("controls"),
+                n_train_incident=train_breakdown.get("incident"),
+                n_train_prevalent=train_breakdown.get("prevalent"),
                 split_mode="development",
             )
             # Build a fresh pipeline for learning curve (don't use fitted one)

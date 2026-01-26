@@ -1,0 +1,688 @@
+"""Recursive Feature Elimination (RFE) for minimum viable panel selection.
+
+Identifies the smallest protein panel that maintains acceptable AUROC through
+iterative feature removal. Outputs a Pareto curve showing the size-performance
+trade-off for clinical decision-making.
+
+Design:
+- Uses validation set AUROC for elimination decisions (test reserved for final eval)
+- Supports adaptive (geometric) step strategy for efficiency
+- Model-specific importance: coefficients for linear, permutation for trees
+- Outputs: curve CSV, recommendations JSON, feature ranking
+"""
+
+import json
+import logging
+from dataclasses import dataclass, field
+from typing import Any
+
+import numpy as np
+import pandas as pd
+from sklearn.base import clone
+from sklearn.inspection import permutation_importance
+from sklearn.model_selection import StratifiedKFold, cross_val_predict
+from sklearn.pipeline import Pipeline
+
+from ced_ml.metrics.discrimination import auroc
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class RFEResult:
+    """Results from recursive feature elimination.
+
+    Attributes:
+        curve: List of evaluation points with size, AUROC, and selected proteins.
+        feature_ranking: Dict mapping protein -> elimination order (0 = removed first).
+        recommended_panels: Dict with minimum sizes at various AUROC thresholds.
+        pareto_points: Non-dominated points on the size-AUROC frontier.
+        max_auroc: Maximum AUROC achieved.
+        model_name: Name of model used.
+    """
+
+    curve: list[dict[str, Any]] = field(default_factory=list)
+    feature_ranking: dict[str, int] = field(default_factory=dict)
+    recommended_panels: dict[str, int] = field(default_factory=dict)
+    pareto_points: list[dict[str, Any]] = field(default_factory=list)
+    max_auroc: float = 0.0
+    model_name: str = ""
+
+
+def compute_eval_sizes(
+    max_size: int,
+    min_size: int,
+    strategy: str = "adaptive",
+) -> list[int]:
+    """Compute panel sizes to evaluate based on elimination strategy.
+
+    Args:
+        max_size: Starting panel size.
+        min_size: Smallest panel size to evaluate.
+        strategy: One of:
+            - "linear": Evaluate every size from max to min.
+            - "geometric": Evaluate at powers of 2 (100, 50, 25, 12, 6, ...).
+            - "adaptive": Same as geometric (fine refinement added post-hoc).
+
+    Returns:
+        List of panel sizes to evaluate, sorted descending.
+
+    Example:
+        >>> compute_eval_sizes(100, 5, "geometric")
+        [100, 50, 25, 12, 6, 5]
+    """
+    if max_size <= min_size:
+        return [max_size]
+
+    if strategy == "linear":
+        return list(range(max_size, min_size - 1, -1))
+
+    # Geometric / adaptive: powers of 2 plus min_size
+    sizes = []
+    current = max_size
+    while current >= min_size:
+        sizes.append(current)
+        current = max(min_size, current // 2)
+
+    # Ensure min_size is included
+    if min_size not in sizes:
+        sizes.append(min_size)
+
+    return sorted(set(sizes), reverse=True)
+
+
+def compute_feature_importance(
+    pipeline: Pipeline,
+    model_name: str,
+    protein_cols: list[str],
+    X: pd.DataFrame,
+    y: np.ndarray,
+    random_state: int = 42,
+    n_perm_repeats: int = 5,
+) -> dict[str, float]:
+    """Extract feature importances for ranking during RFE.
+
+    Uses model-specific strategy:
+    - Linear models (LR_EN, LR_L1, LinSVM_cal): Absolute coefficient values.
+    - Tree models (RF, XGBoost): Permutation importance.
+
+    Args:
+        pipeline: Fitted sklearn Pipeline with steps [pre, clf] or [screen, pre, sel, clf].
+        model_name: Model identifier.
+        protein_cols: List of protein column names in current panel.
+        X: Feature DataFrame.
+        y: Target labels.
+        random_state: Random seed for permutation importance.
+        n_perm_repeats: Number of permutation repeats (trees only).
+
+    Returns:
+        Dict mapping protein -> importance score (higher = more important).
+        Proteins not found return 0.0.
+    """
+    importance: dict[str, float] = {p: 0.0 for p in protein_cols}
+
+    # Get classifier from pipeline
+    clf = pipeline.named_steps.get("clf")
+    if clf is None:
+        logger.warning("No 'clf' step found in pipeline")
+        return importance
+
+    # Get feature names after preprocessing
+    pre = pipeline.named_steps.get("pre")
+    if pre is None or not hasattr(pre, "get_feature_names_out"):
+        logger.warning("No preprocessor with feature names found")
+        return importance
+
+    feature_names = list(pre.get_feature_names_out())
+
+    # Apply K-best mask if present
+    if "sel" in pipeline.named_steps:
+        support = pipeline.named_steps["sel"].get_support()
+        feature_names = [f for f, s in zip(feature_names, support, strict=False) if s]
+
+    # Strategy 1: Coefficient-based (linear models)
+    if model_name in ("LR_EN", "LR_L1", "LinSVM_cal"):
+        importance = _importance_from_coefficients(clf, feature_names, protein_cols, model_name)
+        if importance:
+            return importance
+
+    # Strategy 2: Permutation importance (tree models or fallback)
+    importance = _importance_from_permutation(
+        pipeline, X, y, feature_names, protein_cols, random_state, n_perm_repeats
+    )
+    return importance
+
+
+def _importance_from_coefficients(
+    clf: Any,
+    feature_names: list[str],
+    protein_cols: list[str],
+    model_name: str,
+) -> dict[str, float]:
+    """Extract importance from linear model coefficients."""
+    importance: dict[str, float] = {p: 0.0 for p in protein_cols}
+
+    coefs = None
+
+    # Handle CalibratedClassifierCV wrapper for LinSVM
+    if model_name == "LinSVM_cal" and hasattr(clf, "calibrated_classifiers_"):
+        coefs_list = []
+        for cc in clf.calibrated_classifiers_:
+            est = getattr(cc, "estimator", None)
+            if est and hasattr(est, "coef_"):
+                coefs_list.append(est.coef_.ravel())
+        if coefs_list:
+            coefs = np.mean(np.vstack(coefs_list), axis=0)
+
+    elif hasattr(clf, "coef_"):
+        coefs = clf.coef_.ravel()
+
+    if coefs is None or len(coefs) != len(feature_names):
+        return {}
+
+    # Map to protein names with absolute values
+    for name, c in zip(feature_names, coefs, strict=False):
+        orig = _extract_protein_name(name)
+        if orig and orig in protein_cols:
+            # Use absolute value for importance (magnitude matters, not direction)
+            importance[orig] = abs(float(c))
+
+    return importance
+
+
+def _importance_from_permutation(
+    pipeline: Pipeline,
+    X: pd.DataFrame,
+    y: np.ndarray,
+    feature_names: list[str],
+    protein_cols: list[str],
+    random_state: int,
+    n_repeats: int,
+) -> dict[str, float]:
+    """Extract importance via permutation importance."""
+    importance: dict[str, float] = {p: 0.0 for p in protein_cols}
+
+    try:
+        perm_result = permutation_importance(
+            pipeline,
+            X,
+            y,
+            scoring="roc_auc",
+            n_repeats=n_repeats,
+            random_state=random_state,
+            n_jobs=-1,
+        )
+        importances = perm_result.importances_mean
+    except Exception as e:
+        logger.warning(f"Permutation importance failed: {e}")
+        return importance
+
+    if len(importances) != len(feature_names):
+        logger.warning(
+            f"Importance length ({len(importances)}) != feature names ({len(feature_names)})"
+        )
+        return importance
+
+    # Aggregate importance per protein (handles multi-feature transforms)
+    for name, imp in zip(feature_names, importances, strict=False):
+        if not np.isfinite(imp):
+            continue
+        orig = _extract_protein_name(name)
+        if orig and orig in protein_cols:
+            importance[orig] = importance.get(orig, 0.0) + float(max(0, imp))
+
+    return importance
+
+
+def _extract_protein_name(feature_name: str) -> str | None:
+    """Extract original protein name from transformed feature name.
+
+    Handles patterns:
+    - num__{protein} (sklearn ColumnTransformer prefix)
+    - {protein}_resid (ResidualTransformer suffix)
+    - {protein} (plain name)
+    """
+    if feature_name.startswith("num__"):
+        return feature_name[len("num__") :]
+    if feature_name.endswith("_resid"):
+        return feature_name[: -len("_resid")]
+    return feature_name
+
+
+def find_recommended_panels(
+    curve: list[dict[str, Any]],
+    thresholds: list[float] | None = None,
+) -> dict[str, int]:
+    """Find smallest panel sizes maintaining various AUROC thresholds.
+
+    Args:
+        curve: List of dicts with keys "size" and "auroc_val".
+        thresholds: Fractions of max AUROC to target (default: [0.95, 0.90, 0.85]).
+
+    Returns:
+        Dict with keys like "min_size_95pct" -> panel size, plus "knee_point".
+
+    Example:
+        >>> curve = [
+        ...     {"size": 100, "auroc_val": 0.90},
+        ...     {"size": 50, "auroc_val": 0.88},
+        ...     {"size": 25, "auroc_val": 0.85},
+        ... ]
+        >>> find_recommended_panels(curve)
+        {'min_size_95pct': 50, 'min_size_90pct': 25, 'knee_point': 50, ...}
+    """
+    if thresholds is None:
+        thresholds = [0.95, 0.90, 0.85]
+
+    if not curve:
+        return {}
+
+    max_auroc = max(p["auroc_val"] for p in curve)
+    recommended: dict[str, int] = {}
+
+    for thresh in thresholds:
+        target = max_auroc * thresh
+        # Find smallest panel meeting threshold
+        valid = [p for p in curve if p["auroc_val"] >= target]
+        if valid:
+            smallest = min(valid, key=lambda x: x["size"])
+            key = f"min_size_{int(thresh * 100)}pct"
+            recommended[key] = smallest["size"]
+
+    # Knee point detection (elbow method)
+    recommended["knee_point"] = detect_knee_point(curve)
+
+    return recommended
+
+
+def detect_knee_point(curve: list[dict[str, Any]]) -> int:
+    """Detect knee point (elbow) in the AUROC vs size curve.
+
+    Uses the perpendicular distance method: finds the point with maximum
+    distance from the line connecting the first and last points.
+
+    Args:
+        curve: List of dicts with "size" and "auroc_val".
+
+    Returns:
+        Panel size at the knee point.
+    """
+    if len(curve) < 3:
+        return curve[0]["size"] if curve else 0
+
+    # Sort by size descending
+    sorted_curve = sorted(curve, key=lambda x: -x["size"])
+
+    # Normalize to [0, 1] for distance calculation
+    sizes = np.array([p["size"] for p in sorted_curve], dtype=float)
+    aurocs = np.array([p["auroc_val"] for p in sorted_curve], dtype=float)
+
+    # Normalize
+    size_range = sizes.max() - sizes.min()
+    auroc_range = aurocs.max() - aurocs.min()
+
+    if size_range == 0 or auroc_range == 0:
+        return sorted_curve[0]["size"]
+
+    x = (sizes - sizes.min()) / size_range
+    y = (aurocs - aurocs.min()) / auroc_range
+
+    # Line from first to last point
+    x1, y1 = x[0], y[0]
+    x2, y2 = x[-1], y[-1]
+
+    # Perpendicular distance from each point to the line
+    # d = |ax + by + c| / sqrt(a^2 + b^2) where line is ax + by + c = 0
+    a = y2 - y1
+    b = x1 - x2
+    c = x2 * y1 - x1 * y2
+    denom = np.sqrt(a**2 + b**2)
+
+    if denom == 0:
+        return sorted_curve[0]["size"]
+
+    distances = np.abs(a * x + b * y + c) / denom
+
+    # Find maximum distance point
+    knee_idx = int(np.argmax(distances))
+    return int(sorted_curve[knee_idx]["size"])
+
+
+def extract_pareto_frontier(curve: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Extract Pareto-optimal points (non-dominated on size vs AUROC).
+
+    A point is Pareto-optimal if no other point has both smaller size AND
+    higher AUROC.
+
+    Args:
+        curve: List of dicts with "size" and "auroc_val".
+
+    Returns:
+        List of Pareto-optimal points.
+    """
+    if not curve:
+        return []
+
+    # Sort by size descending
+    sorted_curve = sorted(curve, key=lambda x: -x["size"])
+
+    pareto = []
+    max_auroc_seen = -np.inf
+
+    for point in sorted_curve:
+        if point["auroc_val"] > max_auroc_seen:
+            pareto.append(point)
+            max_auroc_seen = point["auroc_val"]
+
+    return pareto
+
+
+def build_lightweight_pipeline(
+    base_pipeline: Pipeline,
+    protein_cols: list[str],
+    cat_cols: list[str],
+    meta_num_cols: list[str],
+) -> Pipeline:
+    """Build a simplified pipeline for RFE evaluation.
+
+    Clones the classifier from base_pipeline and builds a new pipeline
+    with only the specified proteins (no screening, no k-best tuning).
+
+    Args:
+        base_pipeline: Original trained pipeline to clone classifier from.
+        protein_cols: Proteins for this RFE iteration.
+        cat_cols: Categorical metadata columns.
+        meta_num_cols: Numeric metadata columns.
+
+    Returns:
+        New unfitted Pipeline with [pre, clf] steps.
+    """
+    from ced_ml.cli.train import build_preprocessor
+
+    # Clone the classifier
+    clf = base_pipeline.named_steps.get("clf")
+    if clf is None:
+        raise ValueError("Base pipeline has no 'clf' step")
+
+    cloned_clf = clone(clf)
+
+    # Build preprocessor for reduced feature set
+    preprocessor = build_preprocessor(protein_cols, cat_cols, meta_num_cols)
+
+    return Pipeline([("pre", preprocessor), ("clf", cloned_clf)])
+
+
+def recursive_feature_elimination(
+    X_train: pd.DataFrame,
+    y_train: np.ndarray,
+    X_val: pd.DataFrame,
+    y_val: np.ndarray,
+    base_pipeline: Pipeline,
+    model_name: str,
+    initial_proteins: list[str],
+    cat_cols: list[str],
+    meta_num_cols: list[str],
+    min_size: int = 5,
+    cv_folds: int = 5,
+    step_strategy: str = "adaptive",
+    min_auroc_frac: float = 0.90,
+    random_state: int = 42,
+    n_perm_repeats: int = 5,
+) -> RFEResult:
+    """Perform recursive feature elimination to find minimum viable panel.
+
+    Iteratively removes least important proteins, evaluating AUROC at each
+    step. Returns the Pareto curve and recommended panel sizes.
+
+    Args:
+        X_train: Training features (DataFrame with protein + metadata columns).
+        y_train: Training labels.
+        X_val: Validation features.
+        y_val: Validation labels.
+        base_pipeline: Trained pipeline to clone classifier from.
+        model_name: Model identifier (e.g., "LR_EN", "RF").
+        initial_proteins: Starting protein panel.
+        cat_cols: Categorical metadata columns.
+        meta_num_cols: Numeric metadata columns.
+        min_size: Smallest panel to evaluate.
+        cv_folds: CV folds for OOF AUROC estimation.
+        step_strategy: Elimination strategy ("adaptive", "linear", "geometric").
+        min_auroc_frac: Early stop if AUROC drops below this fraction of max.
+        random_state: Random seed.
+        n_perm_repeats: Permutation repeats for tree importance.
+
+    Returns:
+        RFEResult with curve, feature_ranking, and recommended_panels.
+    """
+    current_proteins = list(initial_proteins)
+    curve: list[dict[str, Any]] = []
+    feature_ranking: dict[str, int] = {}
+    elimination_order = 0
+    max_auroc_seen = 0.0
+
+    # Determine evaluation points
+    eval_sizes = compute_eval_sizes(len(current_proteins), min_size, step_strategy)
+    logger.info(f"RFE: Starting with {len(current_proteins)} proteins, target sizes: {eval_sizes}")
+
+    for target_size in eval_sizes:
+        # Eliminate proteins until we reach target_size
+        while len(current_proteins) > target_size and len(current_proteins) > min_size:
+            # Build pipeline with current panel
+            try:
+                pipeline = build_lightweight_pipeline(
+                    base_pipeline, current_proteins, cat_cols, meta_num_cols
+                )
+            except Exception as e:
+                logger.error(f"Failed to build pipeline: {e}")
+                break
+
+            # Subset data to current features
+            feature_cols = current_proteins + cat_cols + meta_num_cols
+            X_train_subset = X_train[feature_cols]
+
+            # Fit pipeline
+            try:
+                pipeline.fit(X_train_subset, y_train)
+            except Exception as e:
+                logger.error(f"Pipeline fit failed at size {len(current_proteins)}: {e}")
+                break
+
+            # Compute feature importances
+            importances = compute_feature_importance(
+                pipeline,
+                model_name,
+                current_proteins,
+                X_train_subset,
+                y_train,
+                random_state,
+                n_perm_repeats,
+            )
+
+            # Find least important protein (minimum non-zero, or any if all zero)
+            protein_importances = {p: importances.get(p, 0.0) for p in current_proteins}
+            worst_protein = min(protein_importances, key=protein_importances.get)
+
+            # Record and remove
+            feature_ranking[worst_protein] = elimination_order
+            current_proteins.remove(worst_protein)
+            elimination_order += 1
+
+            logger.debug(
+                f"Eliminated {worst_protein} (importance={protein_importances[worst_protein]:.4f}), "
+                f"panel size now {len(current_proteins)}"
+            )
+
+        # Evaluate at this panel size
+        if len(current_proteins) < min_size:
+            break
+
+        # Build and fit final pipeline for this size
+        pipeline = build_lightweight_pipeline(
+            base_pipeline, current_proteins, cat_cols, meta_num_cols
+        )
+        feature_cols = current_proteins + cat_cols + meta_num_cols
+        X_train_subset = X_train[feature_cols]
+        X_val_subset = X_val[feature_cols]
+
+        try:
+            pipeline.fit(X_train_subset, y_train)
+
+            # CV AUROC (OOF estimate)
+            cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+            oof_probs = cross_val_predict(
+                clone(pipeline), X_train_subset, y_train, cv=cv, method="predict_proba"
+            )[:, 1]
+            auroc_cv = auroc(y_train, oof_probs)
+            auroc_cv_std = _bootstrap_auroc_std(y_train, oof_probs, n_bootstrap=50)
+
+            # Validation AUROC
+            val_probs = pipeline.predict_proba(X_val_subset)[:, 1]
+            auroc_val = auroc(y_val, val_probs)
+
+        except Exception as e:
+            logger.error(f"Evaluation failed at size {len(current_proteins)}: {e}")
+            continue
+
+        # Record evaluation point
+        point = {
+            "size": len(current_proteins),
+            "auroc_cv": auroc_cv,
+            "auroc_cv_std": auroc_cv_std,
+            "auroc_val": auroc_val,
+            "proteins": list(current_proteins),
+        }
+        curve.append(point)
+        logger.info(
+            f"Panel size {len(current_proteins)}: AUROC_cv={auroc_cv:.4f}, AUROC_val={auroc_val:.4f}"
+        )
+
+        # Track max AUROC
+        if auroc_val > max_auroc_seen:
+            max_auroc_seen = auroc_val
+
+        # Early stopping check
+        if auroc_val < max_auroc_seen * min_auroc_frac:
+            logger.info(
+                f"Early stop: AUROC {auroc_val:.4f} < {min_auroc_frac:.0%} of max {max_auroc_seen:.4f}"
+            )
+            break
+
+    # Compute recommendations
+    recommended = find_recommended_panels(curve)
+    pareto = extract_pareto_frontier(curve)
+
+    return RFEResult(
+        curve=curve,
+        feature_ranking=feature_ranking,
+        recommended_panels=recommended,
+        pareto_points=pareto,
+        max_auroc=max_auroc_seen,
+        model_name=model_name,
+    )
+
+
+def _bootstrap_auroc_std(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    n_bootstrap: int = 50,
+    random_state: int = 42,
+) -> float:
+    """Compute bootstrap standard deviation of AUROC."""
+    rng = np.random.default_rng(random_state)
+    n = len(y_true)
+    aurocs = []
+
+    for _ in range(n_bootstrap):
+        idx = rng.choice(n, size=n, replace=True)
+        y_t = y_true[idx]
+        y_p = y_pred[idx]
+
+        # Need both classes
+        if len(np.unique(y_t)) < 2:
+            continue
+
+        try:
+            aurocs.append(auroc(y_t, y_p))
+        except Exception:
+            continue
+
+    return float(np.std(aurocs)) if aurocs else 0.0
+
+
+def save_rfe_results(
+    result: RFEResult,
+    output_dir: str,
+    model_name: str,
+    split_seed: int,
+) -> dict[str, str]:
+    """Save RFE results to output directory.
+
+    Args:
+        result: RFEResult from recursive_feature_elimination.
+        output_dir: Directory to save outputs.
+        model_name: Model name for metadata.
+        split_seed: Split seed for metadata.
+
+    Returns:
+        Dict mapping artifact name -> file path.
+    """
+    import os
+    from datetime import datetime
+
+    os.makedirs(output_dir, exist_ok=True)
+    paths: dict[str, str] = {}
+
+    # 1. Panel curve CSV
+    curve_path = os.path.join(output_dir, "panel_curve.csv")
+    curve_df = pd.DataFrame(
+        [
+            {
+                "size": p["size"],
+                "auroc_cv": p["auroc_cv"],
+                "auroc_cv_std": p["auroc_cv_std"],
+                "auroc_val": p["auroc_val"],
+                "proteins": json.dumps(p["proteins"]),
+            }
+            for p in result.curve
+        ]
+    )
+    curve_df.to_csv(curve_path, index=False)
+    paths["panel_curve"] = curve_path
+
+    # 2. Feature ranking CSV
+    ranking_path = os.path.join(output_dir, "feature_ranking.csv")
+    ranking_df = pd.DataFrame(
+        [
+            {"protein": p, "elimination_order": order}
+            for p, order in sorted(result.feature_ranking.items(), key=lambda x: x[1])
+        ]
+    )
+    ranking_df.to_csv(ranking_path, index=False)
+    paths["feature_ranking"] = ranking_path
+
+    # 3. Recommended panels JSON
+    rec_path = os.path.join(output_dir, "recommended_panels.json")
+    rec_data = {
+        "model": model_name,
+        "split_seed": split_seed,
+        "max_auroc": result.max_auroc,
+        "recommended_panels": result.recommended_panels,
+        "pareto_points": [
+            {"size": p["size"], "auroc_val": p["auroc_val"]} for p in result.pareto_points
+        ],
+        "timestamp": datetime.now().isoformat(),
+    }
+    with open(rec_path, "w") as f:
+        json.dump(rec_data, f, indent=2)
+    paths["recommended_panels"] = rec_path
+
+    # 4. Pareto frontier CSV
+    pareto_path = os.path.join(output_dir, "pareto_frontier.csv")
+    pareto_df = pd.DataFrame(
+        [{"size": p["size"], "auroc_val": p["auroc_val"]} for p in result.pareto_points]
+    )
+    pareto_df.to_csv(pareto_path, index=False)
+    paths["pareto_frontier"] = pareto_path
+
+    logger.info(f"Saved RFE results to {output_dir}")
+    return paths

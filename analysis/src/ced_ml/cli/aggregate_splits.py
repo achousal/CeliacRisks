@@ -2250,6 +2250,36 @@ def run_aggregate_splits(
     else:
         logger.info("No feature reports found (optional - depends on feature selection)")
 
+    log_section(logger, "Saving Aggregation Metadata")
+
+    # Aggregate sample category breakdowns from pooled predictions
+    sample_categories_metadata = {}
+
+    for split_name, df in [
+        ("test", pooled_test_df),
+        ("val", pooled_val_df),
+        ("train_oof", pooled_train_oof_df),
+    ]:
+        if df.empty:
+            continue
+
+        if "category" in df.columns:
+            cat_counts = df["category"].value_counts().to_dict()
+            sample_categories_metadata[split_name] = {
+                "controls": int(cat_counts.get("Controls", 0)),
+                "incident": int(cat_counts.get("Incident", 0)),
+                "prevalent": int(cat_counts.get("Prevalent", 0)),
+                "total": len(df),
+            }
+        else:
+            # Fallback: just total count
+            sample_categories_metadata[split_name] = {
+                "total": len(df),
+                "controls": None,
+                "incident": None,
+                "prevalent": None,
+            }
+
     log_section(logger, "Generating Aggregated Plots")
 
     n_splits = len(split_dirs)
@@ -2257,6 +2287,7 @@ def run_aggregate_splits(
     meta_lines = build_aggregated_metadata(
         n_splits=n_splits,
         split_seeds=split_seeds,
+        sample_categories=sample_categories_metadata,
         timestamp=True,
     )
 
@@ -2532,8 +2563,6 @@ def run_aggregate_splits(
         if logger:
             logger.warning(f"Failed to aggregate learning curves: {e}")
 
-    log_section(logger, "Saving Aggregation Metadata")
-
     # Collect ensemble-specific metadata if ENSEMBLE model present
     ensemble_metadata = {}
     if "ENSEMBLE" in all_models and ensemble_dirs:
@@ -2640,6 +2669,7 @@ def run_aggregate_splits(
         "n_boot": n_boot,
         "stability_threshold": stability_threshold,
         "target_specificity": target_specificity,
+        "sample_categories": sample_categories_metadata,
         "pooled_metrics": {
             "test": pooled_test_metrics,  # Now keyed by model
             "val": pooled_val_metrics,  # Now keyed by model

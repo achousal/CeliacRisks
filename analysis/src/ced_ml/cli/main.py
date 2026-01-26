@@ -389,6 +389,102 @@ def train_ensemble(ctx, config, base_models, **kwargs):
     )
 
 
+@cli.command("optimize-panel")
+@click.option(
+    "--model-path",
+    type=click.Path(exists=True),
+    required=True,
+    help="Path to trained model bundle (.joblib)",
+)
+@click.option(
+    "--infile",
+    type=click.Path(exists=True),
+    required=True,
+    help="Input data file (Parquet/CSV)",
+)
+@click.option(
+    "--split-dir",
+    type=click.Path(exists=True),
+    required=True,
+    help="Directory containing split indices",
+)
+@click.option(
+    "--split-seed",
+    type=int,
+    default=0,
+    help="Split seed to use (default: 0)",
+)
+@click.option(
+    "--start-size",
+    type=int,
+    default=100,
+    help="Starting panel size from stability ranking (default: 100)",
+)
+@click.option(
+    "--min-size",
+    type=int,
+    default=5,
+    help="Minimum panel size to evaluate (default: 5)",
+)
+@click.option(
+    "--min-auroc-frac",
+    type=float,
+    default=0.90,
+    help="Early stop if AUROC drops below this fraction of max (default: 0.90)",
+)
+@click.option(
+    "--cv-folds",
+    type=int,
+    default=5,
+    help="CV folds for OOF AUROC estimation (default: 5)",
+)
+@click.option(
+    "--step-strategy",
+    type=click.Choice(["adaptive", "linear", "geometric"]),
+    default="adaptive",
+    help="Feature elimination strategy (default: adaptive)",
+)
+@click.option(
+    "--outdir",
+    type=click.Path(),
+    default=None,
+    help="Output directory (default: alongside model in optimize_panel/)",
+)
+@click.option(
+    "--use-stability-panel/--use-all-features",
+    default=True,
+    help="Start from stability ranking (default) or all features",
+)
+@click.pass_context
+def optimize_panel(ctx, **kwargs):
+    """Find minimum viable protein panel via Recursive Feature Elimination.
+
+    Performs RFE starting from the stability panel (or top-N features) to find
+    the Pareto frontier between panel size and AUROC. Use this after training
+    to identify cost-effective panels for clinical deployment.
+
+    Outputs:
+        - panel_curve.csv: AUROC vs panel size at each evaluation point
+        - panel_curve.png: Pareto curve visualization
+        - recommended_panels.json: Minimum sizes at 95%/90%/85% of max AUROC
+        - feature_ranking.csv: Proteins ranked by elimination order
+
+    Example:
+        ced optimize-panel \\
+            --model-path results/LR_EN/split_seed0/core/LR_EN__final_model.joblib \\
+            --infile data/input.parquet \\
+            --split-dir splits/ \\
+            --start-size 100 \\
+            --min-size 5
+    """
+    from ced_ml.cli.optimize_panel import run_optimize_panel
+
+    run_optimize_panel(
+        **kwargs,
+        verbose=ctx.obj.get("verbose", 0),
+    )
+
+
 @cli.group("config")
 @click.pass_context
 def config_group(ctx):

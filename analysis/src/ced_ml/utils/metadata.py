@@ -32,6 +32,15 @@ def build_plot_metadata(
     n_train_pos: int | None = None,
     n_val_pos: int | None = None,
     n_test_pos: int | None = None,
+    n_train_controls: int | None = None,
+    n_train_incident: int | None = None,
+    n_train_prevalent: int | None = None,
+    n_val_controls: int | None = None,
+    n_val_incident: int | None = None,
+    n_val_prevalent: int | None = None,
+    n_test_controls: int | None = None,
+    n_test_incident: int | None = None,
+    n_test_prevalent: int | None = None,
     split_mode: str | None = None,
     optuna_enabled: bool = False,
     n_trials: int | None = None,
@@ -64,6 +73,15 @@ def build_plot_metadata(
         n_train_pos: Number of positive cases in training set (optional)
         n_val_pos: Number of positive cases in validation set (optional)
         n_test_pos: Number of positive cases in test set (optional)
+        n_train_controls: Number of control samples in training set (optional)
+        n_train_incident: Number of incident cases in training set (optional)
+        n_train_prevalent: Number of prevalent cases in training set (optional)
+        n_val_controls: Number of control samples in validation set (optional)
+        n_val_incident: Number of incident cases in validation set (optional)
+        n_val_prevalent: Number of prevalent cases in validation set (optional)
+        n_test_controls: Number of control samples in test set (optional)
+        n_test_incident: Number of incident cases in test set (optional)
+        n_test_prevalent: Number of prevalent cases in test set (optional)
         split_mode: Split mode ("development" or "holdout") (optional)
         optuna_enabled: Whether Optuna was used (default: False)
         n_trials: Number of Optuna trials (optional)
@@ -100,25 +118,54 @@ def build_plot_metadata(
     line1_parts.append(f"Seed: {seed}")
     lines.append(" | ".join(line1_parts))
 
-    # Line 2: Sample sizes with positive counts
+    # Line 2: Sample sizes with category breakdown or positive counts
     size_parts = []
+
+    # Helper to format sample size with breakdown
+    def format_split_info(split_name, n_total, n_controls, n_incident, n_prevalent, n_pos):
+        """Format sample info with category breakdown or fallback to pos count."""
+        split_str = f"{split_name}: n={n_total}"
+        breakdown = []
+
+        # Check if we have category breakdown
+        if n_controls is not None:
+            breakdown.append(f"controls={n_controls}")
+        if n_incident is not None:
+            breakdown.append(f"incident={n_incident}")
+        if n_prevalent is not None:
+            breakdown.append(f"prevalent={n_prevalent}")
+
+        # Add prevalence if we have categories and positive count
+        if breakdown and n_pos is not None:
+            breakdown.append(f"prev={n_pos/n_total:.3f}")
+        elif n_pos is not None and not breakdown:
+            # Fallback to old format if no categories
+            breakdown.append(f"pos={n_pos}")
+
+        if breakdown:
+            split_str += f" ({', '.join(breakdown)})"
+        return split_str
+
     if n_train is not None:
-        if n_train_pos is not None:
-            size_parts.append(f"Train: n={n_train} (pos={n_train_pos})")
-        else:
-            size_parts.append(f"Train: n={n_train}")
+        size_parts.append(
+            format_split_info(
+                "Train", n_train, n_train_controls, n_train_incident, n_train_prevalent, n_train_pos
+            )
+        )
 
     if n_val is not None:
-        if n_val_pos is not None:
-            size_parts.append(f"Val: n={n_val} (pos={n_val_pos})")
-        else:
-            size_parts.append(f"Val: n={n_val}")
+        size_parts.append(
+            format_split_info(
+                "Val", n_val, n_val_controls, n_val_incident, n_val_prevalent, n_val_pos
+            )
+        )
 
     if n_test is not None:
-        if n_test_pos is not None:
-            size_parts.append(f"Test: n={n_test} (pos={n_test_pos})")
-        else:
-            size_parts.append(f"Test: n={n_test}")
+        size_parts.append(
+            format_split_info(
+                "Test", n_test, n_test_controls, n_test_incident, n_test_prevalent, n_test_pos
+            )
+        )
 
     if size_parts:
         lines.append(" | ".join(size_parts))
@@ -188,6 +235,9 @@ def build_oof_metadata(
     train_prev: float,
     n_train: int | None = None,
     n_train_pos: int | None = None,
+    n_train_controls: int | None = None,
+    n_train_incident: int | None = None,
+    n_train_prevalent: int | None = None,
     n_features: int | None = None,
     feature_method: str | None = None,
     cv_scoring: str | None = None,
@@ -225,6 +275,9 @@ def build_oof_metadata(
         cv_scoring=cv_scoring,
         n_train=n_train,
         n_train_pos=n_train_pos,
+        n_train_controls=n_train_controls,
+        n_train_incident=n_train_incident,
+        n_train_prevalent=n_train_prevalent,
         n_features=n_features,
         feature_method=feature_method,
         timestamp=True,
@@ -235,6 +288,7 @@ def build_oof_metadata(
 def build_aggregated_metadata(
     n_splits: int,
     split_seeds: list[int],
+    sample_categories: dict[str, dict[str, int]] | None = None,
     timestamp: bool = True,
 ) -> list[str]:
     """
@@ -243,12 +297,43 @@ def build_aggregated_metadata(
     Args:
         n_splits: Number of splits aggregated
         split_seeds: List of seed values used
+        sample_categories: Dict with test/val/train_oof sample counts by category
+                          (e.g., {"test": {"controls": 1800, "incident": 36, ...}})
         timestamp: Include generation timestamp (default: True)
 
     Returns:
         List of metadata strings
     """
     lines = [f"Pooled from {n_splits} splits (seeds: {split_seeds})"]
+
+    # Add sample category breakdown if provided
+    if sample_categories:
+        for split_name in ["train_oof", "val", "test"]:
+            if split_name in sample_categories:
+                counts = sample_categories[split_name]
+                total = counts.get("total", 0)
+                controls = counts.get("controls")
+                incident = counts.get("incident")
+                prevalent = counts.get("prevalent")
+
+                # Format based on available data
+                if controls is not None and incident is not None:
+                    # Full breakdown
+                    cat_str = (
+                        f"{split_name.replace('_', ' ').title()}: "
+                        f"n={total} "
+                        f"(controls={controls}, incident={incident}, prevalent={prevalent})"
+                    )
+                elif controls is not None:
+                    # Partial breakdown
+                    cat_str = (
+                        f"{split_name.replace('_', ' ').title()}: n={total} (controls={controls})"
+                    )
+                else:
+                    # Just total
+                    cat_str = f"{split_name.replace('_', ' ').title()}: n={total}"
+
+                lines.append(cat_str)
 
     if timestamp:
         timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -293,3 +378,26 @@ def build_holdout_metadata(
         lines.append(f"Generated: {timestamp_str}")
 
     return lines
+
+
+def count_category_breakdown(df) -> dict[str, int]:
+    """
+    Count samples by category from prediction DataFrame.
+
+    Args:
+        df: DataFrame with 'category' column
+
+    Returns:
+        Dict with keys: 'controls', 'incident', 'prevalent', 'total'
+        Returns empty dict if 'category' column not found.
+    """
+    if df is None or "category" not in df.columns:
+        return {}
+
+    counts = df["category"].value_counts().to_dict()
+    return {
+        "controls": counts.get("Controls", 0),
+        "incident": counts.get("Incident", 0),
+        "prevalent": counts.get("Prevalent", 0),
+        "total": len(df),
+    }
