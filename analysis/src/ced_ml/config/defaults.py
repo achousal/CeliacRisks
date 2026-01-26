@@ -63,7 +63,7 @@ DEFAULT_CV_CONFIG: dict[str, Any] = {
 
 # Default feature selection configuration
 DEFAULT_FEATURE_CONFIG: dict[str, Any] = {
-    "feature_select": "none",
+    "feature_selection_strategy": "hybrid_stability",  # Use new parameter (not deprecated feature_select)
     "screen_method": "mannwhitney",
     "screen_top_n": 0,
     "kbest_scope": "protein",
