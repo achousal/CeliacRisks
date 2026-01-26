@@ -46,7 +46,9 @@ ced optimize-panel --model-path results/LR_EN/split_seed0/core/LR_EN__final_mode
 
 **Key difference**: Nested RFECV answers "what's robust?", post-hoc RFE answers "what's sufficient?"
 
-See [CLAUDE.md:481-523](../../CLAUDE.md#L481-L523) for decision tree.
+**Design rationale**: See [ADR-013: Four-Strategy Feature Selection Framework](../adr/ADR-013-four-strategy-feature-selection.md) for the architectural decision documenting why we need multiple strategies.
+
+See [FEATURE_SELECTION.md](FEATURE_SELECTION.md) for complete decision tree and all four strategies.
 
 ---
 

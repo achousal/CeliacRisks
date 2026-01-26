@@ -35,6 +35,8 @@ The CeD-ML pipeline provides four distinct feature selection approaches, each op
 
 **Key principle**: Methods 1-2 are **mutually exclusive** (choose during training). Methods 3-4 are **post-training** tools for different purposes.
 
+**Design rationale**: See [ADR-013: Four-Strategy Feature Selection Framework](../adr/ADR-013-four-strategy-feature-selection.md) for the architectural decision documenting why we need four strategies and their trade-offs.
+
 ---
 
 ## Method Comparison
@@ -755,8 +757,9 @@ ced train --fixed-panel panel.csv --split-seed 10
 
 ### Architecture Decision Records
 
-- [ADR-004](../adr/ADR-004-hybrid-feature-selection.md): Hybrid feature selection rationale
-- [ADR-005](../adr/ADR-005-stability-panel.md): Stability-based panel building
+- [ADR-013](../adr/ADR-013-four-strategy-feature-selection.md): Four-strategy feature selection framework (unified approach)
+- [ADR-004](../adr/ADR-004-hybrid-feature-selection.md): Hybrid feature selection (Strategy 1 details)
+- [ADR-005](../adr/ADR-005-stability-panel.md): Stability-based panel building (used by Strategies 1-3)
 
 ### Key Modules
 

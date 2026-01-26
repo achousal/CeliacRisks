@@ -59,8 +59,8 @@ from ced_ml.models.registry import (
     build_models,
 )
 from ced_ml.models.training import (
+    _apply_per_fold_calibration,
     _extract_selected_proteins_from_fold,
-    _maybe_apply_calibration,
     get_model_n_iter,
     oof_predictions_with_nested_cv,
 )
@@ -77,6 +77,8 @@ from ced_ml.plotting.dca import plot_dca_curve
 from ced_ml.plotting.learning_curve import save_learning_curve_csv
 from ced_ml.utils.logging import log_section, setup_logger
 from ced_ml.utils.metadata import build_oof_metadata, build_plot_metadata, count_category_breakdown
+
+logger = logging.getLogger(__name__)
 
 
 def validate_protein_columns(
@@ -319,22 +321,45 @@ def load_split_indices(
     split_path = Path(split_dir)
 
     # Try new format first (with scenario)
-    train_file = split_path / f"train_idx_{scenario}_seed{seed}.csv"
-    val_file = split_path / f"val_idx_{scenario}_seed{seed}.csv"
-    test_file = split_path / f"test_idx_{scenario}_seed{seed}.csv"
+    train_file_new = split_path / f"train_idx_{scenario}_seed{seed}.csv"
+    val_file_new = split_path / f"val_idx_{scenario}_seed{seed}.csv"
+    test_file_new = split_path / f"test_idx_{scenario}_seed{seed}.csv"
 
-    # Fallback to old format (without scenario) if new format not found
-    if not train_file.exists():
-        train_file = split_path / f"train_idx_seed{seed}.csv"
-        val_file = split_path / f"val_idx_seed{seed}.csv"
-        test_file = split_path / f"test_idx_seed{seed}.csv"
+    # Try old format (without scenario) as fallback
+    train_file_old = split_path / f"train_idx_seed{seed}.csv"
+    val_file_old = split_path / f"val_idx_seed{seed}.csv"
+    test_file_old = split_path / f"test_idx_seed{seed}.csv"
 
+    # Select format that exists
+    logger.debug(f"Trying new format: {train_file_new}")
+    if train_file_new.exists():
+        train_file, val_file, test_file = train_file_new, val_file_new, test_file_new
+    else:
+        logger.debug(f"New format not found, trying old format: {train_file_old}")
+        train_file, val_file, test_file = train_file_old, val_file_old, test_file_old
+
+    # Validate all files exist
+    missing_files = []
     if not train_file.exists():
-        raise FileNotFoundError(f"Train split file not found: {train_file}")
+        missing_files.append(str(train_file))
     if not val_file.exists():
-        raise FileNotFoundError(f"Val split file not found: {val_file}")
+        missing_files.append(str(val_file))
     if not test_file.exists():
-        raise FileNotFoundError(f"Test split file not found: {test_file}")
+        missing_files.append(str(test_file))
+
+    if missing_files:
+        attempted_paths = [
+            str(train_file_new),
+            str(val_file_new),
+            str(test_file_new),
+            str(train_file_old),
+            str(val_file_old),
+            str(test_file_old),
+        ]
+        raise FileNotFoundError(
+            f"Split files not found. Missing: {missing_files}\n"
+            f"Attempted paths:\n  " + "\n  ".join(attempted_paths)
+        )
 
     train_idx = pd.read_csv(train_file)["idx"].values
     val_idx = pd.read_csv(val_file)["idx"].values
@@ -782,7 +807,7 @@ def run_train(
     logger.info("Final model fitted")
 
     # Apply calibration to final model if enabled (consistent with CV behavior)
-    final_pipeline = _maybe_apply_calibration(
+    final_pipeline = _apply_per_fold_calibration(
         estimator=final_pipeline,
         model_name=config.model,
         config=config,

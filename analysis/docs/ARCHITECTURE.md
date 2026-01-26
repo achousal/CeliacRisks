@@ -54,22 +54,65 @@ ML pipeline for predicting **incident Celiac Disease (CeD)** risk from proteomic
 - [ADR-002: Prevalent→TRAIN](adr/ADR-002-prevalent-train-only.md)
 - [ADR-003: Control Downsampling](adr/ADR-003-control-downsampling.md)
 
-### 2.2 Feature Selection Pipeline
+### 2.2 Feature Selection Strategies
 
-**Four-stage pipeline:**
+The pipeline provides **four distinct strategies**, each optimized for different phases and objectives. No single approach satisfies all needs:
+- Production models need fast, reproducible selection with explicit tuning
+- Scientific papers require feature stability analysis across folds
+- Clinical deployment demands panel size optimization balancing cost vs. performance
+- Regulatory validation requires unbiased estimates on predetermined panels
 
-1. **Screening:** Univariate filtering (Mann-Whitney U or F-statistic) → top N proteins (default: 1,000)
-2. **KBest:** sklearn `SelectKBest` with `f_classif` → K features (hyperparameter-tuned if K not specified)
-3. **Stability Selection:** Cross-CV frequency analysis → proteins selected in ≥75% of CV folds
-4. **Correlation Pruning:** Remove features with |r| > threshold (default: 0.9)
+See [ADR-013: Four-Strategy Feature Selection Framework](adr/ADR-013-four-strategy-feature-selection.md) for the architectural decision documenting the rationale, alternatives considered, and trade-offs.
 
-**Hybrid mode:** Combines KBest + Stability (order configurable via `hybrid_kbest_first`).
+| Strategy | Phase | Use Case | Speed | Output |
+|----------|-------|----------|-------|--------|
+| **Hybrid Stability** | During training | Production models (default) | Fast (~30 min) | Stable k-selected panels |
+| **Nested RFECV** | During training | Scientific discovery | Slow (5-22 hours) | Consensus panels |
+| **Post-hoc RFE** | After training | Deployment optimization | Very fast (~5 min) | Pareto curves |
+| **Fixed Panel** | During training | Regulatory validation | Fast (~30 min) | Unbiased AUROC |
 
-**Fallback:** If no features meet stability threshold, keep top 20 by frequency.
+**Strategy 1: Hybrid Stability (Default)**
+1. **Screening:** Mann-Whitney U / F-statistic → top N proteins (default: 1,000)
+2. **K-best tuning:** SelectKBest with tunable k_grid → optimize via inner CV
+3. **Stability filtering:** Keep features selected in ≥ threshold of CV repeats (default: 0.70)
+4. **Correlation pruning:** Remove r > threshold pairs (default: 0.85)
+
+**Strategy 2: Nested RFECV**
+1. **Screening:** Same as hybrid
+2. **K-best pre-filter (optional):** Cap at rfe_kbest_k proteins (default: 100, provides ~5× speedup)
+3. **RFECV per fold:** Recursive elimination within each outer CV fold
+4. **Consensus panel:** Aggregate features selected in ≥ rfe_consensus_thresh of folds (default: 0.80)
+
+**Strategy 3: Post-hoc RFE (CLI: `ced optimize-panel`)**
+- Run after training on pre-trained model
+- Iterative feature elimination with validation set AUROC tracking
+- Outputs Pareto curve (panel size vs. AUROC) and recommendations
+
+**Strategy 4: Fixed Panel (CLI: `ced train --fixed-panel panel.csv`)**
+- Bypass all feature selection
+- Train on predetermined panel
+- Requires new split seed for unbiased validation
+
+**Mutually exclusive:** Strategies 1-2 (choose via `feature_selection_strategy` config)
+**Complementary:** Strategies 3-4 (post-training tools)
+
+**Code pointers:**
+- [features/screening.py](../src/ced_ml/features/screening.py) - Effect size screening
+- [features/kbest.py](../src/ced_ml/features/kbest.py) - K-best tuning
+- [features/stability.py](../src/ced_ml/features/stability.py) - Stability extraction
+- [features/nested_rfe.py](../src/ced_ml/features/nested_rfe.py) - Nested RFECV
+- [features/rfe.py](../src/ced_ml/features/rfe.py) - Post-hoc RFE
+- [cli/optimize_panel.py](../src/ced_ml/cli/optimize_panel.py) - Post-hoc CLI
+- [cli/train.py](../src/ced_ml/cli/train.py) - Fixed panel integration
 
 **See ADRs:**
-- [ADR-004: Hybrid Feature Selection](adr/ADR-004-hybrid-feature-selection.md)
-- [ADR-005: Stability Panel](adr/ADR-005-stability-panel.md)
+- [ADR-013: Four-Strategy Feature Selection Framework](adr/ADR-013-four-strategy-feature-selection.md) - Unified framework rationale
+- [ADR-004: Hybrid Feature Selection](adr/ADR-004-hybrid-feature-selection.md) - Strategy 1 details
+- [ADR-005: Stability Panel](adr/ADR-005-stability-panel.md) - Stability extraction
+
+**See detailed guides:**
+- [FEATURE_SELECTION.md](reference/FEATURE_SELECTION.md) - Complete guide with decision tree
+- [OPTIMIZE_PANEL.md](reference/OPTIMIZE_PANEL.md) - Post-hoc RFE guide
 
 ### 2.3 Nested Cross-Validation
 
@@ -260,9 +303,13 @@ src/ced_ml/
 - `data/columns.py` - Metadata column resolution
 
 **Feature selection:**
-- `features/screening.py` - Mann-Whitney U / F-statistic screening
-- `features/stability.py` - Stability panel extraction
-- `features/corr_prune.py` - Correlation-based pruning
+- `features/screening.py` - Mann-Whitney U / F-statistic screening (all strategies)
+- `features/kbest.py` - K-best tuning (Strategy 1: hybrid_stability, Strategy 2: RFECV pre-filter)
+- `features/stability.py` - Stability panel extraction (Strategy 1: hybrid_stability)
+- `features/nested_rfe.py` - Nested RFECV implementation (Strategy 2: rfecv)
+- `features/rfe.py` - Post-hoc RFE algorithm (Strategy 3: optimize-panel CLI)
+- `features/corr_prune.py` - Correlation-based pruning (Strategy 1: hybrid_stability)
+- `features/panels.py` - Fixed panel loading (Strategy 4: fixed panel validation)
 
 **Model training:**
 - `models/training.py` - Nested CV orchestration, OOF predictions

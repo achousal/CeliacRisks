@@ -185,23 +185,13 @@ class FeatureConfig(BaseModel):
         description="DEPRECATED: Use feature_selection_strategy instead. Maps: hybrid→hybrid_stability, none→none",
     )
 
-    # L1 stability (not currently used, placeholder for future)
-    l1_c_min: float = 0.001
-    l1_c_max: float = 1.0
-    l1_c_points: int = 4
-    l1_stability_thresh: float = Field(default=0.70, ge=0.0, le=1.0)
-
-    # Hybrid mode (not currently used, placeholder)
-    hybrid_kbest_first: bool = True
-    hybrid_k_for_stability: int = 200
-
-    # RF permutation importance (not currently used, placeholder)
+    # RF permutation importance
     rf_use_permutation: bool = False
     rf_perm_repeats: int = Field(default=5, ge=1)
     rf_perm_min_importance: float = Field(default=0.0, ge=0.0)
     rf_perm_top_n: int = Field(default=100, ge=1)
 
-    # Coefficient threshold (not currently used, placeholder)
+    # Coefficient threshold for linear model feature extraction
     coef_threshold: float = Field(default=0.01, ge=0.0)
 
     @model_validator(mode="after")

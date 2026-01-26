@@ -85,6 +85,9 @@ def build_frequency_panel(
         DataFrame with columns [protein, selection_freq, rank]
         Sorted by (selection_freq DESC, protein ASC)
 
+    Raises:
+        ValueError: If top_n <= 0, freq_threshold not in [0, 1], or invalid rule
+
     Example:
         >>> freqs = {'PROT_A': 0.90, 'PROT_B': 0.80, 'PROT_C': 0.70}
         >>> build_frequency_panel(freqs, rule="freq_ge_tau", freq_threshold=0.75)
@@ -92,6 +95,16 @@ def build_frequency_panel(
         0  PROT_A            0.90     1
         1  PROT_B            0.80     2
     """
+    # Input validation
+    if rule not in ("topN", "freq_ge_tau"):
+        raise ValueError(f"Unknown panel rule: {rule}. Expected 'topN' or 'freq_ge_tau'.")
+
+    if rule == "topN" and top_n <= 0:
+        raise ValueError(f"top_n must be > 0, got {top_n}")
+
+    if rule == "freq_ge_tau" and not (0 <= freq_threshold <= 1):
+        raise ValueError(f"freq_threshold must be in [0, 1], got {freq_threshold}")
+
     if not selection_frequencies:
         return pd.DataFrame(columns=["protein", "selection_freq", "rank"])
 
@@ -113,10 +126,8 @@ def build_frequency_panel(
     # Apply selection rule
     if rule == "freq_ge_tau":
         df = df[df["selection_freq"] >= freq_threshold].copy().reset_index(drop=True)
-    elif rule == "topN":
+    else:  # rule == "topN"
         df = df.head(top_n).copy()
-    else:
-        raise ValueError(f"Unknown panel rule: {rule}. Expected 'topN' or 'freq_ge_tau'.")
 
     return df
 

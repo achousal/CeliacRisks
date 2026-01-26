@@ -92,8 +92,9 @@ The [docs/adr/](analysis/docs/adr/) directory contains 15 Architecture Decision 
 - [ADR-003](analysis/docs/adr/ADR-003-control-downsampling.md): Control downsampling ratio
 
 **Stage 2: Feature Selection**
-- [ADR-004](analysis/docs/adr/ADR-004-hybrid-feature-selection.md): Hybrid feature selection (effect size → k-best → stability → correlation)
-- [ADR-005](analysis/docs/adr/ADR-005-stability-panel.md): Stability-based feature panel
+- [ADR-013](analysis/docs/adr/ADR-013-four-strategy-feature-selection.md): Four-strategy feature selection framework (rationale, use cases, trade-offs)
+- [ADR-004](analysis/docs/adr/ADR-004-hybrid-feature-selection.md): Strategy 1 - Hybrid Stability (production default, tuned k-best)
+- [ADR-005](analysis/docs/adr/ADR-005-stability-panel.md): Stability panel extraction (0.75 threshold, used by all strategies)
 
 **Stage 3: Model Training & Ensembling**
 - [ADR-006](analysis/docs/adr/ADR-006-nested-cv.md): Nested cross-validation structure

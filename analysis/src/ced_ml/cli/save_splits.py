@@ -401,7 +401,7 @@ def _generate_repeated_splits(
         # Generate base split
         if config.temporal_split:
             idx_train, idx_val, idx_test, y_train, y_val, y_test = temporal_train_val_test_split(
-                base_idx, y_base, config.val_size, config.test_size
+                base_idx, y_base, config.val_size, config.test_size, random_state=seed
             )
         else:
             idx_train, idx_val, idx_test, y_train, y_val, y_test = stratified_train_val_test_split(

@@ -17,11 +17,11 @@ import numpy as np
 import pandas as pd
 import pytest
 from ced_ml.models.training import (
+    _apply_per_fold_calibration,
     _compute_xgb_scale_pos_weight,
     _extract_from_kbest_transformed,
     _extract_from_model_coefficients,
     _get_search_n_jobs,
-    _maybe_apply_calibration,
     oof_predictions_with_nested_cv,
 )
 from conftest import make_mock_config
@@ -229,13 +229,13 @@ def test_get_search_n_jobs_manual(minimal_config):
 # ==================== Calibration Tests ====================
 
 
-def test_maybe_apply_calibration_disabled(simple_pipeline, minimal_config, toy_data):
+def test_apply_per_fold_calibration_disabled(simple_pipeline, minimal_config, toy_data):
     """Test that calibration is skipped when disabled."""
     X, y, _ = toy_data
     minimal_config.calibration.enabled = False
 
     simple_pipeline.fit(X, y)
-    calibrated = _maybe_apply_calibration(
+    calibrated = _apply_per_fold_calibration(
         simple_pipeline, "LR_EN", minimal_config, X, y, random_state=42
     )
 
@@ -243,27 +243,27 @@ def test_maybe_apply_calibration_disabled(simple_pipeline, minimal_config, toy_d
     assert not isinstance(calibrated, CalibratedClassifierCV)
 
 
-def test_maybe_apply_calibration_enabled(simple_pipeline, minimal_config, toy_data):
+def test_apply_per_fold_calibration_enabled(simple_pipeline, minimal_config, toy_data):
     """Test that calibration is applied when enabled with per_fold strategy."""
     X, y, _ = toy_data
     minimal_config.calibration.enabled = True
     minimal_config.calibration.strategy = "per_fold"  # per_fold wraps in Calibrated
 
     simple_pipeline.fit(X, y)
-    calibrated = _maybe_apply_calibration(
+    calibrated = _apply_per_fold_calibration(
         simple_pipeline, "LR_EN", minimal_config, X, y, random_state=42
     )
 
     assert isinstance(calibrated, CalibratedClassifierCV)
 
 
-def test_maybe_apply_calibration_skip_svm(simple_pipeline, minimal_config, toy_data):
+def test_apply_per_fold_calibration_skip_svm(simple_pipeline, minimal_config, toy_data):
     """Test that LinSVM_cal is not double-calibrated."""
     X, y, _ = toy_data
     minimal_config.calibration.enabled = True
 
     simple_pipeline.fit(X, y)
-    calibrated = _maybe_apply_calibration(
+    calibrated = _apply_per_fold_calibration(
         simple_pipeline, "LinSVM_cal", minimal_config, X, y, random_state=42
     )
 

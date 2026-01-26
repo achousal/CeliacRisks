@@ -225,7 +225,7 @@ def oof_predictions_with_nested_cv(
 
         # Optional post-hoc calibration (only for per_fold strategy)
         # For oof_posthoc, calibration happens after CV loop completes
-        fitted_model = _maybe_apply_calibration(
+        fitted_model = _apply_per_fold_calibration(
             fitted_model,
             model_name,
             config,
@@ -666,7 +666,7 @@ def _get_search_n_jobs(model_name: str, config: TrainingConfig) -> int:
         return 1
 
 
-def _maybe_apply_calibration(
+def _apply_per_fold_calibration(
     estimator,
     model_name: str,
     config: TrainingConfig,

@@ -13,14 +13,15 @@ High-level command-line interface reference for the Celiac Disease risk predicti
 
 ## Available Commands
 
-The CLI provides six main commands accessed via `ced <command>`:
+The CLI provides seven main commands accessed via `ced <command>`:
 
 1. `save-splits` - Generate stratified train/val/test splits
-2. `train` - Train single model on one split
+2. `train` - Train single model on one split (supports fixed-panel validation)
 3. `train-ensemble` - Train stacking meta-learner on base model predictions
-4. `aggregate-splits` - Aggregate results across multiple splits with bootstrap CIs
-5. `eval-holdout` - Evaluate trained model on external holdout data
-6. `config` - Validate and compare configuration files
+4. `optimize-panel` - Post-hoc RFE panel size optimization (deployment trade-offs)
+5. `aggregate-splits` - Aggregate results across multiple splits with bootstrap CIs
+6. `eval-holdout` - Evaluate trained model on external holdout data
+7. `config` - Validate and compare configuration files
 
 Run `ced --help` or `ced <command> --help` for detailed usage.
 
@@ -74,7 +75,12 @@ Run `ced --help` or `ced <command> --help` for detailed usage.
 **Key Capabilities:**
 - Nested CV for unbiased hyperparameter tuning (outer x inner folds)
 - Optuna or RandomizedSearchCV for hyperparameter optimization
-- Multi-stage feature selection (effect size → k-best → stability → correlation)
+- Four feature selection strategies (choose via config or CLI flag):
+  - **Strategy 1**: `hybrid_stability` (default) - Fast, tuned k-best + stability
+  - **Strategy 2**: `rfecv` - Automatic sizing, consensus panels (slow)
+  - **Strategy 3**: Post-hoc RFE via `ced optimize-panel` (run after training)
+  - **Strategy 4**: Fixed panel via `--fixed-panel` flag (validation mode)
+  - See [FEATURE_SELECTION.md](FEATURE_SELECTION.md) for detailed comparison and [ADR-013](../adr/ADR-013-four-strategy-feature-selection.md) for rationale
 - Isotonic or Platt scaling calibration
 - OOF (out-of-fold) or per-fold calibration strategies
 - Prevalence adjustment for deployment scenarios
@@ -113,6 +119,39 @@ Run `ced --help` or `ced <command> --help` for detailed usage.
 - Ensemble model artifacts
 - Ensemble OOF predictions
 - Ensemble metrics and plots
+
+### `ced optimize-panel`
+
+**Purpose:** Post-training panel size optimization via Recursive Feature Elimination.
+
+**Key Capabilities:**
+- Iterative feature elimination with validation set AUROC tracking
+- Pareto frontier analysis (panel size vs. performance)
+- Stakeholder-friendly cost-benefit recommendations
+- Adaptive, linear, or geometric elimination strategies
+- Very fast (~5 minutes for LR_EN, ~15-25 minutes for RF/XGBoost)
+
+**Required Inputs:**
+- Trained model bundle (.joblib file from `ced train`)
+- Input data file (same as training)
+- Split directory and seed
+
+**Outputs:**
+- Panel curve plot (Pareto frontier: size vs. AUROC)
+- Feature ranking CSV (elimination order)
+- Recommendations JSON (knee points, minimum viable panels)
+- RFE curve CSV (AUROC at each panel size)
+
+**When to use:**
+- Clinical deployment: "What's the smallest panel maintaining 0.90 AUROC?"
+- Stakeholder decisions: Cost per protein vs. performance trade-offs
+- Rapid iteration: Test 10/20/50 protein panels in minutes
+- Complements both hybrid_stability and rfecv strategies (Strategy 3 in four-strategy framework)
+
+**Related documentation:**
+- Detailed guide: [OPTIMIZE_PANEL.md](OPTIMIZE_PANEL.md)
+- Strategy comparison: [FEATURE_SELECTION.md](FEATURE_SELECTION.md)
+- Architecture decision: [ADR-013](../adr/ADR-013-four-strategy-feature-selection.md)
 
 ### `ced aggregate-splits`
 

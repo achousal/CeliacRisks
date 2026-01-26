@@ -5,10 +5,14 @@ Pure functions for Mann-Whitney U and F-statistic screening to identify
 discriminative proteins before model training.
 """
 
+import logging
+
 import numpy as np
 import pandas as pd
 from scipy import stats
 from sklearn.feature_selection import f_classif
+
+logger = logging.getLogger(__name__)
 
 
 def mann_whitney_screen(
@@ -89,7 +93,8 @@ def mann_whitney_screen(
                 # Fallback for older scipy versions
                 _, p_mw = stats.mannwhitneyu(x1, x0, alternative="two-sided")
             p_mw = float(p_mw)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Mann-Whitney test failed for {p}: {type(e).__name__}: {e}")
             p_mw = np.nan
 
         # Compute effect size (mean difference)
@@ -194,7 +199,10 @@ def f_statistic_screen(
 
         return selected, df_stats
 
-    except Exception:
+    except Exception as e:
+        logger.warning(
+            f"F-statistic screening failed (returning all proteins): " f"{type(e).__name__}: {e}"
+        )
         return protein_cols, pd.DataFrame()
 
 

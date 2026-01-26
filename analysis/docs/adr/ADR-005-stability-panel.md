@@ -1,4 +1,4 @@
-# ADR-007: Stability Panel Extraction (0.75 Threshold)
+# ADR-005: Stability Panel Extraction (0.75 Threshold)
 
 **Status:** Accepted
 **Date:** 2026-01-20
@@ -65,5 +65,6 @@ Use **stability threshold = 0.75** (75% selection rate):
 
 ## Related ADRs
 
-- Depends on: [ADR-006: Hybrid Feature Selection](ADR-006-hybrid-feature-selection.md)
-- Depends on: [ADR-008: Nested CV Structure](ADR-008-nested-cv.md) (provides 50 folds)
+- **Part of:** [ADR-013: Four-Strategy Feature Selection Framework](ADR-013-four-strategy-feature-selection.md) (used by Strategies 1, 2, 3)
+- Depends on: [ADR-004: Hybrid Feature Selection](ADR-004-hybrid-feature-selection.md) (Strategy 1 implementation)
+- Depends on: [ADR-006: Nested CV Structure](ADR-006-nested-cv.md) (provides CV folds for stability tracking)

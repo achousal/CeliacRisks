@@ -71,12 +71,6 @@ DEFAULT_FEATURE_CONFIG: dict[str, Any] = {
     "k_grid": [50, 100, 200, 500],
     "stability_thresh": 0.70,
     "stable_corr_thresh": 0.80,
-    "l1_c_min": 0.001,
-    "l1_c_max": 1.0,
-    "l1_c_points": 4,
-    "l1_stability_thresh": 0.70,
-    "hybrid_kbest_first": True,
-    "hybrid_k_for_stability": 200,
 }
 
 # Default panel building configuration

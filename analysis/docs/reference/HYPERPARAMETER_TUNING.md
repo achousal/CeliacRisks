@@ -334,29 +334,31 @@ optuna:
 
 ```yaml
 features:
-  feature_select: hybrid           # Strategy: none, kbest, l1_stability, hybrid
+  feature_selection_strategy: hybrid_stability  # Options: hybrid_stability, rfecv, none
+
+  # Hybrid Stability parameters (Strategy 1)
   kbest_scope: protein             # Feature domain for k-best selection
   kbest_max: 800                   # Maximum features to consider
   k_grid: [25, 50, 100, 150, 200, 300, 400]  # k values to tune
-  l1_c_min: 0.001                  # L1 stability: min regularization
-  l1_c_max: 1.0                    # L1 stability: max regularization
-  l1_c_points: 4                   # L1 stability: grid density
-  l1_stability_thresh: 0.70        # Stability threshold (0-1)
-  hybrid_kbest_first: true         # Hybrid: k-best before stability
-  hybrid_k_for_stability: 200      # Features passed to stability stage
+  stability_thresh: 0.70           # Keep features selected in ≥70% of repeats
+  stable_corr_thresh: 0.85         # Remove features with r > 0.85
 
-  # Screening (stage 1: unsupervised pruning)
+  # Nested RFECV parameters (Strategy 2)
+  rfe_kbest_prefilter: true        # Apply k-best cap before RFECV (~5× speedup)
+  rfe_kbest_k: 100                 # Max features before RFECV
+  rfe_target_size: 50              # Stop elimination at 50 // 2 = 25 features
+  rfe_step_strategy: adaptive      # Options: adaptive, linear, geometric
+  rfe_cv_folds: 3                  # Internal CV folds for RFECV
+  rfe_consensus_thresh: 0.80       # Features in ≥80% of folds
+
+  # Screening (all strategies)
   screen_method: mannwhitney       # mannwhitney or f_classif
   screen_top_n: 1000               # Keep top N by univariate test
-
-  # Stability selection
-  stability_thresh: 0.70           # Keep features selected in ≥70% of folds
-
-  # Correlation pruning
-  stable_corr_thresh: 0.85         # Remove features with r > 0.85
 ```
 
-#### Feature Selection Strategies
+**Note:** See [FEATURE_SELECTION.md](FEATURE_SELECTION.md) for detailed comparison of all four feature selection strategies (hybrid_stability, rfecv, post-hoc RFE, fixed panel).
+
+#### Feature Selection Strategy Details
 
 **`none`** (use all features):
 - **When to use:** High signal-to-noise, small feature sets (p < 100)

@@ -1,4 +1,4 @@
-# ADR-006: Hybrid Feature Selection
+# ADR-004: Hybrid Feature Selection
 
 **Status:** Accepted
 **Date:** 2026-01-20
@@ -76,5 +76,6 @@ Order configurable via `hybrid_kbest_first` flag (default: True).
 
 ## Related ADRs
 
-- Supports: [ADR-007: Stability Panel](ADR-007-stability-panel.md)
-- Depends on: [ADR-008: Nested CV Structure](ADR-008-nested-cv.md) (provides CV folds for stability)
+- **Part of:** [ADR-013: Four-Strategy Feature Selection Framework](ADR-013-four-strategy-feature-selection.md) (Strategy 1: Hybrid Stability)
+- Supports: [ADR-005: Stability Panel](ADR-005-stability-panel.md)
+- Depends on: [ADR-006: Nested CV Structure](ADR-006-nested-cv.md) (provides CV folds for stability)
