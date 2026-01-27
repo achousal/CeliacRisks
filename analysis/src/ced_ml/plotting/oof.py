@@ -20,10 +20,6 @@ def plot_oof_combined(
     oof_preds: np.ndarray,
     out_dir: Path,
     model_name: str,
-    scenario: str,
-    seed: int,
-    cv_folds: int,
-    train_prev: float,
     plot_format: str = "png",
     calib_bins: int = 10,
     meta_lines: Sequence[str] = None,
@@ -40,10 +36,6 @@ def plot_oof_combined(
         oof_preds: OOF predictions array (n_repeats, n_samples)
         out_dir: Output directory for plots
         model_name: Model identifier (e.g., "LR_EN", "XGBoost")
-        scenario: Scenario name (e.g., "IncidentOnly")
-        seed: Random seed used (used for filename construction only)
-        cv_folds: Number of CV folds (deprecated, ignored)
-        train_prev: Training set prevalence (deprecated, ignored)
         plot_format: Output format ("png" or "pdf")
         calib_bins: Number of bins for calibration plots
         meta_lines: Metadata lines for plot annotation (required).

@@ -1,4 +1,4 @@
-# ADR-008: Nested CV Structure (5x10x5)
+# ADR-006: Nested CV Structure (5x10x5)
 
 **Status:** Accepted
 **Date:** 2026-01-20

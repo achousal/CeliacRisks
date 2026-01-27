@@ -886,10 +886,8 @@ def plot_calibration_curve(
     n_bins: int = 10,
     split_ids: np.ndarray | None = None,
     meta_lines: Sequence[str] | None = None,
-    bin_strategy: str = "uniform",
     calib_intercept: float | None = None,
     calib_slope: float | None = None,
-    four_panel: bool = False,
     skip_ci_band: bool = False,
 ) -> None:
     """
@@ -910,10 +908,8 @@ def plot_calibration_curve(
         n_bins: Number of bins for calibration curve
         split_ids: Optional split identifiers for multi-split aggregation
         meta_lines: Metadata lines for plot annotation
-        bin_strategy: Ignored (both quantile and uniform always shown)
         calib_intercept: Calibration intercept (alpha) from logistic recalibration
         calib_slope: Calibration slope (beta) from logistic recalibration
-        four_panel: Deprecated parameter (always True, kept for backward compatibility)
         skip_ci_band: If True, skip rendering 95% CI band (only show ±1 SD).
             Useful for ensemble models where CI and SD are redundant.
     """

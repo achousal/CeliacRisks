@@ -126,9 +126,7 @@ def validate_protein_columns(
         logger.info("Protein columns validated: all numeric, no NaN values")
 
 
-def build_preprocessor(
-    protein_cols: list[str], cat_cols: list[str], meta_num_cols: list[str]
-) -> ColumnTransformer:
+def build_preprocessor(cat_cols: list[str]) -> ColumnTransformer:
     """
     Build preprocessing pipeline for model training.
 
@@ -137,9 +135,7 @@ def build_preprocessor(
     feature screening that reduces the protein column set.
 
     Args:
-        protein_cols: List of protein column names (may be reduced by upstream screening)
         cat_cols: List of categorical column names
-        meta_num_cols: List of numeric metadata column names
 
     Returns:
         ColumnTransformer with StandardScaler for numeric and OneHotEncoder for categorical
@@ -172,7 +168,6 @@ def build_training_pipeline(
     classifier: Any,
     protein_cols: list[str],
     cat_cols: list[str],
-    meta_num_cols: list[str],
 ) -> Pipeline:
     """Build complete training pipeline with preprocessing, feature selection, and classifier.
 
@@ -198,7 +193,6 @@ def build_training_pipeline(
         classifier: Unfitted sklearn classifier
         protein_cols: List of protein column names
         cat_cols: List of categorical column names
-        meta_num_cols: List of numeric metadata column names
 
     Returns:
         Pipeline with named steps: [screen], pre, [sel], clf
@@ -237,7 +231,7 @@ def build_training_pipeline(
 
     # Stage 1: Preprocessing (StandardScaler + OneHotEncoder)
     # Note: If screening is enabled, protein_cols will be reduced by screener
-    preprocessor = build_preprocessor(protein_cols, cat_cols, meta_num_cols)
+    preprocessor = build_preprocessor(cat_cols)
     steps.append(("pre", preprocessor))
 
     # Stage 2: Strategy-specific feature selection
@@ -286,10 +280,6 @@ def _log_unwired_feature_selection_settings(config: Any, logger: logging.Logger)
     # Correlation threshold is post-hoc only
     if getattr(config.features, "stable_corr_thresh", 0.85) != 0.85:
         unwired.append("stable_corr_thresh (post-hoc panel building only)")
-
-    # Warn if legacy feature_select is used
-    if getattr(config.features, "feature_select", None) is not None:
-        unwired.append("feature_select (DEPRECATED: use feature_selection_strategy instead)")
 
     if unwired:
         logger.warning(
@@ -388,7 +378,6 @@ def evaluate_on_split(
     train_prev: float,
     target_prev: float,
     config: Any,
-    logger: Any,
     precomputed_threshold: float | None = None,
 ) -> dict[str, float]:
     """
@@ -401,7 +390,6 @@ def evaluate_on_split(
         train_prev: Training prevalence
         target_prev: Target prevalence for adjustment
         config: TrainingConfig object
-        logger: Logger instance
         precomputed_threshold: Optional precomputed threshold (e.g., from validation set).
                               If provided, this threshold is used instead of computing a new one.
 
@@ -759,7 +747,6 @@ def run_train(
         classifier,
         protein_cols,
         resolved.categorical_metadata,
-        resolved.numeric_metadata,
     )
     logger.info(f"Pipeline steps: {[name for name, _ in pipeline.steps]}")
 
@@ -801,7 +788,6 @@ def run_train(
         classifier,
         protein_cols,
         resolved.categorical_metadata,
-        resolved.numeric_metadata,
     )
     final_pipeline.fit(X_train, y_train)
     logger.info("Final model fitted")
@@ -813,7 +799,6 @@ def run_train(
         config=config,
         X_train=X_train,
         y_train=y_train,
-        random_state=seed,
     )
 
     # For oof_posthoc strategy, wrap final model with the OOF calibrator
@@ -860,7 +845,7 @@ def run_train(
         val_target_prev = train_prev
 
     val_metrics = evaluate_on_split(
-        final_pipeline, X_val, y_val, train_prev, val_target_prev, config, logger
+        final_pipeline, X_val, y_val, train_prev, val_target_prev, config
     )
 
     logger.info(f"Val AUROC: {val_metrics['AUROC']:.3f}")
@@ -893,7 +878,6 @@ def run_train(
         train_prev,
         test_target_prev,
         config,
-        logger,
         precomputed_threshold=val_threshold,
     )
 
@@ -1010,7 +994,7 @@ def run_train(
     # Save final test panel (proteins used in final model for test predictions)
     if final_selected_proteins:
         panel_metadata = {
-            "selection_method": config.features.feature_select,
+            "selection_method": config.features.feature_selection_strategy,
             "n_train": len(y_train),
             "n_train_pos": int(y_train.sum()),
             "train_prevalence": float(train_prev),
@@ -1064,7 +1048,6 @@ def run_train(
                     classifier,
                     protein_cols,
                     resolved.categorical_metadata,
-                    resolved.numeric_metadata,
                 )
 
                 xgb_spw = None
@@ -1148,7 +1131,7 @@ def run_train(
                     "PR_AUC_oof": prauc,
                     "Brier_oof": brier,
                     "cv_seconds": elapsed_sec,
-                    "feature_select": config.features.feature_select,
+                    "feature_selection_strategy": config.features.feature_selection_strategy,
                     "random_state": seed,
                 }
             )
@@ -1192,7 +1175,7 @@ def run_train(
         "scoring": config.cv.scoring,
         "inner_folds": getattr(config.cv, "inner_folds", 5),
         "n_iter": getattr(config.cv, "n_iter", 50),
-        "feature_select": config.features.feature_select,
+        "feature_selection_strategy": config.features.feature_selection_strategy,
         "kbest_scope": getattr(config.features, "kbest_scope", "inner"),
         "kbest_max": getattr(config.features, "kbest_max", 500),
         "screen_method": getattr(config.features, "screen_method", "none"),
@@ -1327,7 +1310,7 @@ def run_train(
             cv_repeats=config.cv.repeats,
             cv_scoring=config.cv.scoring,
             n_features=len(final_selected_proteins) if final_selected_proteins else None,
-            feature_method=config.features.feature_select,
+            feature_method=config.features.feature_selection_strategy,
             n_train=len(y_train),
             n_val=len(y_val),
             n_test=len(y_test),
@@ -1487,7 +1470,7 @@ def run_train(
             n_train_incident=train_breakdown.get("incident"),
             n_train_prevalent=train_breakdown.get("prevalent"),
             n_features=len(final_selected_proteins) if final_selected_proteins else None,
-            feature_method=config.features.feature_select,
+            feature_method=config.features.feature_selection_strategy,
             cv_scoring=config.cv.scoring,
         )
         if config.output.plot_oof_combined:
@@ -1496,10 +1479,6 @@ def run_train(
                 oof_preds=oof_preds,
                 out_dir=plots_dir,
                 model_name=config.model,
-                scenario=config.scenario,
-                seed=seed,
-                cv_folds=config.cv.folds,
-                train_prev=train_prev,
                 plot_format=config.output.plot_format,
                 calib_bins=config.output.calib_bins,
                 meta_lines=oof_meta,
@@ -1659,7 +1638,7 @@ def run_train(
                 cv_repeats=1,  # Learning curve doesn't use repeats
                 cv_scoring=config.cv.scoring,
                 n_features=len(final_selected_proteins) if final_selected_proteins else None,
-                feature_method=config.features.feature_select,
+                feature_method=config.features.feature_selection_strategy,
                 n_train=len(y_train),
                 n_train_pos=int(y_train.sum()),
                 n_train_controls=train_breakdown.get("controls"),
@@ -1673,7 +1652,6 @@ def run_train(
                 build_models(config.model, config, seed, config.n_jobs),
                 protein_cols,
                 resolved.categorical_metadata,
-                resolved.numeric_metadata,
             )
             save_learning_curve_csv(
                 estimator=lc_pipeline,
@@ -1778,7 +1756,7 @@ def run_train(
             feature_report = feature_report[col_order]
 
             # Use ResultsWriter to save
-            writer.save_feature_report(feature_report, config.scenario, config.model)
+            writer.save_feature_report(feature_report, config.model)
 
             # Stable panel extraction
             stable_panel_df, stable_proteins, _ = extract_stable_panel(
@@ -1791,9 +1769,7 @@ def run_train(
             if not stable_panel_df.empty:
                 stable_panel_df["scenario"] = config.scenario
                 # Use ResultsWriter to save
-                writer.save_stable_panel_report(
-                    stable_panel_df, config.scenario, panel_type="KBest"
-                )
+                writer.save_stable_panel_report(stable_panel_df, panel_type="KBest")
 
             # Panel manifests (multiple sizes)
             panel_sizes = getattr(config.panels, "panel_sizes", [10, 25, 50])
@@ -1819,7 +1795,7 @@ def run_train(
                         "proteins": panel_proteins,
                     }
                     # Use ResultsWriter to save
-                    writer.save_panel_manifest(manifest, config.scenario, config.model, size)
+                    writer.save_panel_manifest(manifest, config.model, size)
     except Exception as e:
         logger.warning(f"Failed to save feature reports/panels: {e}")
 

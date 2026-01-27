@@ -30,7 +30,6 @@ def save_optuna_plots(
     study: Any,
     out_dir: Path,
     prefix: str = "",
-    plot_format: str = "png",
 ) -> None:
     """
     Generate and save Optuna study visualization plots.

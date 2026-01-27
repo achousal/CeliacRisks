@@ -502,23 +502,20 @@ def temporal_train_val_test_split(
     y: np.ndarray,
     val_size: float,
     test_size: float,
-    random_state: int = 42,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Perform three-way temporal split (chronological order).
 
     TRAIN = earliest samples, TEST = latest samples, VAL = middle samples.
 
-    NOTE: The random_state parameter is used for deterministic tie-breaking when
-    samples have identical timestamps. The indices array should already be sorted
-    by timestamp; this function does NOT perform sorting.
+    NOTE: The indices array should already be sorted by timestamp;
+    this function does NOT perform sorting.
 
     Args:
         indices: Row indices (already in temporal order)
         y: Binary outcome labels
         val_size: Validation set fraction (0.0 for no validation)
         test_size: Test set fraction
-        random_state: Random seed for deterministic tie-breaking (default: 42)
 
     Returns:
         (idx_train, idx_val, idx_test, y_train, y_val, y_test)
@@ -530,7 +527,7 @@ def temporal_train_val_test_split(
         >>> indices = np.arange(100)  # Pre-sorted by date
         >>> y = np.random.randint(0, 2, 100)
         >>> idx_tr, idx_val, idx_te, y_tr, y_val, y_te = temporal_train_val_test_split(
-        ...     indices, y, val_size=0.25, test_size=0.25, random_state=42
+        ...     indices, y, val_size=0.25, test_size=0.25
         ... )
     """
     # Validate split sizes leave room for training data

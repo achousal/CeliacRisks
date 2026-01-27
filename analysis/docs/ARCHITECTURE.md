@@ -110,9 +110,8 @@ See [ADR-013: Four-Strategy Feature Selection Framework](adr/ADR-013-four-strate
 - [ADR-004: Hybrid Feature Selection](adr/ADR-004-hybrid-feature-selection.md) - Strategy 1 details
 - [ADR-005: Stability Panel](adr/ADR-005-stability-panel.md) - Stability extraction
 
-**See detailed guides:**
-- [FEATURE_SELECTION.md](reference/FEATURE_SELECTION.md) - Complete guide with decision tree
-- [OPTIMIZE_PANEL.md](reference/OPTIMIZE_PANEL.md) - Post-hoc RFE guide
+**See detailed guide:**
+- [FEATURE_SELECTION.md](reference/FEATURE_SELECTION.md) - Consolidated guide covering all 4 strategies (hybrid, RFECV, post-hoc RFE, fixed panel)
 
 ### 2.3 Nested Cross-Validation
 

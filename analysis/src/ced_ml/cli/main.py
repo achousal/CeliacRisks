@@ -567,8 +567,7 @@ def config_diff(ctx, config_file1, config_file2, output):
     default="snappy",
     help="Compression algorithm (default: snappy)",
 )
-@click.pass_context
-def convert_to_parquet(ctx, csv_path, output, compression):
+def convert_to_parquet(csv_path, output, compression):
     """
     Convert proteomics CSV file to Parquet format.
 

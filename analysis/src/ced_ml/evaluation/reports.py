@@ -363,13 +363,12 @@ class ResultsWriter:
 
     # ========== Predictions ==========
 
-    def save_test_predictions(self, predictions_df: pd.DataFrame, scenario: str, model: str) -> str:
+    def save_test_predictions(self, predictions_df: pd.DataFrame, model: str) -> str:
         """
         Save test predictions to preds/test_preds/test_preds__{model}.csv.
 
         Args:
             predictions_df: DataFrame with ID, y_true, predictions
-            scenario: Scenario name
             model: Model name
 
         Returns:
@@ -381,13 +380,12 @@ class ResultsWriter:
         logger.info(f"Saved test predictions: {path}")
         return str(path)
 
-    def save_val_predictions(self, predictions_df: pd.DataFrame, scenario: str, model: str) -> str:
+    def save_val_predictions(self, predictions_df: pd.DataFrame, model: str) -> str:
         """
         Save validation predictions to preds/val_preds/val_preds__{model}.csv.
 
         Args:
             predictions_df: DataFrame with ID, y_true, predictions
-            scenario: Scenario name
             model: Model name
 
         Returns:
@@ -399,15 +397,12 @@ class ResultsWriter:
         logger.info(f"Saved validation predictions: {path}")
         return str(path)
 
-    def save_train_oof_predictions(
-        self, predictions_df: pd.DataFrame, scenario: str, model: str
-    ) -> str:
+    def save_train_oof_predictions(self, predictions_df: pd.DataFrame, model: str) -> str:
         """
         Save train out-of-fold predictions to preds/train_oof/train_oof__{model}.csv.
 
         Args:
             predictions_df: DataFrame with ID, y_true, OOF predictions
-            scenario: Scenario name
             model: Model name
 
         Returns:
@@ -419,15 +414,12 @@ class ResultsWriter:
         logger.info(f"Saved train OOF predictions: {path}")
         return str(path)
 
-    def save_controls_predictions(
-        self, predictions_df: pd.DataFrame, scenario: str, model: str
-    ) -> str:
+    def save_controls_predictions(self, predictions_df: pd.DataFrame, model: str) -> str:
         """
         Save control subjects predictions to preds/controls/controls_risk__{model}__oof_mean.csv.
 
         Args:
             predictions_df: DataFrame with control subject predictions
-            scenario: Scenario name
             model: Model name
 
         Returns:
@@ -441,13 +433,12 @@ class ResultsWriter:
 
     # ========== Reports ==========
 
-    def save_feature_report(self, report_df: pd.DataFrame, scenario: str, model: str) -> str:
+    def save_feature_report(self, report_df: pd.DataFrame, model: str) -> str:
         """
         Save feature importance report to reports/feature_reports/{model}__feature_report_train.csv.
 
         Args:
             report_df: DataFrame with protein, effect_size, p_value, selection_freq
-            scenario: Scenario name
             model: Model name
 
         Returns:
@@ -459,15 +450,12 @@ class ResultsWriter:
         logger.info(f"Saved feature report: {path}")
         return str(path)
 
-    def save_stable_panel_report(
-        self, panel_df: pd.DataFrame, scenario: str, panel_type: str = "KBest"
-    ) -> str:
+    def save_stable_panel_report(self, panel_df: pd.DataFrame, panel_type: str = "KBest") -> str:
         """
         Save stable panel report to reports/stable_panel/stable_panel__{panel_type}.csv.
 
         Args:
             panel_df: DataFrame with stable panel proteins and statistics
-            scenario: Scenario name
             panel_type: Panel type (e.g., "KBest", "screening")
 
         Returns:
@@ -479,15 +467,12 @@ class ResultsWriter:
         logger.info(f"Saved stable panel report: {path}")
         return str(path)
 
-    def save_panel_manifest(
-        self, manifest: dict[str, Any], scenario: str, model: str, panel_size: int
-    ) -> str:
+    def save_panel_manifest(self, manifest: dict[str, Any], model: str, panel_size: int) -> str:
         """
         Save panel manifest to reports/panels/{model}__N{size}__panel_manifest.json.
 
         Args:
             manifest: Panel metadata dictionary
-            scenario: Scenario name
             model: Model name
             panel_size: Panel size (N)
 
@@ -530,13 +515,12 @@ class ResultsWriter:
         logger.info(f"Saved final test panel: {path}")
         return str(path)
 
-    def save_subgroup_metrics(self, subgroup_df: pd.DataFrame, scenario: str, model: str) -> str:
+    def save_subgroup_metrics(self, subgroup_df: pd.DataFrame, model: str) -> str:
         """
         Save subgroup analysis to reports/subgroups/{model}__test_subgroup_metrics.csv.
 
         Args:
             subgroup_df: DataFrame with per-subgroup metrics
-            scenario: Scenario name
             model: Model name
 
         Returns:
@@ -586,12 +570,11 @@ class ResultsWriter:
             logger.error(f"Failed to save model artifact: {e}")
             raise OSError(f"Model serialization failed: {e}") from e
 
-    def load_model_artifact(self, scenario: str, model_name: str) -> dict[str, Any]:
+    def load_model_artifact(self, model_name: str) -> dict[str, Any]:
         """
         Load trained model artifact from core/{model}__final_model.joblib.
 
         Args:
-            scenario: Scenario name
             model_name: Model name
 
         Returns:
@@ -617,15 +600,12 @@ class ResultsWriter:
 
     # ========== Diagnostics ==========
 
-    def save_calibration_curve(
-        self, calibration_df: pd.DataFrame, scenario: str, model: str
-    ) -> str:
+    def save_calibration_curve(self, calibration_df: pd.DataFrame, model: str) -> str:
         """
         Save calibration curve data to diagnostics/calibration/{model}__calibration.csv.
 
         Args:
             calibration_df: DataFrame with prob_pred, prob_true columns
-            scenario: Scenario name
             model: Model name
 
         Returns:
@@ -637,15 +617,12 @@ class ResultsWriter:
         logger.debug(f"Saved calibration curve: {path}")
         return str(path)
 
-    def save_learning_curve(
-        self, learning_curve_df: pd.DataFrame, scenario: str, model: str
-    ) -> str:
+    def save_learning_curve(self, learning_curve_df: pd.DataFrame, model: str) -> str:
         """
         Save learning curve data to diagnostics/learning/{model}__learning_curve.csv.
 
         Args:
             learning_curve_df: DataFrame with train_size, metric, train/test scores
-            scenario: Scenario name
             model: Model name
 
         Returns:
@@ -657,13 +634,12 @@ class ResultsWriter:
         logger.debug(f"Saved learning curve: {path}")
         return str(path)
 
-    def save_split_trace(self, split_trace_df: pd.DataFrame, scenario: str) -> str:
+    def save_split_trace(self, split_trace_df: pd.DataFrame) -> str:
         """
         Save split trace to diagnostics/splits/train_test_split_trace.csv.
 
         Args:
             split_trace_df: DataFrame with split assignments and labels
-            scenario: Scenario name
 
         Returns:
             Path to saved file

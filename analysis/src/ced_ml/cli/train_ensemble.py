@@ -229,9 +229,8 @@ def run_train_ensemble(
         raise FileNotFoundError(f"Results directory not found: {results_path}")
 
     # Determine base models
-    if base_models is None and config is not None:
-        base_models = config.ensemble.base_models
     if base_models is None:
+        # Default base models (config.ensemble was removed in recent refactor)
         base_models = ["LR_EN", "RF", "XGBoost", "LinSVM_cal"]
 
     logger.info(f"Results directory: {results_path}")
@@ -239,10 +238,11 @@ def run_train_ensemble(
     logger.info(f"Split seed: {split_seed}")
 
     # Determine meta-learner hyperparameters
+    # Note: config.ensemble was removed in recent refactor - use CLI args or defaults
     if meta_penalty is None:
-        meta_penalty = config.ensemble.meta_model.penalty if config else "l2"
+        meta_penalty = "l2"
     if meta_c is None:
-        meta_c = config.ensemble.meta_model.C if config else 1.0
+        meta_c = 1.0
 
     logger.info(f"Meta-learner: LogisticRegression(penalty={meta_penalty}, C={meta_c})")
 
@@ -266,12 +266,13 @@ def run_train_ensemble(
         logger.warning(f"Missing OOF predictions for: {missing_models}")
 
     if len(available_models) < 2:
-        logger.warning(
-            f"Skipping ensemble training for split_seed {split_seed}: "
+        error_msg = (
+            f"Cannot train ensemble for split_seed {split_seed}: "
             f"need at least 2 base models with OOF predictions. "
             f"Available: {available_models}, missing: {missing_models}"
         )
-        return
+        logger.error(error_msg)
+        raise FileNotFoundError(error_msg)
 
     logger.info(f"Using {len(available_models)} base models: {available_models}")
 
@@ -685,8 +686,6 @@ def run_train_ensemble(
                     model_name="ENSEMBLE",
                     scenario="ensemble",
                     seed=split_seed,
-                    cv_folds=1,
-                    train_prev=y_train_arr.mean(),
                     plot_format=plot_format,
                     calib_bins=10,
                     meta_lines=oof_meta_lines,

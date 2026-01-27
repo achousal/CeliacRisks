@@ -249,7 +249,6 @@ def _generate_scenario_splits(
             y_full,
             full_idx,
             scenario,
-            positives,
             outdir,
             config,
             overwrite,
@@ -286,7 +285,6 @@ def _create_holdout(
     y_full,
     full_idx,
     scenario,
-    positives,
     outdir,
     config,
     overwrite,
@@ -401,7 +399,7 @@ def _generate_repeated_splits(
         # Generate base split
         if config.temporal_split:
             idx_train, idx_val, idx_test, y_train, y_val, y_test = temporal_train_val_test_split(
-                base_idx, y_base, config.val_size, config.test_size, random_state=seed
+                base_idx, y_base, config.val_size, config.test_size
             )
         else:
             idx_train, idx_val, idx_test, y_train, y_val, y_test = stratified_train_val_test_split(
@@ -497,7 +495,6 @@ def _generate_repeated_splits(
             train_idx=idx_train,
             test_idx=idx_test,
             val_idx=idx_val if len(idx_val) > 0 else None,
-            n_splits=config.n_splits,
             overwrite=overwrite,
         )
 

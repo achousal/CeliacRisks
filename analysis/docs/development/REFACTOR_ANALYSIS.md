@@ -774,3 +774,63 @@ Phase 1 core tasks completed
 **Next Priority**: Phase 2 (Complexity Reduction) - decompose mega-functions
 **Estimated Effort**: 2-3 days per major function
 **Risk Level**: Medium (requires extensive testing)
+
+---
+
+### 2026-01-26: Phase 2 Planning - Mega-Files & Complexity Reduction
+
+**Status**: PLANNING COMPLETE ✅
+**Plan File**: `/Users/andreschousal/.claude/plans/functional-dancing-tome.md`
+
+#### Scope Analysis Completed
+
+Comprehensive exploration of Phase 2 targets:
+
+**1. aggregate_splits.py Analysis**
+- **Size**: 2,733 lines, 21 functions
+- **Critical function**: `run_aggregate_splits()` - C901=130, orchestrates 18 internal calls
+- **5 logical domains**: Discovery, Collection, Aggregation, Reporting, Plotting
+- **Duplication**: ~150 lines (model filtering, CSV loading, prediction detection)
+
+**2. train.py Analysis**
+- **Size**: 1,676 lines, 7 functions
+- **Critical function**: `run_train()` - C901=84, 16 sequential steps
+- **Duplication**: ~100 lines (prevalence logic, plot generation, validation)
+
+**3. Complexity Violations**
+- **Total**: 46 functions with C901 > 10
+- **Top 10**: run_aggregate_splits (130), run_train (84), plot_risk_distribution (62), run_train_ensemble (40), generate_aggregated_plots (36)
+
+#### Approved Implementation Plan
+
+**Module Structure**:
+```
+cli/
+  aggregate_splits.py  (~200 lines, down from 2,733)
+  aggregation/
+    discovery.py, collection.py, aggregation.py, reporting.py, plot_generator.py
+
+  train.py             (~250 lines, down from 1,676)
+  training/
+    data_pipeline.py, threshold_manager.py, results_exporter.py, plot_generator.py
+```
+
+**Work Breakdown**: 11 incremental PRs
+- **Priority 1** (Low Risk): 3 PRs - Discovery, Collection, Data Pipeline
+- **Priority 2** (Medium Risk): 3 PRs - Aggregation, Threshold, Results
+- **Priority 3** (Medium-High): 3 PRs - Reporting, Plotting
+- **Priority 4** (High Risk): 2 PRs - Orchestrator refactoring
+
+**Duplication Elimination**:
+- aggregate_splits.py: ~150 lines → extract helpers
+- train.py: ~100 lines → dedupe prevalence/plot logic
+
+**Effort Estimate**: 17-22 days total
+
+**Key Decisions**:
+- ✅ Use `cli/aggregation/` and `cli/training/` naming
+- ✅ Break backward compatibility (no re-exports)
+- ✅ Keep utilities local until reused
+
+**Next Step**: Begin PR 1.1 (Discovery module extraction)
+pr 1.1 done.

@@ -289,12 +289,6 @@ def _validate_unwired_feature_selection_config(config: TrainingConfig, issues: l
                 f"stable_corr_thresh={config.features.stable_corr_thresh} (not used with strategy='none')"
             )
 
-    # Check for deprecated feature_select usage
-    if config.features.feature_select is not None:
-        # This should already trigger a warning from schema.py validation
-        # But we can add an additional check here
-        pass
-
     if unwired_settings:
         issues.append(
             "Feature selection config options set but not used with current strategy: "

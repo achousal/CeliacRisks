@@ -447,7 +447,8 @@ def _find_model_split_dir(
     Searches for model outputs in order of preference:
     1. results_dir / model_name / run_{run_id} / split_seed{split_seed} (new layout with run_id)
     2. results_dir / model_name / run_* / split_seed{split_seed} (new layout, auto-discover run_id)
-    3. results_dir / model_name / split_{split_seed} (legacy layout)
+    3. results_dir / run_* / split_seed{split_seed} (top-level run directories, filter by model name in config)
+    4. results_dir / model_name / split_{split_seed} (legacy layout)
 
     Args:
         results_dir: Root results directory
@@ -463,21 +464,34 @@ def _find_model_split_dir(
     """
     model_root = results_dir / model_name
 
-    # Pattern 1: Explicit run_id provided
+    # Pattern 1: Explicit run_id provided (model-specific subdirectory)
     if run_id is not None:
         candidate = model_root / f"run_{run_id}" / f"split_seed{split_seed}"
         if candidate.exists():
             return candidate
 
-    # Pattern 2: Auto-discover run directories (prefer most recent)
-    run_dirs = sorted(model_root.glob("run_*"), reverse=True)
+    # Pattern 2: Auto-discover run directories under model subdirectory (prefer most recent)
+    if model_root.exists():
+        run_dirs = sorted(model_root.glob("run_*"), reverse=True)
+        for run_dir in run_dirs:
+            candidate = run_dir / f"split_seed{split_seed}"
+            if candidate.exists():
+                logger.debug(f"Auto-discovered run directory: {run_dir.name}")
+                return candidate
+
+    # Pattern 3: Top-level run directories (new default layout)
+    # Search for run_*/split_seed{split_seed} and filter by model name from config
+    run_dirs = sorted(results_dir.glob("run_*"), reverse=True)
     for run_dir in run_dirs:
         candidate = run_dir / f"split_seed{split_seed}"
         if candidate.exists():
-            logger.debug(f"Auto-discovered run directory: {run_dir.name}")
-            return candidate
+            # Check if this is the right model by reading config or checking for model file
+            model_file = candidate / "core" / f"{model_name}__final_model.joblib"
+            if model_file.exists():
+                logger.debug(f"Found {model_name} in top-level run directory: {run_dir.name}")
+                return candidate
 
-    # Pattern 3: Legacy layout (no run subdirectory)
+    # Pattern 4: Legacy layout (no run subdirectory)
     legacy_candidate = model_root / f"split_{split_seed}"
     if legacy_candidate.exists():
         return legacy_candidate
@@ -485,6 +499,7 @@ def _find_model_split_dir(
     # Not found - provide helpful error
     searched = [
         f"{model_root}/run_*/split_seed{split_seed}",
+        f"{results_dir}/run_*/split_seed{split_seed} (filtered by model={model_name})",
         f"{model_root}/split_{split_seed}",
     ]
     raise FileNotFoundError(
@@ -633,7 +648,6 @@ def collect_oof_predictions(
     results_dir: Path,
     base_models: list[str],
     split_seed: int,
-    scenario: str = "IncidentOnly",
     run_id: str | None = None,
 ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray, np.ndarray | None]:
     """Collect OOF predictions from trained base models.
@@ -642,7 +656,6 @@ def collect_oof_predictions(
         results_dir: Root results directory
         base_models: List of base model names to collect
         split_seed: Split seed to identify correct subdirectory
-        scenario: Scenario name (for filtering)
         run_id: Optional run_id to target specific run
 
     Returns:

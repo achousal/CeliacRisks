@@ -489,4 +489,4 @@ ced train --model LR_EN --fixed-panel deployment_panel_70pct.csv \
 ---
 
 **Generated**: 2026-01-26
-**Based on**: run_20260125_122411 + FEATURE_SELECTION.md + OPTIMIZE_PANEL.md
+**Based on**: run_20260125_122411 + consolidated FEATURE_SELECTION.md

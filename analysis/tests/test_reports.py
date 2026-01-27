@@ -274,7 +274,7 @@ def test_save_test_predictions(results_writer):
         }
     )
 
-    path = results_writer.save_test_predictions(preds_df, scenario="IncidentOnly", model="RF")
+    path = results_writer.save_test_predictions(preds_df, model="RF")
 
     assert os.path.exists(path)
     df = pd.read_csv(path)
@@ -292,9 +292,7 @@ def test_save_val_predictions(results_writer):
         }
     )
 
-    path = results_writer.save_val_predictions(
-        preds_df, scenario="IncidentPlusPrevalent", model="LR_EN"
-    )
+    path = results_writer.save_val_predictions(preds_df, model="LR_EN")
 
     assert os.path.exists(path)
     df = pd.read_csv(path)
@@ -312,9 +310,7 @@ def test_save_train_oof_predictions(results_writer):
         }
     )
 
-    path = results_writer.save_train_oof_predictions(
-        preds_df, scenario="IncidentOnly", model="XGBoost"
-    )
+    path = results_writer.save_train_oof_predictions(preds_df, model="XGBoost")
 
     assert os.path.exists(path)
     df = pd.read_csv(path)
@@ -331,9 +327,7 @@ def test_save_controls_predictions(results_writer):
         }
     )
 
-    path = results_writer.save_controls_predictions(
-        preds_df, scenario="IncidentPlusPrevalent", model="RF"
-    )
+    path = results_writer.save_controls_predictions(preds_df, model="RF")
 
     assert os.path.exists(path)
     assert "controls_risk" in path
@@ -356,9 +350,7 @@ def test_save_feature_report(results_writer):
         }
     )
 
-    path = results_writer.save_feature_report(
-        report_df, scenario="IncidentPlusPrevalent", model="LR_EN"
-    )
+    path = results_writer.save_feature_report(report_df, model="LR_EN")
 
     assert os.path.exists(path)
     df = pd.read_csv(path)
@@ -380,9 +372,7 @@ def test_save_stable_panel_report(results_writer):
         }
     )
 
-    path = results_writer.save_stable_panel_report(
-        panel_df, scenario="IncidentPlusPrevalent", panel_type="KBest"
-    )
+    path = results_writer.save_stable_panel_report(panel_df, panel_type="KBest")
 
     assert os.path.exists(path)
     assert "stable_panel" in path
@@ -400,9 +390,7 @@ def test_save_panel_manifest(results_writer):
         "final_proteins": ["TGM2", "CXCL9", "ITGB7"],
     }
 
-    path = results_writer.save_panel_manifest(
-        manifest, scenario="IncidentPlusPrevalent", model="LR_EN", panel_size=25
-    )
+    path = results_writer.save_panel_manifest(manifest, model="LR_EN", panel_size=25)
 
     assert os.path.exists(path)
     with open(path) as f:
@@ -463,7 +451,7 @@ def test_save_subgroup_metrics(results_writer):
         }
     )
 
-    path = results_writer.save_subgroup_metrics(subgroup_df, scenario="IncidentOnly", model="RF")
+    path = results_writer.save_subgroup_metrics(subgroup_df, model="RF")
 
     assert os.path.exists(path)
     df = pd.read_csv(path)
@@ -501,7 +489,7 @@ def test_load_model_artifact(results_writer, sample_model):
         sample_model, metadata, scenario="IncidentOnly", model_name="RF"
     )
 
-    bundle = results_writer.load_model_artifact(scenario="IncidentOnly", model_name="RF")
+    bundle = results_writer.load_model_artifact(model_name="RF")
 
     assert bundle["scenario"] == "IncidentOnly"
     assert bundle["model_name"] == "RF"
@@ -512,7 +500,7 @@ def test_load_model_artifact(results_writer, sample_model):
 def test_load_model_artifact_not_found(results_writer):
     """Test load_model_artifact with missing file."""
     with pytest.raises(FileNotFoundError, match="Model artifact not found"):
-        results_writer.load_model_artifact(scenario="NonExistent", model_name="FakeModel")
+        results_writer.load_model_artifact(model_name="FakeModel")
 
 
 # ========== ResultsWriter: Diagnostics ==========
@@ -527,9 +515,7 @@ def test_save_calibration_curve(results_writer):
         }
     )
 
-    path = results_writer.save_calibration_curve(
-        calib_df, scenario="IncidentPlusPrevalent", model="LR_EN"
-    )
+    path = results_writer.save_calibration_curve(calib_df, model="LR_EN")
 
     assert os.path.exists(path)
     df = pd.read_csv(path)
@@ -548,7 +534,7 @@ def test_save_learning_curve(results_writer):
         }
     )
 
-    path = results_writer.save_learning_curve(lc_df, scenario="IncidentOnly", model="XGBoost")
+    path = results_writer.save_learning_curve(lc_df, model="XGBoost")
 
     assert os.path.exists(path)
     df = pd.read_csv(path)
@@ -566,7 +552,7 @@ def test_save_split_trace(results_writer):
         }
     )
 
-    path = results_writer.save_split_trace(trace_df, scenario="IncidentPlusPrevalent")
+    path = results_writer.save_split_trace(trace_df)
 
     assert os.path.exists(path)
     df = pd.read_csv(path)
@@ -608,7 +594,7 @@ def test_full_workflow(results_writer, sample_model, sample_metrics):
 
     # Predictions
     preds = pd.DataFrame({"ID": [1, 2], "y_true": [0, 1], "p_raw": [0.1, 0.9]})
-    results_writer.save_test_predictions(preds, "IncidentPlusPrevalent", "LR_EN")
+    results_writer.save_test_predictions(preds, "LR_EN")
 
     # Model
     metadata = {"threshold_obj": 0.15}

@@ -452,7 +452,7 @@ class ScreeningTransformer:
         """Fit and transform in one step."""
         return self.fit(X, y).transform(X)
 
-    def get_feature_names_out(self, input_features=None):
+    def get_feature_names_out(self, input_features=None):  # noqa: ARG002
         """Get output feature names (for sklearn compatibility)."""
         if self.selected_features_ is None:
             return np.array([])

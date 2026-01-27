@@ -4,7 +4,6 @@ Serialization utilities for models and results.
 
 import json
 import logging
-import pickle
 import warnings
 from pathlib import Path
 from typing import Any
@@ -85,18 +84,3 @@ def load_json(path: str | Path) -> Any:
     """Load JSON file."""
     with open(path) as f:
         return json.load(f)
-
-
-def save_pickle(obj: Any, path: str | Path):
-    """Save object using pickle."""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(path, "wb") as f:
-        pickle.dump(obj, f)
-
-
-def load_pickle(path: str | Path) -> Any:
-    """Load pickle file."""
-    with open(path, "rb") as f:
-        return pickle.load(f)

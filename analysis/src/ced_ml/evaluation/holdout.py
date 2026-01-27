@@ -329,7 +329,6 @@ def evaluate_holdout(
     toprisk_fracs: str = "0.01",
     target_prevalence: float | None = None,
     clinical_threshold_points: str = "",
-    subgroup_min_n: int = 40,
 ) -> dict[str, Any]:
     """
     Evaluate trained model on holdout set.
@@ -357,7 +356,6 @@ def evaluate_holdout(
         toprisk_fracs: Comma-separated top-risk fractions (e.g., "0.01,0.05")
         target_prevalence: Override target prevalence
         clinical_threshold_points: Comma-separated clinical thresholds
-        subgroup_min_n: Minimum sample size for subgroup reporting
 
     Returns:
         Dictionary of holdout metrics

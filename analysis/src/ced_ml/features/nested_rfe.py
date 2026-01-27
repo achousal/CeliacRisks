@@ -194,7 +194,6 @@ def run_rfecv_within_fold(
 
 def extract_estimator_for_rfecv(
     fitted_pipeline: Pipeline,
-    model_name: str,
 ) -> Any:
     """Extract the classifier from a fitted pipeline for use with RFECV.
 
@@ -203,7 +202,6 @@ def extract_estimator_for_rfecv(
 
     Args:
         fitted_pipeline: Fitted sklearn Pipeline.
-        model_name: Model identifier.
 
     Returns:
         Cloned estimator suitable for RFECV.

@@ -83,7 +83,7 @@ def test_oof_predictions_basic(toy_data, simple_pipeline, minimal_config):
     """Test basic OOF prediction generation."""
     X, y, protein_cols = toy_data
 
-    preds, elapsed, best_params_df, selected_proteins_df, _ = oof_predictions_with_nested_cv(
+    preds, elapsed, best_params_df, selected_proteins_df, _, _ = oof_predictions_with_nested_cv(
         simple_pipeline,
         "LR_EN",
         X,
@@ -154,7 +154,7 @@ def test_oof_predictions_no_nan_after_training(toy_data, simple_pipeline, minima
     """
     X, y, protein_cols = toy_data
 
-    preds, elapsed, best_params_df, selected_proteins_df, _ = oof_predictions_with_nested_cv(
+    preds, elapsed, best_params_df, selected_proteins_df, _, _ = oof_predictions_with_nested_cv(
         simple_pipeline,
         "LR_EN",
         X,
@@ -235,9 +235,7 @@ def test_apply_per_fold_calibration_disabled(simple_pipeline, minimal_config, to
     minimal_config.calibration.enabled = False
 
     simple_pipeline.fit(X, y)
-    calibrated = _apply_per_fold_calibration(
-        simple_pipeline, "LR_EN", minimal_config, X, y, random_state=42
-    )
+    calibrated = _apply_per_fold_calibration(simple_pipeline, "LR_EN", minimal_config, X, y)
 
     assert calibrated is simple_pipeline
     assert not isinstance(calibrated, CalibratedClassifierCV)
@@ -250,9 +248,7 @@ def test_apply_per_fold_calibration_enabled(simple_pipeline, minimal_config, toy
     minimal_config.calibration.strategy = "per_fold"  # per_fold wraps in Calibrated
 
     simple_pipeline.fit(X, y)
-    calibrated = _apply_per_fold_calibration(
-        simple_pipeline, "LR_EN", minimal_config, X, y, random_state=42
-    )
+    calibrated = _apply_per_fold_calibration(simple_pipeline, "LR_EN", minimal_config, X, y)
 
     assert isinstance(calibrated, CalibratedClassifierCV)
 
@@ -263,9 +259,7 @@ def test_apply_per_fold_calibration_skip_svm(simple_pipeline, minimal_config, to
     minimal_config.calibration.enabled = True
 
     simple_pipeline.fit(X, y)
-    calibrated = _apply_per_fold_calibration(
-        simple_pipeline, "LinSVM_cal", minimal_config, X, y, random_state=42
-    )
+    calibrated = _apply_per_fold_calibration(simple_pipeline, "LinSVM_cal", minimal_config, X, y)
 
     assert not isinstance(calibrated, CalibratedClassifierCV)
 
@@ -442,7 +436,7 @@ def test_oof_predictions_with_kbest(toy_data, minimal_config):
         ]
     )
 
-    preds, elapsed, best_params_df, selected_proteins_df, _ = oof_predictions_with_nested_cv(
+    preds, elapsed, best_params_df, selected_proteins_df, _, _ = oof_predictions_with_nested_cv(
         pipeline, "LR_EN", X, y, protein_cols, minimal_config, random_state=42
     )
 
@@ -477,7 +471,7 @@ def test_oof_predictions_tracks_selected_proteins(toy_data, minimal_config):
         ]
     )
 
-    preds, elapsed, best_params_df, selected_proteins_df, _ = oof_predictions_with_nested_cv(
+    preds, elapsed, best_params_df, selected_proteins_df, _, _ = oof_predictions_with_nested_cv(
         pipeline, "LR_EN", X, y, protein_cols, minimal_config, random_state=42
     )
 
@@ -503,7 +497,7 @@ def test_oof_predictions_single_repeat(toy_data, simple_pipeline, minimal_config
     X, y, protein_cols = toy_data
     minimal_config.cv.repeats = 1
 
-    preds, elapsed, best_params_df, selected_proteins_df, _ = oof_predictions_with_nested_cv(
+    preds, elapsed, best_params_df, selected_proteins_df, _, _ = oof_predictions_with_nested_cv(
         simple_pipeline,
         "LR_EN",
         X,
@@ -522,7 +516,7 @@ def test_oof_predictions_no_inner_tuning(toy_data, simple_pipeline, minimal_conf
     X, y, protein_cols = toy_data
     minimal_config.cv.inner_folds = 1  # Disable tuning
 
-    preds, elapsed, best_params_df, selected_proteins_df, _ = oof_predictions_with_nested_cv(
+    preds, elapsed, best_params_df, selected_proteins_df, _, _ = oof_predictions_with_nested_cv(
         simple_pipeline,
         "LR_EN",
         X,
@@ -624,3 +618,72 @@ def test_rfecv_kbest_prefilter_config_validation():
     # Invalid k (too small)
     with pytest.raises(ValidationError):  # Pydantic validation error
         FeatureConfig(rfe_kbest_k=5)  # Less than ge=10 constraint
+
+
+def test_rfecv_extracts_screening_proteins_when_no_kbest_step():
+    """Test that RFECV strategy extracts proteins from screening step when no k-best step exists.
+
+    This is a regression test for the bug where RFECV silently skipped feature selection
+    when the pipeline had screening but no 'prot_sel' k-best step, causing
+    _extract_selected_proteins_from_fold() to return an empty list.
+    """
+    from ced_ml.models.training import _extract_selected_proteins_from_fold
+    from sklearn.base import BaseEstimator, TransformerMixin
+
+    # Mock screening transformer with selected_proteins_ attribute
+    class MockScreener(BaseEstimator, TransformerMixin):
+        def __init__(self, selected_proteins):
+            self.selected_proteins_ = selected_proteins
+
+        def fit(self, X, y=None):
+            return self
+
+        def transform(self, X):
+            return X[self.selected_proteins_]
+
+    # Create pipeline with screening but NO k-best step (typical for RFECV)
+    screened_proteins = [f"prot_{i}_resid" for i in range(100)]
+    screener = MockScreener(selected_proteins=screened_proteins)
+
+    preprocessor = ColumnTransformer(
+        transformers=[("num", StandardScaler(), screened_proteins)],
+        remainder="drop",
+    )
+
+    pipeline = Pipeline(
+        [
+            ("screen", screener),
+            ("pre", preprocessor),
+            ("clf", LogisticRegression(random_state=42, max_iter=100)),
+        ]
+    )
+
+    # Fit pipeline on dummy data
+    X = pd.DataFrame(
+        np.random.randn(50, 100),
+        columns=screened_proteins,
+    )
+    y = np.random.binomial(1, 0.2, 50)
+    pipeline.fit(X, y)
+
+    # Create config with RFECV strategy
+    config = make_mock_config()
+    config.features.feature_selection_strategy = "rfecv"
+    config.features.kbest_scope = "protein"
+
+    # Extract proteins
+    protein_cols = screened_proteins
+    extracted = _extract_selected_proteins_from_fold(
+        fitted_model=pipeline,
+        model_name="LR_EN",
+        protein_cols=protein_cols,
+        config=config,
+        X_train=X,
+        y_train=y,
+        random_state=42,
+    )
+
+    # Should extract all 100 screened proteins (not empty list!)
+    assert len(extracted) == 100, f"Expected 100 proteins, got {len(extracted)}"
+    assert set(extracted) == set(screened_proteins), "Should extract all screened proteins"
+    assert extracted == sorted(screened_proteins), "Should return sorted list"

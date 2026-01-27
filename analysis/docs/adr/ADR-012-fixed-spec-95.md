@@ -1,4 +1,4 @@
-# ADR-010: Fixed Specificity Objective (95%)
+# ADR-012: Fixed Specificity Objective (95%)
 
 **Status:** Accepted
 **Date:** 2026-01-20

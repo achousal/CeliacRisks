@@ -231,7 +231,6 @@ def oof_predictions_with_nested_cv(
             config,
             X.iloc[train_idx],
             y[train_idx],
-            random_state,
         )
 
         # Extract selected proteins from this fold (initial feature selection)
@@ -253,7 +252,7 @@ def oof_predictions_with_nested_cv(
                 )
 
                 # Extract estimator for RFECV
-                estimator = extract_estimator_for_rfecv(fitted_model, model_name)
+                estimator = extract_estimator_for_rfecv(fitted_model)
 
                 # Prepare data with only selected proteins
                 X_train_proteins = X.iloc[train_idx][selected_proteins]
@@ -672,7 +671,6 @@ def _apply_per_fold_calibration(
     config: TrainingConfig,
     X_train: pd.DataFrame,
     y_train: np.ndarray,
-    random_state: int,
 ):
     """
     Apply optional post-hoc probability calibration (per-fold strategy only).
@@ -694,7 +692,6 @@ def _apply_per_fold_calibration(
         config: TrainingConfiguration object
         X_train: Training features (for calibration CV)
         y_train: Training labels (for calibration CV)
-        random_state: Random seed
 
     Returns:
         Calibrated or original estimator
@@ -778,6 +775,11 @@ def _extract_selected_proteins_from_fold(
 
     # Strategy 2: Extract from K-best selection (if present)
     strategy = config.features.feature_selection_strategy
+
+    # For RFECV strategy: if screening produced proteins but no k-best step exists,
+    # return screening output (RFECV will refine these features within CV folds)
+    if strategy == "rfecv" and selected_proteins and "prot_sel" not in pipeline.named_steps:
+        return sorted(selected_proteins)
 
     if strategy in ("hybrid_stability", "rfecv"):
         kbest_scope = config.features.kbest_scope

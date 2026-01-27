@@ -179,12 +179,6 @@ class FeatureConfig(BaseModel):
         description="Maximum features to retain before RFECV (reduces ~300 proteins → ~100 for 5× speedup)",
     )
 
-    # Legacy support (deprecated, mapped to feature_selection_strategy)
-    feature_select: Literal["none", "kbest", "l1_stability", "hybrid"] | None = Field(
-        default=None,
-        description="DEPRECATED: Use feature_selection_strategy instead. Maps: hybrid→hybrid_stability, none→none",
-    )
-
     # RF permutation importance
     rf_use_permutation: bool = False
     rf_perm_repeats: int = Field(default=5, ge=1)
@@ -193,32 +187,6 @@ class FeatureConfig(BaseModel):
 
     # Coefficient threshold for linear model feature extraction
     coef_threshold: float = Field(default=0.01, ge=0.0)
-
-    @model_validator(mode="after")
-    def validate_strategy(self) -> "FeatureConfig":
-        """Validate feature selection strategy configuration."""
-        # Legacy support: map old feature_select to new feature_selection_strategy
-        if self.feature_select is not None:
-            import logging
-
-            logger = logging.getLogger(__name__)
-            if self.feature_select == "hybrid":
-                self.feature_selection_strategy = "hybrid_stability"
-                logger.warning(
-                    "feature_select='hybrid' is deprecated. Use feature_selection_strategy='hybrid_stability'"
-                )
-            elif self.feature_select == "none":
-                self.feature_selection_strategy = "none"
-                logger.warning(
-                    "feature_select='none' is deprecated. Use feature_selection_strategy='none'"
-                )
-            else:
-                logger.warning(
-                    f"feature_select='{self.feature_select}' not supported. "
-                    "Use feature_selection_strategy instead."
-                )
-
-        return self
 
 
 # ============================================================================

@@ -1,4 +1,4 @@
-# ADR-004: AUROC as Primary Optimization Metric
+# ADR-007: AUROC as Primary Optimization Metric
 
 **Status:** Accepted
 **Date:** 2026-01-20

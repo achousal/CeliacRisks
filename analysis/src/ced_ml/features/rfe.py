@@ -397,9 +397,7 @@ def extract_pareto_frontier(curve: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 def build_lightweight_pipeline(
     base_pipeline: Pipeline,
-    protein_cols: list[str],
     cat_cols: list[str],
-    meta_num_cols: list[str],
 ) -> Pipeline:
     """Build a simplified pipeline for RFE evaluation.
 
@@ -425,7 +423,7 @@ def build_lightweight_pipeline(
     cloned_clf = clone(clf)
 
     # Build preprocessor for reduced feature set
-    preprocessor = build_preprocessor(protein_cols, cat_cols, meta_num_cols)
+    preprocessor = build_preprocessor(cat_cols)
 
     return Pipeline([("pre", preprocessor), ("clf", cloned_clf)])
 

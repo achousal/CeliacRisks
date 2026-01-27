@@ -378,8 +378,7 @@ These files control:
 | [analysis/docs/ARCHITECTURE.md](analysis/docs/ARCHITECTURE.md) | Technical architecture with code pointers |
 | [analysis/docs/adr/](analysis/docs/adr/) | Architecture Decision Records (19 decisions) |
 | [analysis/docs/reference/CLI_REFERENCE.md](analysis/docs/reference/CLI_REFERENCE.md) | Complete CLI command reference |
-| [analysis/docs/reference/FEATURE_SELECTION.md](analysis/docs/reference/FEATURE_SELECTION.md) | Feature selection methods and use cases |
-| [analysis/docs/reference/OPTIMIZE_PANEL.md](analysis/docs/reference/OPTIMIZE_PANEL.md) | Post-hoc panel optimization guide |
+| [analysis/docs/reference/FEATURE_SELECTION.md](analysis/docs/reference/FEATURE_SELECTION.md) | Feature selection guide (all 4 strategies, workflows, troubleshooting) |
 | [analysis/SETUP_README.md](analysis/SETUP_README.md) | Environment setup and getting started |
 | [README.md](README.md) | Root project overview |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |

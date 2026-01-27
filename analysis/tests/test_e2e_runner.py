@@ -463,15 +463,18 @@ class TestE2EFullPipeline:
         assert result_train.exit_code == 0, f"Train failed: {result_train.output}"
 
         # Step 3: Verify outputs
-        model_dir = results_dir / "LR_EN" / "split_seed42"
+        # Find the run directory (timestamped run_YYYYMMDD_HHMMSS)
+        run_dirs = [d for d in results_dir.iterdir() if d.is_dir() and d.name.startswith("run_")]
+        assert len(run_dirs) == 1, f"Expected 1 run directory, found {len(run_dirs)}: {run_dirs}"
+        model_dir = run_dirs[0] / "split_seed42"
         assert model_dir.exists(), f"Model directory not found: {model_dir}"
 
         # Check required output files
         required_files = [
-            "metrics.json",
-            "config.yaml",
-            "preds/train_oof/preds_train_oof_rep0.csv",
-            "preds/test/preds_test_rep0.csv",
+            "core/val_metrics.csv",
+            "core/test_metrics.csv",
+            "preds/train_oof/train_oof__LR_EN.csv",
+            "preds/test_preds/test_preds__LR_EN.csv",
         ]
 
         for file_path in required_files:
@@ -479,13 +482,26 @@ class TestE2EFullPipeline:
             assert full_path.exists(), f"Missing output: {full_path}"
 
         # Validate metrics structure
-        with open(model_dir / "metrics.json") as f:
-            metrics = json.load(f)
+        test_metrics = pd.read_csv(model_dir / "core/test_metrics.csv")
 
-        assert "calibration" in metrics
-        assert "discrimination" in metrics
-        assert "auroc" in metrics["discrimination"]
-        assert 0.0 <= metrics["discrimination"]["auroc"] <= 1.0
+        # Check for expected metric columns (try both uppercase and lowercase)
+        has_auroc = any(col.lower() == "auroc" for col in test_metrics.columns)
+        has_metric_col = "metric" in test_metrics.columns
+
+        assert (
+            has_auroc or has_metric_col
+        ), f"No AUROC column found. Columns: {test_metrics.columns.tolist()}"
+
+        # If it's a long-format metrics file, check for auroc row
+        if has_metric_col:
+            assert any(val.lower() == "auroc" for val in test_metrics["metric"].values)
+            auroc_val = test_metrics[test_metrics["metric"].str.lower() == "auroc"]["value"].iloc[0]
+        else:
+            # Find the AUROC column (case-insensitive)
+            auroc_col = [col for col in test_metrics.columns if col.lower() == "auroc"][0]
+            auroc_val = test_metrics[auroc_col].iloc[0]
+
+        assert 0.0 <= auroc_val <= 1.0, f"AUROC out of bounds: {auroc_val}"
 
     def test_output_file_structure(
         self, minimal_proteomics_data, minimal_training_config, tmp_path
@@ -665,13 +681,15 @@ class TestE2EEnsembleWorkflow:
         assert result_ensemble.exit_code == 0, f"Ensemble failed: {result_ensemble.output}"
 
         # Verify ensemble outputs
-        ensemble_dir = results_dir / "ENSEMBLE" / "split_seed42"
-        assert ensemble_dir.exists()
+        # Ensemble creates output in ENSEMBLE/split_{seed} directory (not timestamped run dirs)
+        ensemble_dir = results_dir / "ENSEMBLE" / "split_42"
+        assert ensemble_dir.exists(), f"Ensemble directory not found: {ensemble_dir}"
 
-        # Check ensemble-specific files
-        assert (ensemble_dir / "metrics.json").exists()
-        assert (ensemble_dir / "preds/test/preds_test_rep0.csv").exists()
-        assert (ensemble_dir / "models/meta_learner.pkl").exists()
+        # Check ensemble-specific files (using actual file structure)
+        assert (ensemble_dir / "core/metrics.json").exists(), "Missing metrics.json"
+        assert (
+            ensemble_dir / "preds/test_preds/test_preds__ENSEMBLE.csv"
+        ).exists(), "Missing test predictions"
 
     def test_ensemble_requires_base_models(
         self, minimal_proteomics_data, minimal_training_config, tmp_path

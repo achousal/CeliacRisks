@@ -317,7 +317,7 @@ class OptunaSearchCV(BaseEstimator):
 
         return params
 
-    def fit(self, X, y, **fit_params) -> OptunaSearchCV:
+    def fit(self, X, y, **fit_params) -> OptunaSearchCV:  # noqa: ARG002
         """
         Run Optuna hyperparameter optimization.
 

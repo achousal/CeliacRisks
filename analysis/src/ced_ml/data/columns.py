@@ -133,7 +133,7 @@ def resolve_columns(
     )
 
 
-def get_available_columns_from_file(filepath: str, nrows: int = 1) -> list[str]:
+def get_available_columns_from_file(filepath: str) -> list[str]:
     """
     Read just the column names from a CSV or Parquet file without loading full data.
 
@@ -141,8 +141,6 @@ def get_available_columns_from_file(filepath: str, nrows: int = 1) -> list[str]:
     ----------
     filepath : str
         Path to CSV or Parquet file.
-    nrows : int
-        Number of rows to read (default: 1, minimal overhead).
 
     Returns
     -------

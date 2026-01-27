@@ -113,7 +113,6 @@ def check_split_files_exist(
     scenario: str,
     seed: int,
     has_val: bool = False,
-    n_splits: int = 1,
 ) -> tuple[bool, list[str]]:
     """Check if split files already exist in output directory.
 
@@ -122,7 +121,6 @@ def check_split_files_exist(
         scenario: Scenario name (e.g., "IncidentOnly")
         seed: Random seed
         has_val: Whether validation set is expected
-        n_splits: Total number of splits (affects suffix)
 
     Returns:
         Tuple of (files_exist, existing_paths)
@@ -229,7 +227,6 @@ def save_split_indices(
     train_idx: np.ndarray,
     test_idx: np.ndarray,
     val_idx: np.ndarray | None = None,
-    n_splits: int = 1,
     overwrite: bool = False,
 ) -> dict[str, str]:
     """Save train/val/test indices to CSV files.
@@ -241,7 +238,6 @@ def save_split_indices(
         train_idx: Training set indices (sorted ascending)
         test_idx: Test set indices (sorted ascending)
         val_idx: Validation set indices (sorted ascending, optional)
-        n_splits: Total number of splits (affects filename suffix)
         overwrite: Whether to overwrite existing files
 
     Returns:
@@ -263,7 +259,7 @@ def save_split_indices(
 
     # Check for existing files
     has_val = val_idx is not None and len(val_idx) > 0
-    files_exist, existing = check_split_files_exist(outdir, scenario, seed, has_val, n_splits)
+    files_exist, existing = check_split_files_exist(outdir, scenario, seed, has_val)
 
     if files_exist and not overwrite:
         # Validate if existing splits match requested configuration

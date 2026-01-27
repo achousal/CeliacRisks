@@ -160,7 +160,7 @@ class PrevalenceAdjustedModel(BaseEstimator):
         self.target_prevalence = float(target_prevalence)
         self.classes_ = getattr(base_model, "classes_", None)
 
-    def fit(self, X, y=None):
+    def fit(self, X, y=None):  # noqa: ARG002
         """
         No-op fit method (base model is already fitted).
 

@@ -149,8 +149,7 @@ Run `ced --help` or `ced <command> --help` for detailed usage.
 - Complements both hybrid_stability and rfecv strategies (Strategy 3 in four-strategy framework)
 
 **Related documentation:**
-- Detailed guide: [OPTIMIZE_PANEL.md](OPTIMIZE_PANEL.md)
-- Strategy comparison: [FEATURE_SELECTION.md](FEATURE_SELECTION.md)
+- Detailed guide: [FEATURE_SELECTION.md](FEATURE_SELECTION.md) (see Strategy 3: Post-hoc RFE)
 - Architecture decision: [ADR-013](../adr/ADR-013-four-strategy-feature-selection.md)
 
 ### `ced aggregate-splits`

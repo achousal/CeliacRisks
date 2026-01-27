@@ -1,65 +1,7 @@
 """CLI implementation for holdout evaluation command."""
 
-from ced_ml.config.loader import load_holdout_config
 from ced_ml.evaluation import evaluate_holdout
 from ced_ml.utils.logging import get_logger
-
-
-def run_eval_holdout_with_config(
-    config_file: str | None = None,
-    overrides: list[str] | None = None,
-    **kwargs,
-):
-    """
-    Run holdout evaluation using config file.
-
-    Args:
-        config_file: Path to holdout_config.yaml (optional)
-        overrides: List of CLI overrides in "key=value" format
-        **kwargs: Additional keyword arguments override config values
-    """
-    logger = get_logger()
-
-    config = load_holdout_config(config_file=config_file, overrides=overrides)
-
-    for key, value in kwargs.items():
-        if value is not None and hasattr(config, key):
-            setattr(config, key, value)
-
-    logger.info("Starting holdout evaluation")
-
-    try:
-        dca_report_points_str = ",".join(map(str, config.dca_report_points))
-        toprisk_fracs_str = ",".join(map(str, config.toprisk_fracs))
-        clinical_threshold_points_str = ",".join(map(str, config.clinical_threshold_points))
-
-        metrics = evaluate_holdout(
-            infile=str(config.infile),
-            holdout_idx_file=str(config.holdout_idx),
-            model_artifact_path=str(config.model_artifact),
-            outdir=str(config.outdir),
-            scenario=config.scenario,
-            compute_dca=config.compute_dca,
-            dca_threshold_min=config.dca_threshold_min,
-            dca_threshold_max=config.dca_threshold_max,
-            dca_threshold_step=config.dca_threshold_step,
-            dca_report_points=dca_report_points_str,
-            dca_use_target_prevalence=config.dca_use_target_prevalence,
-            save_preds=config.save_preds,
-            toprisk_fracs=toprisk_fracs_str,
-            target_prevalence=config.target_prevalence,
-            clinical_threshold_points=clinical_threshold_points_str,
-            subgroup_min_n=config.subgroup_min_n,
-        )
-
-        logger.info("Holdout evaluation complete")
-        logger.info(f"AUROC: {metrics['AUROC_holdout']:.4f}")
-        logger.info(f"Brier: {metrics['Brier_holdout']:.4f}")
-        logger.info(f"Results saved to: {config.outdir}")
-
-    except Exception as e:
-        logger.error(f"Holdout evaluation failed: {e}")
-        raise
 
 
 def run_eval_holdout(
@@ -79,7 +21,6 @@ def run_eval_holdout(
     target_prevalence: float = None,
     clinical_threshold_points: str = "",
     subgroup_min_n: int = 40,
-    **kwargs,
 ):
     """
     Evaluate trained model on holdout set.
@@ -101,7 +42,6 @@ def run_eval_holdout(
         target_prevalence: Override target prevalence
         clinical_threshold_points: Comma-separated clinical thresholds
         subgroup_min_n: Minimum sample size for subgroup reporting
-        **kwargs: Additional arguments (ignored)
     """
     logger = get_logger()
     logger.info("Starting holdout evaluation")

@@ -3,7 +3,6 @@
 from ced_ml.utils.logging import get_logger, log_section, setup_logger
 from ced_ml.utils.metadata import (
     build_aggregated_metadata,
-    build_holdout_metadata,
     build_oof_metadata,
     build_plot_metadata,
 )
@@ -18,7 +17,6 @@ __all__ = [
     "build_plot_metadata",
     "build_oof_metadata",
     "build_aggregated_metadata",
-    "build_holdout_metadata",
     "ensure_dir",
     "get_run_dir",
     "get_core_dir",

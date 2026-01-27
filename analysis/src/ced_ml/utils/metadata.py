@@ -342,44 +342,6 @@ def build_aggregated_metadata(
     return lines
 
 
-def build_holdout_metadata(
-    model_name: str,
-    n_holdout: int,
-    holdout_prev: float,
-    n_holdout_pos: int | None = None,
-    timestamp: bool = True,
-) -> list[str]:
-    """
-    Build metadata for holdout evaluation plots.
-
-    NOTE: Currently unused. The holdout evaluation module (evaluation.holdout)
-    does not generate plots. This function is provided for future use if holdout
-    plotting is implemented.
-
-    Args:
-        model_name: Model identifier
-        n_holdout: Holdout set size
-        holdout_prev: Holdout set prevalence
-        n_holdout_pos: Number of positive cases in holdout set (optional)
-        timestamp: Include generation timestamp (default: True)
-
-    Returns:
-        List of metadata strings
-    """
-    lines = [f"Model: {model_name} | Holdout Evaluation"]
-
-    if n_holdout_pos is not None:
-        lines.append(f"Holdout: n={n_holdout} (pos={n_holdout_pos}) | Prev: {holdout_prev:.3f}")
-    else:
-        lines.append(f"Holdout: n={n_holdout} | Prev: {holdout_prev:.3f}")
-
-    if timestamp:
-        timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        lines.append(f"Generated: {timestamp_str}")
-
-    return lines
-
-
 def count_category_breakdown(df) -> dict[str, int]:
     """
     Count samples by category from prediction DataFrame.

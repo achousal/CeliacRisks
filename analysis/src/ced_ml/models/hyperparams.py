@@ -721,7 +721,7 @@ def _get_xgb_params_optuna(config: TrainingConfig, xgb_spw: float | None = None)
     return params
 
 
-def _to_optuna_spec(name: str, values: list) -> dict | None:
+def _to_optuna_spec(values: list) -> dict | None:
     """
     Convert a single sklearn parameter grid to Optuna spec.
 
@@ -729,7 +729,6 @@ def _to_optuna_spec(name: str, values: list) -> dict | None:
     the model-specific functions above.
 
     Args:
-        name: Parameter name
         values: List of possible values
 
     Returns:
