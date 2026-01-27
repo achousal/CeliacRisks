@@ -171,13 +171,17 @@ fi
 
 N_BOOT=$(get_yaml "${CONFIG_FILE}" "n_boot")
 
-# Activate venv
+# Activate venv (support both venv and conda)
 VENV_PATH="${BASE_DIR}/venv/bin/activate"
 if [[ -f "${VENV_PATH}" ]]; then
   source "${VENV_PATH}"
-else
-  log_error "Virtual environment not found: ${VENV_PATH}"
+elif [[ -z "${CONDA_DEFAULT_ENV}" ]]; then
+  log_error "No Python environment found. Either:"
+  log_error "  1. Create and activate a venv: python3 -m venv venv && source venv/bin/activate"
+  log_error "  2. Activate a Conda environment: conda activate <env_name>"
   exit 1
+else
+  log "Using active Conda environment: ${CONDA_DEFAULT_ENV}"
 fi
 
 log_section "Post-Training Pipeline"
@@ -411,16 +415,23 @@ done
 
 log_success "Total aggregated files: ${TOTAL_FILES}"
 
-# Generate summary JSON
+# Generate summary JSON (safely handle potentially empty arrays)
 SUMMARY_JSON="${POST_LOG_DIR}/pipeline_summary_${RUN_ID:-${TIMESTAMP}}.json"
+
+# Convert arrays to JSON safely (filter empty strings)
+VALIDATED_JSON=$(printf '%s\n' "${VALIDATED_MODELS[@]:-}" | grep -v '^$' | jq -R . | jq -s .)
+MISSING_JSON=$(printf '%s\n' "${MISSING_MODELS[@]:-}" | grep -v '^$' | jq -R . | jq -s .)
+AGG_SUCCESS_JSON=$(printf '%s\n' "${AGG_SUCCESS[@]:-}" | grep -v '^$' | jq -R . | jq -s .)
+AGG_FAILED_JSON=$(printf '%s\n' "${AGG_FAILED[@]:-}" | grep -v '^$' | jq -R . | jq -s .)
+
 cat > "${SUMMARY_JSON}" << EOF
 {
   "timestamp": "$(date -Iseconds)",
   "run_id": "${RUN_ID:-auto}",
   "results_dir": "${RESULTS_DIR}",
   "base_models": {
-    "validated": $(printf '%s\n' "${VALIDATED_MODELS[@]}" | jq -R . | jq -s .),
-    "missing": $(printf '%s\n' "${MISSING_MODELS[@]}" | jq -R . | jq -s .)
+    "validated": ${VALIDATED_JSON},
+    "missing": ${MISSING_JSON}
   },
   "ensemble": {
     "requested": ${TRAIN_ENSEMBLE},
@@ -428,8 +439,8 @@ cat > "${SUMMARY_JSON}" << EOF
     "failed": ${ENSEMBLE_FAILED:-0}
   },
   "aggregation": {
-    "successful": $(printf '%s\n' "${AGG_SUCCESS[@]}" | jq -R . | jq -s .),
-    "failed": $(printf '%s\n' "${AGG_FAILED[@]}" | jq -R . | jq -s .)
+    "successful": ${AGG_SUCCESS_JSON},
+    "failed": ${AGG_FAILED_JSON}
   },
   "files": {
     "total_aggregated": ${TOTAL_FILES},
@@ -449,7 +460,7 @@ log "Models aggregated: ${AGG_SUCCESS[*]}"
 log "Log file: ${LOG_FILE}"
 log "Summary: ${SUMMARY_JSON}"
 
-if [[ ${#AGG_FAILED[@]} -gt 0 ]]; then
+if [[ ${#AGG_FAILED[@]:-0} -gt 0 ]]; then
   log_warning "Some models failed aggregation. Check log for details."
   exit 1
 fi
