@@ -538,33 +538,45 @@ def optimize_panel(ctx, **kwargs):
 
     # Handle run_id-based model detection
     if run_id or model_name:
-        from ced_ml.cli.optimize_panel import find_model_path_for_run
+        from ced_ml.cli.optimize_panel import find_model_paths_for_run
 
         split_seed = kwargs.pop("split_seed", None) or 0
 
         try:
-            detected_path = find_model_path_for_run(
-                run_id=run_id, model=model_name, split_seed=split_seed
+            detected_paths = find_model_paths_for_run(
+                run_id=run_id, model=model_name, split_seed=split_seed, skip_ensemble=True
             )
-            if detected_path:
-                kwargs["model_path"] = detected_path
-                click.echo(f"Auto-detected model: {detected_path}")
 
-                # Auto-detect infile and split_dir from project structure if not provided
-                if kwargs.get("infile") is None:
-                    project_root = Path(detected_path).parent.parent.parent.parent.parent.parent
-                    data_file = project_root / "data" / "Celiac_dataset_proteomics_w_demo.parquet"
-                    if not data_file.exists():
-                        # Try CSV version
-                        data_file = project_root / "data" / "Celiac_dataset_proteomics_w_demo.csv"
-                    if data_file.exists():
-                        kwargs["infile"] = str(data_file)
+            if len(detected_paths) == 1:
+                # Single model mode
+                kwargs["model_path"] = detected_paths[0]
+                click.echo(f"Auto-detected model: {detected_paths[0]}")
+            elif len(detected_paths) > 1:
+                # Multi-model mode
+                click.echo(f"Auto-detected {len(detected_paths)} base models:")
+                for path in detected_paths:
+                    model_name_from_path = Path(path).parent.parent.name
+                    click.echo(f"  - {model_name_from_path}")
 
-                if kwargs.get("split_dir") is None:
-                    project_root = Path(detected_path).parent.parent.parent.parent.parent.parent
-                    split_dir = project_root / "splits"
-                    if split_dir.exists():
-                        kwargs["split_dir"] = str(split_dir)
+                # Store all paths for multi-model processing
+                kwargs["model_paths"] = detected_paths
+                kwargs["model_path"] = None  # Clear single path
+
+            # Auto-detect infile and split_dir from project structure if not provided
+            if kwargs.get("infile") is None:
+                project_root = Path(detected_paths[0]).parent.parent.parent.parent.parent.parent
+                data_file = project_root / "data" / "Celiac_dataset_proteomics_w_demo.parquet"
+                if not data_file.exists():
+                    # Try CSV version
+                    data_file = project_root / "data" / "Celiac_dataset_proteomics_w_demo.csv"
+                if data_file.exists():
+                    kwargs["infile"] = str(data_file)
+
+            if kwargs.get("split_dir") is None:
+                project_root = Path(detected_paths[0]).parent.parent.parent.parent.parent.parent
+                split_dir = project_root / "splits"
+                if split_dir.exists():
+                    kwargs["split_dir"] = str(split_dir)
 
         except Exception as e:
             raise click.ClickException(f"Error detecting model path: {e}") from e
@@ -578,30 +590,72 @@ def optimize_panel(ctx, **kwargs):
     except Exception as e:
         raise click.ClickException(f"Configuration error: {e}") from e
 
-    # Validate that required fields are present
-    required_fields = ["model_path", "infile", "split_dir"]
-    missing = [f for f in required_fields if not getattr(config, f, None)]
-    if missing:
-        raise click.ClickException(
-            f"Missing required configuration: {', '.join(missing)}. "
-            f"Provide via config file or CLI arguments."
-        )
+    # Check if we have multiple models to process
+    model_paths = kwargs.get("model_paths", [])
 
-    # Run optimization
-    run_optimize_panel(
-        model_path=str(config.model_path),
-        infile=str(config.infile),
-        split_dir=str(config.split_dir),
-        split_seed=config.split_seed,
-        start_size=config.start_size,
-        min_size=config.min_size,
-        min_auroc_frac=config.min_auroc_frac,
-        cv_folds=config.cv_folds,
-        step_strategy=config.step_strategy,
-        outdir=str(config.outdir) if config.outdir else None,
-        use_stability_panel=config.use_stability_panel,
-        verbose=config.verbose or ctx.obj.get("verbose", 0),
-    )
+    if model_paths:
+        # Multi-model mode
+        click.echo(f"\nRunning panel optimization on {len(model_paths)} models...\n")
+
+        for i, model_path in enumerate(model_paths, 1):
+            model_name_from_path = Path(model_path).parent.parent.name
+            click.echo(f"{'='*60}")
+            click.echo(f"[{i}/{len(model_paths)}] Processing: {model_name_from_path}")
+            click.echo(f"{'='*60}\n")
+
+            # Update config with current model path
+            cli_args["model_path"] = model_path
+            config = load_panel_optimize_config(config_file=config_file, cli_args=cli_args)
+
+            try:
+                run_optimize_panel(
+                    model_path=str(config.model_path),
+                    infile=str(config.infile),
+                    split_dir=str(config.split_dir),
+                    split_seed=config.split_seed,
+                    start_size=config.start_size,
+                    min_size=config.min_size,
+                    min_auroc_frac=config.min_auroc_frac,
+                    cv_folds=config.cv_folds,
+                    step_strategy=config.step_strategy,
+                    outdir=str(config.outdir) if config.outdir else None,
+                    use_stability_panel=config.use_stability_panel,
+                    verbose=config.verbose or ctx.obj.get("verbose", 0),
+                )
+            except Exception as e:
+                click.echo(f"ERROR: Failed to optimize {model_name_from_path}: {e}\n", err=True)
+                continue
+
+        click.echo(f"\n{'='*60}")
+        click.echo(f"Completed panel optimization for {len(model_paths)} models")
+        click.echo(f"{'='*60}\n")
+
+    else:
+        # Single model mode
+        # Validate that required fields are present
+        required_fields = ["model_path", "infile", "split_dir"]
+        missing = [f for f in required_fields if not getattr(config, f, None)]
+        if missing:
+            raise click.ClickException(
+                f"Missing required configuration: {', '.join(missing)}. "
+                f"Provide via config file or CLI arguments."
+            )
+
+        # Run optimization
+        run_optimize_panel(
+            model_path=str(config.model_path),
+            infile=str(config.infile),
+            split_dir=str(config.split_dir),
+            split_seed=config.split_seed,
+            start_size=config.start_size,
+            min_size=config.min_size,
+            min_auroc_frac=config.min_auroc_frac,
+            cv_folds=config.cv_folds,
+            step_strategy=config.step_strategy,
+            outdir=str(config.outdir) if config.outdir else None,
+            use_stability_panel=config.use_stability_panel,
+            verbose=config.verbose or ctx.obj.get("verbose", 0),
+        )
 
 
 @cli.group("config")

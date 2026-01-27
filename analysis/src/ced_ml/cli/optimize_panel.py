@@ -3,13 +3,22 @@
 This module provides the `ced optimize-panel` command for finding minimum
 viable protein panels through Recursive Feature Elimination.
 
-PRIMARY USE CASE:
-    Optimize panel size for a trained ensemble model (clinical deployment).
+USAGE MODES:
+    1. Single model: --model-path /path/to/model.joblib
+    2. Run-based (all base models): --run-id 20260127_115115
+    3. Run-based (specific model): --run-id 20260127_115115 --model LR_EN
+
+ENSEMBLE HANDLING:
+    ENSEMBLE models are automatically SKIPPED when using --run-id (they operate
+    on 4 meta-features, not 2,920 proteins). RFE runs on all base models instead.
 
 WORKFLOW:
     1. Train base models across splits (ced train)
-    2. Train ensemble meta-learner (ced train-ensemble)
-    3. Optimize panel size (ced optimize-panel)
+    2. Train ensemble meta-learner (ced train-ensemble) [optional]
+    3. Optimize panel size:
+       - For single model: ced optimize-panel --model-path ...
+       - For all base models: ced optimize-panel --run-id <RUN_ID>
+    4. Retrain on optimized panel (see FEATURE_SELECTION.md)
 
 NOTE: For consensus panels from multiple base models, use the aggregation
 pipeline (ced aggregate-splits) which automatically computes feature stability
@@ -35,33 +44,33 @@ from ced_ml.features.stability import compute_selection_frequencies, rank_protei
 from ced_ml.plotting.panel_curve import plot_feature_ranking, plot_pareto_curve
 
 
-def find_model_path_for_run(
+def find_model_paths_for_run(
     run_id: str | None = None,
     model: str | None = None,
     split_seed: int = 0,
-) -> str:
-    """Auto-detect model path from run_id and model name.
+    skip_ensemble: bool = True,
+) -> list[str]:
+    """Auto-detect model paths from run_id.
 
     If run_id is None, auto-detects the latest run.
-    If model is None, uses the first available model.
+    If model is None, returns ALL base models (excluding ENSEMBLE if skip_ensemble=True).
 
     Args:
         run_id: Run ID (e.g., "20260127_104409"). If None, auto-detects latest.
-        model: Model name (e.g., "LR_EN"). If None, uses first available.
+        model: Model name (e.g., "LR_EN"). If None, returns all base models.
         split_seed: Split seed (default: 0)
+        skip_ensemble: If True, exclude ENSEMBLE models from results (default: True)
 
     Returns:
-        Path to the model file
+        List of paths to model files
 
     Raises:
-        FileNotFoundError: If model not found
+        FileNotFoundError: If no models found
         ValueError: If configuration is invalid
     """
     from pathlib import Path
 
     # Determine results directory (project root / results)
-    # __file__ is: .../analysis/src/ced_ml/cli/optimize_panel.py
-    # So we need to go up: .. (cli) .. (ced_ml) .. (src) .. (analysis) .. (project_root) / results
     results_dir = Path(__file__).parent.parent.parent.parent.parent / "results"
 
     if not results_dir.exists():
@@ -85,37 +94,60 @@ def find_model_path_for_run(
         run_ids.sort(reverse=True)
         run_id = run_ids[0]
 
-    # Auto-detect model if not provided
-    if not model:
-        models = []
+    # Find all models for this run
+    model_paths = []
+
+    if model:
+        # Single model specified
+        models_to_check = [model]
+    else:
+        # Find all models for this run
+        models_to_check = []
         for model_dir in sorted(results_dir.glob("*/")):
             if model_dir.name.startswith(".") or model_dir.name == "investigations":
                 continue
+
+            # Skip ENSEMBLE if requested
+            if skip_ensemble and model_dir.name == "ENSEMBLE":
+                continue
+
             run_path = model_dir / f"run_{run_id}"
             if run_path.exists():
-                models.append(model_dir.name)
+                models_to_check.append(model_dir.name)
 
-        if not models:
-            raise FileNotFoundError(f"No models found for run {run_id}")
+        if not models_to_check:
+            if skip_ensemble:
+                raise FileNotFoundError(
+                    f"No base models found for run {run_id} (ENSEMBLE excluded).\n"
+                    f"Use --model to specify a model explicitly."
+                )
+            else:
+                raise FileNotFoundError(f"No models found for run {run_id}")
 
-        model = sorted(models)[0]
-
-    # Find the model file
-    model_path = (
-        results_dir
-        / model
-        / f"run_{run_id}"
-        / f"split_seed{split_seed}"
-        / "core"
-        / f"{model}__final_model.joblib"
-    )
-
-    if not model_path.exists():
-        raise FileNotFoundError(
-            f"Model not found: {model_path}\n" f"Run: {run_id}, Model: {model}, Split: {split_seed}"
+    # Build paths for each model
+    for model_name in models_to_check:
+        model_path = (
+            results_dir
+            / model_name
+            / f"run_{run_id}"
+            / f"split_seed{split_seed}"
+            / "core"
+            / f"{model_name}__final_model.joblib"
         )
 
-    return str(model_path)
+        if model_path.exists():
+            model_paths.append(str(model_path))
+        else:
+            if model:  # Only warn if user explicitly requested this model
+                raise FileNotFoundError(
+                    f"Model not found: {model_path}\n"
+                    f"Run: {run_id}, Model: {model_name}, Split: {split_seed}"
+                )
+
+    if not model_paths:
+        raise FileNotFoundError(f"No valid model files found for run {run_id}, split {split_seed}")
+
+    return model_paths
 
 
 def run_optimize_panel(
@@ -214,21 +246,14 @@ def run_optimize_panel(
     pipeline = bundle.get("model")
     resolved_cols = bundle.get("resolved_columns", {})
 
-    # Validate that this is not an ENSEMBLE model
+    # Validate that this is not an ENSEMBLE model (should be filtered upstream)
     if model_name == "ENSEMBLE":
+        logger.warning(
+            "ENSEMBLE model detected - skipping (operates on meta-features, not proteins)"
+        )
         raise ValueError(
-            "Direct RFE on ENSEMBLE models is not supported.\n\n"
-            "The ensemble meta-learner operates on base model predictions (4 features), "
-            "not raw proteins (2,920 features).\n\n"
-            "Use the TWO-PASS workflow instead:\n"
-            "  1. Run RFE on best single model (e.g., LR_EN):\n"
-            "     ced optimize-panel --model-path results/LR_EN/.../LR_EN__final_model.joblib ...\n"
-            "  2. Extract optimized panel from feature_ranking.csv\n"
-            "  3. Retrain base models on optimized panel:\n"
-            "     ced train --model LR_EN,RF,XGBoost --fixed-panel optimized_panel.csv --split-seed 0\n"
-            "  4. Retrain ensemble:\n"
-            "     ced train-ensemble --base-models LR_EN,RF,XGBoost --split-seed 0\n\n"
-            "See docs/reference/FEATURE_SELECTION.md (Workflow 6) for details."
+            "ENSEMBLE models cannot be optimized directly (they operate on 4 meta-features, not proteins).\n"
+            "This should have been filtered by find_model_paths_for_run()."
         )
 
     if pipeline is None:
