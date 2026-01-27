@@ -29,6 +29,7 @@ from ced_ml.config.defaults import (
 from ced_ml.config.schema import (
     AggregateConfig,
     HoldoutEvalConfig,
+    PanelOptimizeConfig,
     SplitsConfig,
     TrainingConfig,
 )
@@ -92,6 +93,7 @@ def resolve_paths_relative_to_config(
         "split_dir",
         "results_dir",
         "model_artifact",
+        "model_path",
         "holdout_idx",
     ]
 
@@ -374,6 +376,67 @@ def load_holdout_config(
         return HoldoutEvalConfig(**config_dict)
     except ValidationError as e:
         raise ValueError(f"Invalid holdout configuration:\n{e}") from e
+
+
+def load_panel_optimize_config(
+    config_file: str | Path | None = None,
+    cli_args: dict | None = None,
+    overrides: list[str] | None = None,
+) -> "PanelOptimizeConfig":
+    """
+    Load panel optimization configuration from file and CLI overrides.
+
+    Auto-detection: if config_file is None, searches for:
+    1. configs/optimize_panel.yaml
+    2. configs/panel_optimize.yaml
+
+    Args:
+        config_file: Path to YAML config file (optional, auto-detects if None)
+        cli_args: Dict of CLI arguments (infile, split_dir, model_path, etc.)
+        overrides: List of CLI overrides in "key=value" format (optional)
+
+    Returns:
+        Validated PanelOptimizeConfig instance
+
+    Raises:
+        FileNotFoundError: If required config not found
+        ValueError: If configuration is invalid
+    """
+    from ced_ml.config.schema import PanelOptimizeConfig
+
+    config_dict = {}
+
+    # Auto-detect config file if not provided
+    if config_file is None:
+        for candidate in ["configs/optimize_panel.yaml", "configs/panel_optimize.yaml"]:
+            candidate_path = Path(candidate)
+            if candidate_path.exists():
+                config_file = candidate_path
+                break
+
+    # Load from file if found
+    if config_file is not None:
+        config_file_path = Path(config_file)
+        if not config_file_path.exists():
+            raise FileNotFoundError(f"Config file not found: {config_file_path}")
+        file_config = load_yaml(config_file_path)
+        config_dict = resolve_paths_relative_to_config(file_config, config_file_path)
+
+    # Merge CLI arguments (they override config file)
+    if cli_args:
+        for key, value in cli_args.items():
+            if value is not None:
+                config_dict[key] = value
+
+    # Apply CLI overrides
+    if overrides:
+        config_dict = apply_overrides(config_dict, overrides)
+
+    # Validate and return
+    try:
+        return PanelOptimizeConfig(**config_dict)
+    except Exception as e:
+        raise ValueError(f"Invalid panel optimize configuration: {e}") from e
 
 
 def save_config(config: SplitsConfig | TrainingConfig, output_path: str | Path):

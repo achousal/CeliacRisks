@@ -22,6 +22,89 @@ from ced_ml.features.stability import compute_selection_frequencies, rank_protei
 from ced_ml.plotting.panel_curve import plot_feature_ranking, plot_pareto_curve
 
 
+def find_model_path_for_run(
+    run_id: str | None = None,
+    model: str | None = None,
+    split_seed: int = 0,
+) -> str:
+    """Auto-detect model path from run_id and model name.
+
+    If run_id is None, auto-detects the latest run.
+    If model is None, uses the first available model.
+
+    Args:
+        run_id: Run ID (e.g., "20260127_104409"). If None, auto-detects latest.
+        model: Model name (e.g., "LR_EN"). If None, uses first available.
+        split_seed: Split seed (default: 0)
+
+    Returns:
+        Path to the model file
+
+    Raises:
+        FileNotFoundError: If model not found
+        ValueError: If configuration is invalid
+    """
+    from pathlib import Path
+
+    # Determine results directory (project root / results)
+    # __file__ is: .../analysis/src/ced_ml/cli/optimize_panel.py
+    # So we need to go up: .. (cli) .. (ced_ml) .. (src) .. (analysis) .. (project_root) / results
+    results_dir = Path(__file__).parent.parent.parent.parent.parent / "results"
+
+    if not results_dir.exists():
+        raise FileNotFoundError(f"Results directory not found: {results_dir}")
+
+    # Auto-detect run_id if not provided
+    if not run_id:
+        run_ids = []
+        for model_dir in results_dir.glob("*/"):
+            if model_dir.name.startswith(".") or model_dir.name == "investigations":
+                continue
+            for run_dir in model_dir.glob("run_*"):
+                if run_dir.is_dir():
+                    rid = run_dir.name.replace("run_", "")
+                    run_ids.append(rid)
+
+        if not run_ids:
+            raise FileNotFoundError("No runs found in results directory")
+
+        # Sort by timestamp (format: YYYYMMDD_HHMMSS)
+        run_ids.sort(reverse=True)
+        run_id = run_ids[0]
+
+    # Auto-detect model if not provided
+    if not model:
+        models = []
+        for model_dir in sorted(results_dir.glob("*/")):
+            if model_dir.name.startswith(".") or model_dir.name == "investigations":
+                continue
+            run_path = model_dir / f"run_{run_id}"
+            if run_path.exists():
+                models.append(model_dir.name)
+
+        if not models:
+            raise FileNotFoundError(f"No models found for run {run_id}")
+
+        model = sorted(models)[0]
+
+    # Find the model file
+    model_path = (
+        results_dir
+        / model
+        / f"run_{run_id}"
+        / f"split_seed{split_seed}"
+        / "core"
+        / f"{model}__final_model.joblib"
+    )
+
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"Model not found: {model_path}\n" f"Run: {run_id}, Model: {model}, Split: {split_seed}"
+        )
+
+    return str(model_path)
+
+
 def run_optimize_panel(
     model_path: str,
     infile: str,
@@ -62,16 +145,45 @@ def run_optimize_panel(
         FileNotFoundError: If model or data files not found.
         ValueError: If required data is missing from model bundle.
     """
-    # Setup logging
+    # Setup logging to file and console
     log_level = logging.WARNING
     if verbose >= 2:
         log_level = logging.DEBUG
     elif verbose >= 1:
         log_level = logging.INFO
 
-    logging.basicConfig(level=log_level, format="%(name)s - %(levelname)s - %(message)s")
     logger = logging.getLogger(__name__)
+    logger.setLevel(log_level)
 
+    # Create logs/features directory
+    log_dir = Path(__file__).parent.parent.parent.parent / "logs" / "features"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    # Timestamped log file
+    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    log_file = log_dir / f"optimize_panel_{timestamp}.log"
+
+    # File handler
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(log_level)
+    file_formatter = logging.Formatter(
+        "[%(asctime)s] %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    file_handler.setFormatter(file_formatter)
+
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(log_level)
+    console_formatter = logging.Formatter("%(levelname)s - %(message)s")
+    console_handler.setFormatter(console_formatter)
+
+    # Add handlers (avoid duplicates)
+    if not logger.handlers:
+        logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
+
+    logger.info(f"Panel optimization started at {log_file}")
     logger.info(f"Loading model from {model_path}")
 
     # Load model bundle
@@ -120,8 +232,8 @@ def run_optimize_panel(
         raise FileNotFoundError(f"Split files not found. Tried: {train_file}, {val_file}")
 
     logger.info(f"Loading splits from {split_path}")
-    train_idx = pd.read_csv(train_file, header=None).squeeze().values
-    val_idx = pd.read_csv(val_file, header=None).squeeze().values
+    train_idx = pd.read_csv(train_file).squeeze().values
+    val_idx = pd.read_csv(val_file).squeeze().values
 
     if len(train_idx) == 0 or len(val_idx) == 0:
         raise ValueError("Split file missing train_idx or val_idx")
@@ -197,6 +309,10 @@ def run_optimize_panel(
         )
 
     logger.info(f"Starting RFE with {len(initial_proteins)} proteins")
+    logger.info(
+        f"RFE parameters: step_strategy={step_strategy}, cv_folds={cv_folds}, "
+        f"min_auroc_frac={min_auroc_frac}, min_size={min_size}"
+    )
 
     # Run RFE
     result = recursive_feature_elimination(
@@ -216,6 +332,8 @@ def run_optimize_panel(
         random_state=split_seed,
     )
 
+    logger.info(f"RFE complete. Max AUROC: {result.max_auroc:.4f}")
+
     # Determine output directory
     if outdir is None:
         model_dir = Path(model_path).parent.parent
@@ -225,6 +343,7 @@ def run_optimize_panel(
 
     # Save results
     paths = save_rfe_results(result, outdir, model_name, split_seed)
+    logger.info(f"Saved RFE results to {outdir}")
 
     # Generate plots
     try:
@@ -261,6 +380,9 @@ def run_optimize_panel(
     for key, size in result.recommended_panels.items():
         print(f"  {key}: {size} proteins")
     print(f"\nResults saved to: {outdir}")
+    print(f"Log file: {log_file}")
     print(f"{'='*60}\n")
+
+    logger.info("Panel optimization completed successfully")
 
     return result

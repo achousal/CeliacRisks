@@ -91,6 +91,13 @@ SPLITS_DIR="${BASE_DIR}/${SPLITS_DIR}"
 RESULTS_DIR="${BASE_DIR}/${RESULTS_DIR}"
 LOGS_DIR="${BASE_DIR}/${LOGS_DIR}"
 
+# Generate run ID early (needed for logs directory)
+RUN_ID=$(date +"%Y%m%d_%H%M%S")
+
+# Create training logs subdirectory
+RUN_LOGS_DIR="${LOGS_DIR}/training/run_${RUN_ID}"
+mkdir -p "${RUN_LOGS_DIR}"
+
 # Read configs
 SPLITS_CONFIG=$(get_yaml "${PIPELINE_CONFIG}" "splits")
 TRAINING_CONFIG=$(get_yaml "${PIPELINE_CONFIG}" "training")
@@ -154,13 +161,6 @@ SEED_START=$(grep "^seed_start:" "${SPLITS_CONFIG}" | awk '{print $2}')
 ENSEMBLE_ENABLED=$(get_yaml_nested "${TRAINING_CONFIG}" "ensemble" "enabled")
 ENSEMBLE_BASE_MODELS=$(get_yaml_nested_list "${TRAINING_CONFIG}" "ensemble" "base_models")
 [[ "${ENSEMBLE_ENABLED}" == "true" ]] && ENSEMBLE_ENABLED=1 || ENSEMBLE_ENABLED=0
-
-# Generate run ID (timestamp-based)
-RUN_ID=$(date +"%Y%m%d_%H%M%S")
-
-# Create timestamped log directory for this run (base model jobs)
-RUN_LOGS_DIR="${LOGS_DIR}/base/run_${RUN_ID}"
-mkdir -p "${RUN_LOGS_DIR}"
 
 log "============================================"
 log "CeD-ML Pipeline (Config-Driven)"

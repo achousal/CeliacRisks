@@ -419,57 +419,76 @@ def train_ensemble(ctx, config, base_models, **kwargs):
 
 @cli.command("optimize-panel")
 @click.option(
+    "--config",
+    "-c",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to YAML configuration file (auto-detects optimize_panel.yaml if not specified)",
+)
+@click.option(
+    "--run-id",
+    type=str,
+    default=None,
+    help="Run ID to auto-detect model path (e.g., 20260127_104409); auto-detects latest if not provided",
+)
+@click.option(
+    "--model",
+    type=str,
+    default=None,
+    help="Model name (required with --run-id)",
+)
+@click.option(
     "--model-path",
     type=click.Path(exists=True),
-    required=True,
-    help="Path to trained model bundle (.joblib)",
+    default=None,
+    help="Path to trained model bundle (.joblib) - overrides config file",
 )
 @click.option(
     "--infile",
     type=click.Path(exists=True),
-    required=True,
-    help="Input data file (Parquet/CSV)",
+    default=None,
+    help="Input data file (Parquet/CSV) - overrides config file",
 )
 @click.option(
     "--split-dir",
     type=click.Path(exists=True),
-    required=True,
-    help="Directory containing split indices",
+    default=None,
+    help="Directory containing split indices - overrides config file",
 )
 @click.option(
     "--split-seed",
     type=int,
-    default=0,
+    default=None,
     help="Split seed to use (default: 0)",
 )
 @click.option(
     "--start-size",
     type=int,
-    default=100,
+    default=None,
     help="Starting panel size from stability ranking (default: 100)",
 )
 @click.option(
     "--min-size",
     type=int,
-    default=5,
+    default=None,
     help="Minimum panel size to evaluate (default: 5)",
 )
 @click.option(
     "--min-auroc-frac",
     type=float,
-    default=0.90,
+    default=None,
     help="Early stop if AUROC drops below this fraction of max (default: 0.90)",
 )
 @click.option(
     "--cv-folds",
     type=int,
-    default=5,
+    default=None,
     help="CV folds for OOF AUROC estimation (default: 5)",
 )
 @click.option(
     "--step-strategy",
     type=click.Choice(["adaptive", "linear", "geometric"]),
-    default="adaptive",
+    default=None,
     help="Feature elimination strategy (default: adaptive)",
 )
 @click.option(
@@ -480,7 +499,7 @@ def train_ensemble(ctx, config, base_models, **kwargs):
 )
 @click.option(
     "--use-stability-panel/--use-all-features",
-    default=True,
+    default=None,
     help="Start from stability ranking (default) or all features",
 )
 @click.pass_context
@@ -491,6 +510,8 @@ def optimize_panel(ctx, **kwargs):
     the Pareto frontier between panel size and AUROC. Use this after training
     to identify cost-effective panels for clinical deployment.
 
+    Automatically detects optimize_panel.yaml if present in configs/.
+
     Outputs:
         - panel_curve.csv: AUROC vs panel size at each evaluation point
         - panel_curve.png: Pareto curve visualization
@@ -498,18 +519,67 @@ def optimize_panel(ctx, **kwargs):
         - feature_ranking.csv: Proteins ranked by elimination order
 
     Example:
-        ced optimize-panel \\
-            --model-path results/LR_EN/split_seed0/core/LR_EN__final_model.joblib \\
-            --infile data/input.parquet \\
-            --split-dir splits/ \\
-            --start-size 100 \\
-            --min-size 5
+        ced optimize-panel
+        ced optimize-panel --run-id 20260127_104409 --model LinSVM_cal
+        ced optimize-panel --config configs/optimize_panel.yaml
+        ced optimize-panel --model-path results/LR_EN/... --infile data/input.parquet
     """
     from ced_ml.cli.optimize_panel import run_optimize_panel
+    from ced_ml.config.loader import load_panel_optimize_config
 
+    # Extract config file and run_id from kwargs
+    config_file = kwargs.pop("config", None)
+    run_id = kwargs.pop("run_id", None)
+    model_name = kwargs.pop("model", None)
+
+    # Handle run_id-based model detection
+    if run_id or model_name:
+        from ced_ml.cli.optimize_panel import find_model_path_for_run
+
+        split_seed = kwargs.pop("split_seed", None) or 0
+
+        try:
+            detected_path = find_model_path_for_run(
+                run_id=run_id, model=model_name, split_seed=split_seed
+            )
+            if detected_path:
+                kwargs["model_path"] = detected_path
+                click.echo(f"Auto-detected model: {detected_path}")
+        except Exception as e:
+            raise click.ClickException(f"Error detecting model path: {e}") from e
+
+    # Collect CLI args (filter None values to allow config file to provide them)
+    cli_args = {k: v for k, v in kwargs.items() if v is not None}
+
+    # Load configuration (with auto-detection)
+    try:
+        config = load_panel_optimize_config(config_file=config_file, cli_args=cli_args)
+    except Exception as e:
+        raise click.ClickException(f"Configuration error: {e}") from e
+
+    # Validate that required fields are present
+    required_fields = ["model_path", "infile", "split_dir"]
+    missing = [f for f in required_fields if not getattr(config, f, None)]
+    if missing:
+        raise click.ClickException(
+            f"Missing required configuration: {', '.join(missing)}. "
+            f"Provide via config file or CLI arguments."
+        )
+
+    # Run optimization
     run_optimize_panel(
-        **kwargs,
-        verbose=ctx.obj.get("verbose", 0),
+        model_path=str(config.model_path),
+        infile=str(config.infile),
+        split_dir=str(config.split_dir),
+        split_seed=config.split_seed,
+        start_size=config.start_size,
+        min_size=config.min_size,
+        min_auroc_frac=config.min_auroc_frac,
+        cv_folds=config.cv_folds,
+        step_strategy=config.step_strategy,
+        outdir=str(config.outdir) if config.outdir else None,
+        use_stability_panel=config.use_stability_panel,
+        verbose=config.verbose or ctx.obj.get("verbose", 0),
     )
 
 

@@ -12,7 +12,7 @@ test_size: 0.25
 holdout_size: 0.30  # Only used when mode=holdout
 
 # Repeated splits
-n_splits: 3
+n_splits: 10
 seed_start: 0
 
 # Prevalent case handling - CRITICAL CHANGE

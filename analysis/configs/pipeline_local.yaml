@@ -19,7 +19,7 @@ configs:
 # Execution
 execution:
   models:
-    # - LR_EN
+    - LR_EN
     - LinSVM_cal
     # - RF
     # - XGBoost

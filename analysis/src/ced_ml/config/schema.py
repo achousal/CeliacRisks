@@ -681,6 +681,100 @@ class AggregateConfig(BaseModel):
     plot_learning_curve: bool = True
 
 
+class PanelOptimizeConfig(BaseModel):
+    """Configuration for panel size optimization via RFE.
+
+    Used by `ced optimize-panel` command to find minimum viable protein panels
+    through Recursive Feature Elimination after training.
+    """
+
+    # Required paths
+    infile: Path | None = Field(
+        default=None,
+        description="Path to input data file (Parquet/CSV)",
+    )
+    split_dir: Path | None = Field(
+        default=None,
+        description="Directory containing split indices",
+    )
+    model_path: Path | None = Field(
+        default=None,
+        description="Path to trained model bundle (.joblib)",
+    )
+
+    # Split and scenario
+    split_seed: int = Field(
+        default=0,
+        ge=0,
+        description="Split seed to use (must match training split)",
+    )
+    scenario: str | None = Field(
+        default=None,
+        description="Scenario name (auto-detected from model if not specified)",
+    )
+
+    # RFE parameters
+    start_size: int = Field(
+        default=100,
+        ge=5,
+        description="Starting panel size (top N from stability ranking)",
+    )
+    min_size: int = Field(
+        default=5,
+        ge=1,
+        description="Minimum panel size to evaluate",
+    )
+    min_auroc_frac: float = Field(
+        default=0.90,
+        ge=0.5,
+        le=1.0,
+        description="Early stop if AUROC drops below this fraction of max",
+    )
+
+    # Cross-validation
+    cv_folds: int = Field(
+        default=5,
+        ge=2,
+        description="CV folds for OOF AUROC estimation",
+    )
+
+    # Elimination strategy
+    step_strategy: Literal["adaptive", "linear", "geometric"] = Field(
+        default="adaptive",
+        description="Feature elimination strategy: adaptive (10%/iter), linear (1/iter), geometric",
+    )
+
+    # Feature initialization
+    use_stability_panel: bool = Field(
+        default=True,
+        description="If True, start from stability ranking; else use all proteins",
+    )
+
+    # Output
+    outdir: Path | None = Field(
+        default=None,
+        description="Output directory (default: alongside model in optimize_panel/)",
+    )
+
+    # Verbosity
+    verbose: int = Field(
+        default=0,
+        ge=0,
+        le=2,
+        description="Verbosity level: 0=warnings, 1=info, 2=debug",
+    )
+
+    @model_validator(mode="after")
+    def validate_sizes(self) -> "PanelOptimizeConfig":
+        """Validate that min_size <= start_size."""
+        if self.min_size > self.start_size:
+            raise ValueError(
+                f"min_size ({self.min_size}) cannot be greater than "
+                f"start_size ({self.start_size})"
+            )
+        return self
+
+
 class HoldoutEvalConfig(BaseModel):
     """Configuration for holdout evaluation."""
 
@@ -721,5 +815,6 @@ class RootConfig(BaseModel):
     training: TrainingConfig | None = None
     aggregate: AggregateConfig | None = None
     holdout: HoldoutEvalConfig | None = None
+    panel_optimize: PanelOptimizeConfig | None = None
 
     model_config = {"arbitrary_types_allowed": True}

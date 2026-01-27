@@ -122,13 +122,14 @@ success "pip upgraded to version $(pip --version | awk '{print $2}')"
 
 # Install package
 info "Installing CeliacRisks package (this may take 2-3 minutes)..."
-pip install -e . > install.log 2>&1
+mkdir -p ../logs/setup
+SETUP_LOG="../logs/setup/install_$(date +%Y%m%d_%H%M%S).log"
+pip install -e . > "${SETUP_LOG}" 2>&1
 
 if [ $? -eq 0 ]; then
     success "Package installed successfully"
-    rm install.log
 else
-    error "Package installation failed. Check install.log for details."
+    error "Package installation failed. Check ${SETUP_LOG} for details."
 fi
 
 # Verify installation
@@ -185,12 +186,13 @@ read -p "Run test suite to verify installation? (recommended, takes ~2 min) (Y/n
 echo
 if [[ ! $REPLY =~ ^[Nn]$ ]]; then
     info "Running test suite..."
-    if pytest tests/ -v --tb=short > test_results.log 2>&1; then
-        TEST_PASS=$(grep -c "passed" test_results.log || echo "0")
+    mkdir -p ../logs/setup
+    TEST_LOG="../logs/setup/tests_$(date +%Y%m%d_%H%M%S).log"
+    if pytest tests/ -v --tb=short > "${TEST_LOG}" 2>&1; then
+        TEST_PASS=$(grep -c "passed" "${TEST_LOG}" || echo "0")
         success "Tests passed: $TEST_PASS"
-        rm test_results.log
     else
-        warning "Some tests failed. Check test_results.log for details."
+        warning "Some tests failed. Check ${TEST_LOG} for details."
         echo "  This may not prevent pipeline execution."
     fi
 fi

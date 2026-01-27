@@ -67,8 +67,8 @@ BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${BASE_DIR}"
 
 # Timestamped log file for this post-processing run
-# Mirrors logs/base/run_{RUN_ID} structure
-POST_LOG_DIR="${BASE_DIR}/logs/post/run_${RUN_ID:-$(date +"%Y%m%d_%H%M%S")}"
+# Mirrors logs/aggregation/run_{RUN_ID} structure
+POST_LOG_DIR="${BASE_DIR}/logs/aggregation/run_${RUN_ID:-$(date +"%Y%m%d_%H%M%S")}"
 mkdir -p "${POST_LOG_DIR}"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_FILE="${POST_LOG_DIR}/post_training_${RUN_ID:-${TIMESTAMP}}.log"

@@ -10,6 +10,52 @@
 
 ### Decision Tree (Start Here)
 
+**First question: Does panel size/cost matter?**
+
+```
+Do you have budget/cost constraints on the final panel?
+
+YES (Clinical deployment, assay costs matter)
+│
+├─ Need to see AUROC vs panel size trade-offs?
+│  │
+│  ├─ YES → Two-Stage Post-hoc RFE (Workflow 3)
+│  │         Stage 1: ced optimize-panel (5 min)
+│  │         Stage 2: ced train --fixed-panel --split-seed 10 (30 min)
+│  │         Output: Full Pareto curve + unbiased AUROC for chosen k
+│  │
+│  └─ NO (just want fast model) → Hybrid Stability (Strategy 1)
+│                                   ced train (30 min)
+│                                   Output: Stable panel at tuned k
+│
+NO (Research, feature discovery, cost not a factor)
+│
+├─ Need feature stability analysis?
+│  │
+│  ├─ YES → Single-Stage RFECV (Strategy 2 / Workflow 4)
+│  │         ced train with rfecv (5-22 hours)
+│  │         Output: Consensus panel + unbiased AUROC
+│  │
+│  └─ NO → Hybrid Stability (Strategy 1)
+│             ced train (30 min)
+│             Output: Stable panel at tuned k
+│
+Already have a panel to validate? → Fixed Panel (Strategy 4)
+                                      ced train --fixed-panel panel.csv --split-seed 10
+                                      Output: Unbiased AUROC only
+```
+
+**Quick summary**:
+
+| Your situation | Recommended approach | Rationale |
+|----------------|---------------------|-----------|
+| Clinical deployment, cost matters | Two-stage post-hoc RFE | See AUROC vs cost curve, choose k |
+| Research paper, feature discovery | Single-stage RFECV | Automatic, unbiased, detailed stability |
+| Fast production model | Hybrid stability | Default, 30 min, good balance |
+| Validate specific panel | Fixed panel | Unbiased AUROC for given proteins |
+
+### Original Decision Tree (by strategy type)
+
 ```
 What do you need?
 
@@ -38,13 +84,16 @@ What do you need?
 ### Strategy Comparison
 
 | Attribute | Hybrid Stability | Nested RFECV | Post-hoc RFE | Fixed Panel |
-|-----------|-----------------|--------------|--------------|-------------|
+|-----------|------------------|--------------|--------------|-------------|
 | **When** | During training | During training | After training | During training |
 | **Speed** | Fast (~30 min) | Slow (~22 hrs) | Very fast (~5 min) | Fast (~30 min) |
-| **Use for** | Production | Discovery | Deployment sizing | Validation |
-| **Panel size** | Tuned (k_grid) | Automatic | Explored | Fixed (input) |
+| **Use for** | Production | Discovery | **Deployment sizing** | Validation |
+| **Panel size** | Tuned (k_grid) | Automatic (max AUROC) | **User-optimized** | Fixed (input) |
+| **Cost consideration** | Partial (k_grid) | ❌ None (always max) | ✅ **Full visibility** | N/A |
+| **Trade-off curve** | No | No | ✅ **Yes (Pareto)** | No |
 | **Leakage** | None | None | Low (~0.5%) | None |
-| **Output** | Stable k-panels | Consensus panels | Pareto curves | Unbiased AUROC |
+| **Output** | Stable k-panels | Consensus panels | **AUROC vs k curve** | Unbiased AUROC |
+| **Best for** | Fast baseline | Feature stability | **Clinical deployment** | Regulatory filing |
 
 **Design rationale**: See [ADR-013](../adr/ADR-013-four-strategy-feature-selection.md) for why we need four strategies.
 
@@ -555,7 +604,53 @@ cat results/LR_EN/split_seed10/evaluation/test_metrics.json
 - Literature comparison (fair benchmark)
 - Stakeholder sign-off on final panel
 
-### Workflow 4: Multi-split Consensus
+### Workflow 4: Single-Stage RFECV (Alternative for Full Automation)
+
+**Goal**: Fully automated panel discovery with unbiased AUROC (no manual intervention).
+
+```bash
+# Single command - RFECV discovers panel size automatically
+ced train --model LR_EN --split-seed 0  # ~5-22 hours
+# (config: feature_selection_strategy: rfecv)
+
+# Output: Consensus panel with unbiased AUROC
+cat results/LR_EN/split_seed0/cv/rfecv/consensus_panel.csv
+cat results/LR_EN/split_seed0/evaluation/test_metrics.json
+```
+
+**Comparison with Two-Stage Post-hoc RFE**:
+
+| Aspect | Two-Stage Post-hoc RFE | Single-Stage RFECV |
+|--------|----------------------|-------------------|
+| **Total runtime** | 35 min (30 + 5 + validation) | 5-22 hours |
+| **User control** | High (choose k from curve) | Low (automatic k) |
+| **Cost consideration** | ✅ Full visibility | ❌ None (always max AUROC) |
+| **Unbiased AUROC** | Stage 2 only (new seed) | ✅ Built-in |
+| **Stakeholder engagement** | High (visual trade-offs) | Low (black box) |
+| **Panel size outcome** | User-optimized | RFECV-optimized |
+| **Best for** | Clinical deployment | Research papers |
+
+**Example outcome comparison**:
+
+*Scenario: Same dataset, same model (LR_EN)*
+
+**Two-stage approach**:
+- Stage 1: "k=25 gives AUROC 0.930 (vs 0.950 at k=100)"
+- Stakeholder: "Accept k=25 (saves 75 proteins)"
+- Stage 2: Unbiased AUROC = 0.928 (k=25 panel)
+
+**RFECV approach**:
+- Automatic: "k=50 gives AUROC 0.945"
+- No visibility into k=25 alternative
+- Unbiased AUROC = 0.944 (k=50 panel)
+
+**Which is "better"?**
+- If cost matters → Two-stage (k=25, AUROC 0.928)
+- If only AUROC matters → RFECV (k=50, AUROC 0.944)
+
+**In practice**: Clinical deployment almost always has cost constraints, making two-stage post-hoc RFE the preferred approach.
+
+### Workflow 5: Multi-split Consensus
 ```bash
 # Step 1: Train multiple splits
 for seed in 0 1 2 3 4; do
@@ -665,6 +760,62 @@ ced train --fixed-panel panel.csv --split-seed 10
 ```
 
 ---
+
+## Frequently Asked Questions
+
+### Q: When should I use RFECV vs post-hoc RFE?
+
+**Use post-hoc RFE when**:
+- Panel size/cost is a constraint (clinical deployment)
+- Stakeholders need to see AUROC vs panel size trade-offs
+- You want rapid iteration (5 min per curve)
+- Regulatory submission requires cost-benefit analysis
+
+**Use RFECV when**:
+- Panel size is not a constraint (research only)
+- You want fully automated feature discovery
+- You need detailed feature stability analysis
+- You can afford 5-22 hours training time
+
+**Key insight**: RFECV always maximizes AUROC within tolerance, ignoring panel size. Post-hoc RFE lets you choose the optimal AUROC/cost balance.
+
+### Q: Why is my fixed-panel AUROC lower than post-hoc RFE?
+
+**Expected behavior**. Example:
+- Post-hoc RFE (split 0): AUROC 0.940 for k=50
+- Fixed panel (split 10): AUROC 0.938 for k=50
+
+**Reason**: Post-hoc RFE has ~0.5-1% optimistic bias (panel was optimized on that data). Fixed panel with new split seed is the unbiased ground truth.
+
+**Action**: Report the fixed-panel number for regulatory/publication purposes.
+
+### Q: Can I skip Stage 2 validation in two-stage workflow?
+
+**Depends on use case**:
+
+| Use case | Stage 2 required? | Rationale |
+|----------|------------------|-----------|
+| FDA/regulatory submission | ✅ YES | Unbiased AUROC mandatory |
+| Clinical deployment | ✅ YES | Stakeholder sign-off |
+| Literature comparison | ✅ YES | Fair benchmark |
+| Internal development | ❌ NO | Stage 1 sufficient |
+| Rapid prototyping | ❌ NO | Iterate with Stage 1 only |
+
+**Rule of thumb**: If the AUROC number will be reported externally or used for deployment decisions, do Stage 2.
+
+### Q: What if RFECV and post-hoc RFE recommend different panel sizes?
+
+**Expected**. Example:
+- RFECV: k=50 (AUROC 0.945, within tolerance of max)
+- Post-hoc RFE recommendation: k=25 (AUROC 0.930, knee point)
+
+**Reason**: RFECV maximizes AUROC. Post-hoc RFE finds diminishing returns (knee point).
+
+**Which to use?**
+- If cost matters: k=25 (post-hoc RFE knee point)
+- If only AUROC matters: k=50 (RFECV selection)
+
+**Pro tip**: Run both, present trade-offs to stakeholders, let them decide.
 
 ## Common Pitfalls
 

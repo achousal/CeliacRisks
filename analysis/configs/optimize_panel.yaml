@@ -1,0 +1,36 @@
+# Panel Optimization Configuration (Optional)
+#
+# Post-hoc RFE to find optimal panel size trade-offs for clinical deployment.
+# This file is optional. CLI args override config values.
+#
+# Quick start (no config needed):
+#   ced optimize-panel --run-id 20260127_104409 --model LinSVM_cal
+#   ced optimize-panel --run-id 20260127_104409              # auto-detects first model
+#   ced optimize-panel                                       # auto-detects latest run
+#
+# Reference: docs/reference/FEATURE_SELECTION.md#strategy-3-post-hoc-rfe
+
+# Model Selection (choose ONE)
+# Option A: Direct path (auto-detects data paths from directory structure)
+# model_path: ../results/LinSVM_cal/run_20260127_104409/split_seed0/core/LinSVM_cal__final_model.joblib
+
+# Option B: Run ID (auto-detects data paths)
+# run_id: 20260127_104409
+# model: LinSVM_cal
+# split_seed: 0
+
+# Data Paths (auto-detected if omitted)
+# infile: ../data/Celiac_dataset_proteomics_w_demo.parquet
+# split_dir: ../splits
+
+# RFE Parameters
+start_size: 100                   # Starting panel size (default: 100)
+min_size: 5                       # Minimum panel size (default: 5)
+min_auroc_frac: 0.90              # Early stop if AUROC < this fraction of max (default: 0.90)
+cv_folds: 5                       # CV folds for AUROC estimation (default: 5)
+step_strategy: adaptive            # Feature elimination: adaptive or linear (default: adaptive)
+use_stability_panel: true          # Use stability ranking from training (default: true)
+
+# Output
+# outdir: results/custom_output    # Default: alongside model in optimize_panel/ subdirectory
+verbose: 0                         # Verbosity: 0=warnings, 1=info, 2=debug (default: 0)
