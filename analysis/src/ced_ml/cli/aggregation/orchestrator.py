@@ -151,9 +151,9 @@ def compute_and_save_pooled_metrics(
     from ced_ml.cli.aggregation.aggregation import (
         compute_pooled_metrics_by_model,
         compute_pooled_threshold_metrics,
-        compute_selection_scores_for_models,
         save_threshold_data,
     )
+    from ced_ml.evaluation.scoring import compute_selection_scores_for_models
 
     pooled_test_metrics: dict[str, dict[str, float]] = {}
     pooled_val_metrics: dict[str, dict[str, float]] = {}
