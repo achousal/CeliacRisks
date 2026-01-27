@@ -678,6 +678,38 @@ class TestTemporalColumnValidation:
         assert len(indices) == 3
         assert indices[0] == 1  # None value first (filled with min - 1 day)
 
+    def test_high_missingness_warns(self):
+        """Should warn if >5% of temporal values are missing."""
+        # Create DataFrame with 10% missing (exceeds 5% threshold)
+        n = 100
+        dates = ["2020-01-01"] * 90 + [None] * 10
+        df = pd.DataFrame({"date": dates})
+
+        with pytest.warns(UserWarning, match="has 10.0% missing values"):
+            indices = temporal_order_indices(df, "date")
+            # Should still complete successfully
+            assert len(indices) == n
+            # Missing values should be placed first
+            assert all(indices[:10] >= 90)  # The 10 missing values
+
+    def test_low_missingness_no_warning(self):
+        """Should not warn if <=5% of temporal values are missing."""
+        # Create DataFrame with 4% missing (below 5% threshold)
+        n = 100
+        dates = ["2020-01-01"] * 96 + [None] * 4
+        df = pd.DataFrame({"date": dates})
+
+        # Should not raise warning
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            try:
+                indices = temporal_order_indices(df, "date")
+                assert len(indices) == n
+            except UserWarning:
+                pytest.fail("Should not warn for low missingness")
+
 
 class TestSplitSizeValidation:
     """Test split size validation (M8 fix)."""

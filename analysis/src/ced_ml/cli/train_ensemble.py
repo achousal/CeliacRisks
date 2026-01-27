@@ -9,8 +9,6 @@ Usage:
     ced train-ensemble --config configs/training_config.yaml --split-seed 0
 """
 
-from __future__ import annotations
-
 import json
 import logging
 from datetime import datetime

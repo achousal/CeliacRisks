@@ -313,6 +313,21 @@ def temporal_order_indices(df: pd.DataFrame, col: str) -> np.ndarray:
             "Column must contain datetime or numeric values."
         )
 
+    # Check for high missingness rate (potential temporal leakage risk)
+    if isinstance(order_vals, pd.Series):
+        missing_rate = order_vals.isna().sum() / len(order_vals)
+        if missing_rate > 0.05:
+            import warnings
+
+            warnings.warn(
+                f"Temporal column '{col}' has {missing_rate:.1%} missing values. "
+                f"Missing values will be placed at the beginning of the timeline. "
+                f"If missingness patterns are informative, this may introduce temporal leakage. "
+                f"Consider imputing temporal values or dropping samples with missing dates.",
+                category=UserWarning,
+                stacklevel=2,
+            )
+
     # Fill missing values with min - 1 (or -inf for numeric)
     if isinstance(order_vals, pd.Series):
         fill_value = order_vals.min()

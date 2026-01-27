@@ -1,0 +1,18 @@
+mode: development
+scenarios:
+  - IncidentPlusPrevalent
+
+val_size: 0.25
+test_size: 0.25
+holdout_size: 0.30
+
+n_splits: 10
+seed_start: 0
+
+prevalent_train_only: false
+prevalent_train_frac: 1.0
+
+train_control_per_case: 1
+eval_control_per_case: 1
+
+save_indices_only: false

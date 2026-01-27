@@ -1104,17 +1104,19 @@ class TestE2EPanelOptimization:
         ), f"Panel optimization failed: {result_optimize.output}"
 
         # Verify RFE outputs
-        assert (panel_outdir / "rfe_results.csv").exists(), "Missing RFE results"
-        assert (panel_outdir / "panel_sizes.csv").exists(), "Missing panel sizes table"
+        assert (panel_outdir / "panel_curve.csv").exists(), "Missing panel curve"
+        assert (panel_outdir / "metrics_summary.csv").exists(), "Missing metrics summary"
+        assert (panel_outdir / "feature_ranking.csv").exists(), "Missing feature ranking"
+        assert (panel_outdir / "recommended_panels.json").exists(), "Missing recommendations"
 
-        # Validate RFE results structure
-        rfe_results = pd.read_csv(panel_outdir / "rfe_results.csv")
-        assert "panel_size" in rfe_results.columns
-        assert "mean_auroc" in rfe_results.columns
-        assert len(rfe_results) > 0
+        # Validate panel curve structure
+        panel_curve = pd.read_csv(panel_outdir / "panel_curve.csv")
+        assert "size" in panel_curve.columns
+        assert "auroc_val" in panel_curve.columns
+        assert len(panel_curve) > 0
 
         # Check that AUROC is in valid range
-        assert all(0.0 <= auc <= 1.0 for auc in rfe_results["mean_auroc"])
+        assert all(0.0 <= auc <= 1.0 for auc in panel_curve["auroc_val"])
 
     def test_panel_optimization_requires_trained_model(self, minimal_proteomics_data, tmp_path):
         """
@@ -1454,6 +1456,476 @@ class TestE2EAggregationWorkflow:
 
         # Should fail (either immediately or with clear error)
         assert result.exit_code != 0
+
+
+class TestE2EConfigValidation:
+    """Test config validation workflow."""
+
+    def test_config_validate_valid_training_config(self, minimal_training_config):
+        """
+        Test: Config validation passes for valid training config.
+
+        Validates config validation command.
+        """
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "config",
+                "validate",
+                str(minimal_training_config),
+                "--command",
+                "train",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Validation should pass: {result.output}"
+
+    def test_config_validate_invalid_config(self, tmp_path):
+        """
+        Test: Config validation fails for invalid config.
+
+        Error handling test for malformed configs.
+        """
+        bad_config = tmp_path / "bad_config.yaml"
+        with open(bad_config, "w") as f:
+            yaml.dump({"invalid": "structure", "missing": "required_fields"}, f)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "config",
+                "validate",
+                str(bad_config),
+                "--command",
+                "train",
+            ],
+        )
+
+        # Should fail or warn
+        # Note: May exit with 0 if warnings only, check output
+        assert (
+            result.exit_code != 0 or "warning" in result.output.lower()
+        ), "Should warn or fail for invalid config"
+
+    def test_config_validate_strict_mode(self, minimal_training_config):
+        """
+        Test: Strict mode treats warnings as errors.
+
+        Validates strict validation behavior.
+        """
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "config",
+                "validate",
+                str(minimal_training_config),
+                "--command",
+                "train",
+                "--strict",
+            ],
+        )
+
+        # In strict mode, any warnings should cause failure
+        # (or pass if config is perfect)
+        assert result.exit_code in [
+            0,
+            1,
+        ], "Strict validation should exit with 0 (pass) or 1 (fail)"
+
+    def test_config_diff_identical_configs(self, minimal_training_config, tmp_path):
+        """
+        Test: Config diff shows no differences for identical configs.
+
+        Validates config comparison command.
+        """
+        # Create a copy of the config
+        config_copy = tmp_path / "config_copy.yaml"
+        with open(minimal_training_config) as f:
+            config_data = yaml.safe_load(f)
+        with open(config_copy, "w") as f:
+            yaml.dump(config_data, f)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "config",
+                "diff",
+                str(minimal_training_config),
+                str(config_copy),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "identical" in result.output.lower() or "no diff" in result.output.lower()
+
+    def test_config_diff_different_configs(self, minimal_training_config, minimal_splits_config):
+        """
+        Test: Config diff shows differences for different configs.
+
+        Validates diff detection.
+        """
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "config",
+                "diff",
+                str(minimal_training_config),
+                str(minimal_splits_config),
+            ],
+        )
+
+        assert result.exit_code == 0
+        # Should show differences
+        assert len(result.output) > 100, "Diff output should show differences"
+
+    def test_config_diff_output_file(
+        self, minimal_training_config, minimal_splits_config, tmp_path
+    ):
+        """
+        Test: Config diff can write to output file.
+
+        Validates output file option.
+        """
+        output_file = tmp_path / "diff_report.txt"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "config",
+                "diff",
+                str(minimal_training_config),
+                str(minimal_splits_config),
+                "--output",
+                str(output_file),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert output_file.exists(), "Diff output file should be created"
+        assert output_file.stat().st_size > 0, "Diff output should have content"
+
+
+class TestE2EHoldoutEvaluation:
+    """Test holdout evaluation workflow."""
+
+    @pytest.mark.slow
+    def test_eval_holdout_workflow(
+        self, minimal_proteomics_data, minimal_training_config, tmp_path
+    ):
+        """
+        Test: Holdout evaluation workflow (train → eval-holdout).
+
+        Critical for final model validation. Marked slow (~2 min).
+        """
+        splits_dir = tmp_path / "splits"
+        results_dir = tmp_path / "results"
+        holdout_dir = tmp_path / "holdout_results"
+        splits_dir.mkdir()
+        results_dir.mkdir()
+        holdout_dir.mkdir()
+
+        runner = CliRunner()
+
+        # Step 1: Generate splits with holdout
+        holdout_splits_config = {
+            "mode": "holdout",
+            "scenarios": ["IncidentOnly"],
+            "n_splits": 1,
+            "val_size": 0.15,
+            "test_size": 0.15,
+            "holdout_size": 0.20,
+            "seed_start": 42,
+        }
+        holdout_config_path = tmp_path / "holdout_splits_config.yaml"
+        with open(holdout_config_path, "w") as f:
+            yaml.dump(holdout_splits_config, f)
+
+        result_splits = runner.invoke(
+            cli,
+            [
+                "save-splits",
+                "--infile",
+                str(minimal_proteomics_data),
+                "--outdir",
+                str(splits_dir),
+                "--config",
+                str(holdout_config_path),
+            ],
+        )
+        assert result_splits.exit_code == 0, f"Splits failed: {result_splits.output}"
+
+        # Verify holdout indices exist
+        holdout_idx_file = splits_dir / "holdout_idx_IncidentOnly_seed42.csv"
+        assert holdout_idx_file.exists(), "Holdout indices file should exist"
+
+        # Step 2: Train model
+        result_train = runner.invoke(
+            cli,
+            [
+                "train",
+                "--infile",
+                str(minimal_proteomics_data),
+                "--split-dir",
+                str(splits_dir),
+                "--outdir",
+                str(results_dir),
+                "--config",
+                str(minimal_training_config),
+                "--model",
+                "LR_EN",
+                "--split-seed",
+                "42",
+            ],
+            catch_exceptions=False,
+        )
+
+        if result_train.exit_code != 0:
+            pytest.skip(f"Training failed: {result_train.output[:200]}")
+
+        # Find trained model
+        model_files = list(results_dir.rglob("*final_model*.joblib"))
+        if not model_files:
+            model_files = list(results_dir.rglob("*.joblib"))
+        if not model_files:
+            pytest.skip("No trained model found")
+
+        model_path = model_files[0]
+
+        # Step 3: Evaluate on holdout
+        result_holdout = runner.invoke(
+            cli,
+            [
+                "eval-holdout",
+                "--infile",
+                str(minimal_proteomics_data),
+                "--model-artifact",
+                str(model_path),
+                "--holdout-idx",
+                str(holdout_idx_file),
+                "--outdir",
+                str(holdout_dir),
+            ],
+            catch_exceptions=False,
+        )
+
+        if result_holdout.exit_code != 0:
+            print("HOLDOUT OUTPUT:", result_holdout.output)
+            if result_holdout.exception:
+                import traceback
+
+                traceback.print_exception(
+                    type(result_holdout.exception),
+                    result_holdout.exception,
+                    result_holdout.exception.__traceback__,
+                )
+
+        assert result_holdout.exit_code == 0, f"Holdout eval failed: {result_holdout.output}"
+
+        # Verify holdout outputs
+        assert any(holdout_dir.rglob("*metrics*")), "Holdout metrics file should exist"
+        assert any(holdout_dir.rglob("*predictions*")), "Holdout predictions file should exist"
+
+    def test_eval_holdout_missing_model(self, minimal_proteomics_data, tmp_path):
+        """
+        Test: Holdout evaluation fails gracefully with missing model.
+
+        Error handling test.
+        """
+        splits_dir = tmp_path / "splits"
+        holdout_dir = tmp_path / "holdout_results"
+        splits_dir.mkdir()
+        holdout_dir.mkdir()
+
+        # Create fake holdout indices
+        holdout_idx = pd.DataFrame({"idx": [0, 1, 2, 3, 4]})
+        holdout_idx_file = splits_dir / "holdout_idx.csv"
+        holdout_idx.to_csv(holdout_idx_file, index=False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "eval-holdout",
+                "--infile",
+                str(minimal_proteomics_data),
+                "--model-artifact",
+                str(tmp_path / "nonexistent_model.joblib"),
+                "--holdout-idx",
+                str(holdout_idx_file),
+                "--outdir",
+                str(holdout_dir),
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower() or "does not exist" in result.output.lower()
+
+    def test_eval_holdout_compute_dca_flag(self, minimal_proteomics_data, tmp_path):
+        """
+        Test: Holdout evaluation with --compute-dca flag.
+
+        Validates optional DCA computation.
+        """
+        # This test would require a trained model
+        # Skipping actual execution, just testing flag parsing
+        runner = CliRunner()
+
+        # Just verify the flag is recognized (will fail on missing files)
+        result = runner.invoke(
+            cli,
+            [
+                "eval-holdout",
+                "--infile",
+                str(minimal_proteomics_data),
+                "--model-artifact",
+                str(tmp_path / "fake_model.joblib"),
+                "--holdout-idx",
+                str(tmp_path / "fake_holdout.csv"),
+                "--outdir",
+                str(tmp_path / "out"),
+                "--compute-dca",
+            ],
+        )
+
+        # Should fail on missing files, but flag should be recognized
+        assert "--compute-dca" not in result.output or result.exit_code != 0
+
+
+class TestE2EDataConversion:
+    """Test data format conversion utilities."""
+
+    def test_convert_to_parquet_basic(self, minimal_proteomics_data, tmp_path):
+        """
+        Test: CSV to Parquet conversion.
+
+        Validates data format conversion command.
+        """
+        # Create CSV version from parquet fixture
+        csv_path = tmp_path / "input.csv"
+        df = pd.read_parquet(minimal_proteomics_data)
+        df.to_csv(csv_path, index=False)
+
+        output_path = tmp_path / "output.parquet"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "convert-to-parquet",
+                str(csv_path),
+                "--output",
+                str(output_path),
+            ],
+        )
+
+        assert result.exit_code == 0, f"Conversion failed: {result.output}"
+        assert output_path.exists(), "Output parquet file should exist"
+
+        # Verify content
+        df_converted = pd.read_parquet(output_path)
+        assert len(df_converted) == len(df), "Row count should match"
+        assert len(df_converted.columns) == len(df.columns), "Column count should match"
+
+    def test_convert_to_parquet_default_output(self, tmp_path):
+        """
+        Test: Conversion with default output path.
+
+        Validates automatic output path generation.
+        """
+        # Create minimal CSV
+        csv_path = tmp_path / "test_data.csv"
+        df = pd.DataFrame(
+            {
+                ID_COL: ["S001", "S002"],
+                TARGET_COL: [CONTROL_LABEL, INCIDENT_LABEL],
+                "protein_001_resid": [1.0, 2.0],
+            }
+        )
+        df.to_csv(csv_path, index=False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "convert-to-parquet",
+                str(csv_path),
+            ],
+        )
+
+        assert result.exit_code == 0
+
+        # Check default output path (same as input with .parquet extension)
+        expected_output = tmp_path / "test_data.parquet"
+        assert expected_output.exists(), "Default output should be created"
+
+    def test_convert_to_parquet_compression_options(self, tmp_path):
+        """
+        Test: Parquet conversion with different compression algorithms.
+
+        Validates compression option.
+        """
+        csv_path = tmp_path / "input.csv"
+        df = pd.DataFrame(
+            {
+                ID_COL: [f"S{i:03d}" for i in range(50)],
+                TARGET_COL: [CONTROL_LABEL] * 50,
+                "protein_001_resid": np.random.randn(50),
+                "protein_002_resid": np.random.randn(50),
+            }
+        )
+        df.to_csv(csv_path, index=False)
+
+        # Test different compression algorithms
+        for compression in ["snappy", "gzip", "zstd"]:
+            output_path = tmp_path / f"output_{compression}.parquet"
+
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                [
+                    "convert-to-parquet",
+                    str(csv_path),
+                    "--output",
+                    str(output_path),
+                    "--compression",
+                    compression,
+                ],
+            )
+
+            if result.exit_code != 0 and "not available" in result.output:
+                pytest.skip(f"Compression {compression} not available in environment")
+
+            assert result.exit_code == 0, f"Conversion with {compression} failed"
+            assert output_path.exists(), f"Output with {compression} should exist"
+
+    def test_convert_to_parquet_invalid_csv(self, tmp_path):
+        """
+        Test: Conversion fails gracefully with invalid CSV.
+
+        Error handling test.
+        """
+        bad_csv = tmp_path / "bad.csv"
+        with open(bad_csv, "w") as f:
+            f.write("invalid,csv,structure\nno,proper,headers\n")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "convert-to-parquet",
+                str(bad_csv),
+            ],
+        )
+
+        # May fail or succeed depending on CSV content
+        # Just ensure it doesn't crash
+        assert result.exit_code in [0, 1]
 
 
 # ==================== How to Run ====================

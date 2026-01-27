@@ -736,7 +736,7 @@ def test_rfecv_uses_consensus_panel_when_provided():
     consensus_panel = [f"prot_{i}_resid" for i in range(0, 39)]  # 39 proteins
     rfecv_result = NestedRFECVResult()
     rfecv_result.consensus_panel = consensus_panel
-    rfecv_result.feature_stability = {p: 0.85 for p in consensus_panel}
+    rfecv_result.feature_stability = dict.fromkeys(consensus_panel, 0.85)
 
     # Extract proteins WITH nested_rfecv_result
     extracted = _extract_selected_proteins_from_fold(

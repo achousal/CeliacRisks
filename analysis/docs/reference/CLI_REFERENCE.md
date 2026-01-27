@@ -137,10 +137,12 @@ Run `ced --help` or `ced <command> --help` for detailed usage.
 - Split directory and seed
 
 **Outputs:**
-- Panel curve plot (Pareto frontier: size vs. AUROC)
-- Feature ranking CSV (elimination order)
-- Recommendations JSON (knee points, minimum viable panels)
-- RFE curve CSV (AUROC at each panel size)
+- `panel_curve.csv` - Full RFE curve with all metrics and protein lists
+- `metrics_summary.csv` - Panel size vs. performance metrics
+- `feature_ranking.csv` - Protein elimination order with importance scores
+- `recommended_panels.json` - Knee points and minimum viable panel sizes
+- `pareto_frontier.csv` - Pareto-optimal points (size vs. AUROC)
+- `panel_curve.png` - Visualization of size vs. AUROC trade-off
 
 **When to use:**
 - Clinical deployment: "What's the smallest panel maintaining 0.90 AUROC?"

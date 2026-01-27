@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 ##########################################################################################
 # Full Factorial Experiment: Prevalent × Case:Control Ratios
@@ -42,7 +42,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ANALYSIS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RESULTS_DIR="$SCRIPT_DIR/../../../results/investigations"
-SPLITS_DIR="$ANALYSIS_DIR/../splits"
+SPLITS_BASE_DIR="$ANALYSIS_DIR/../splits_experiments"
 LOG_DIR="$ANALYSIS_DIR/../logs/experiments"
 
 # Defaults
@@ -154,10 +154,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Create directories
-mkdir -p "$RESULTS_DIR" "$LOG_DIR" "$SPLITS_DIR"
+mkdir -p "$RESULTS_DIR" "$LOG_DIR" "$SPLITS_BASE_DIR"
 
 # Summary tracking
-declare -A CONFIG_MAP
 TOTAL_CONFIGS=0
 TRAINED_CONFIGS=0
 FAILED_CONFIGS=0
@@ -203,6 +202,10 @@ if [ "$SKIP_SPLITS" = false ]; then
 
             print_status "$PROGRESS Generating splits: prevalent_frac=$pf, case_control=$ccr"
 
+            # Create config-specific split directory
+            CONFIG_SPLITS_DIR="$SPLITS_BASE_DIR/${pf}_${ccr}"
+            mkdir -p "$CONFIG_SPLITS_DIR"
+
             # Create temporary config file
             TEMP_CONFIG="$ANALYSIS_DIR/configs/splits_config_experiment_${pf}_${ccr}.yaml"
 
@@ -231,16 +234,15 @@ EOF
                 if (cd "$ANALYSIS_DIR" && ced save-splits \
                     --config "configs/splits_config_experiment_${pf}_${ccr}.yaml" \
                     --infile ../data/Celiac_dataset_proteomics_w_demo.parquet \
+                    --outdir "$CONFIG_SPLITS_DIR" \
                     --overwrite) >> "$LOG_DIR/splits_generation.log" 2>&1; then
                     print_success "$PROGRESS Splits generated"
-                    CONFIG_MAP["$CONFIG_NAME"]="generated"
                 else
                     print_error "$PROGRESS Split generation FAILED"
                     FAILED_CONFIGS=$((FAILED_CONFIGS + 1))
                 fi
             else
                 print_status "$PROGRESS [DRY RUN] Would generate splits"
-                CONFIG_MAP["$CONFIG_NAME"]="dry_run"
             fi
         done
     done
@@ -264,7 +266,8 @@ if [ "$SKIP_TRAINING" = false ]; then
 
             print_status "$PROGRESS Configuration: prevalent_frac=$pf, case_control=$ccr"
 
-            SPLITS_CONFIG="splits_config_experiment_${pf}_${ccr}.yaml"
+            # Get config-specific split directory
+            CONFIG_SPLITS_DIR="$SPLITS_BASE_DIR/${pf}_${ccr}"
 
             MODEL_ID=0
             for MODEL in "${MODELS[@]}"; do
@@ -277,6 +280,8 @@ if [ "$SKIP_TRAINING" = false ]; then
                     if (cd "$ANALYSIS_DIR" && ced train \
                         --model "$MODEL" \
                         --split-seed 0 \
+                        --split-dir "$CONFIG_SPLITS_DIR" \
+                        --scenario IncidentPlusPrevalent \
                         --config configs/training_config.yaml) \
                         >> "$LOG_DIR/training_${pf}_${ccr}.log" 2>&1; then
                         print_success "$PROGRESS$MODEL_PROGRESS $MODEL trained"

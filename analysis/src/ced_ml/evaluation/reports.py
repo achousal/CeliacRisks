@@ -39,7 +39,6 @@ class OutputDirectories:
         preds_val: Validation set predictions
         preds_controls: Control subjects OOF predictions
         preds_train_oof: Out-of-fold train predictions
-        preds_plots: Prediction-related plots (risk distributions)
         reports_features: Feature importance reports
         reports_stable: Stable panel reports
         reports_panels: Panel building reports (N=10, 25, 50, etc.)
@@ -50,7 +49,7 @@ class OutputDirectories:
         diag_learning: Learning curves
         diag_dca: Decision curve analysis
         diag_tuning: Hyperparameter tuning diagnostics
-        diag_plots: Diagnostic plots (ROC, PR, calibration, DCA)
+        diag_plots: Diagnostic plots (ROC, PR, calibration, DCA, risk distributions)
         diag_screening: Feature screening results
         diag_test_ci: Bootstrap CI files for test metrics
     """
@@ -62,7 +61,6 @@ class OutputDirectories:
     preds_val: str
     preds_controls: str
     preds_train_oof: str
-    preds_plots: str
     reports_features: str
     reports_stable: str
     reports_panels: str
@@ -120,7 +118,6 @@ class OutputDirectories:
             "preds_val": "preds/val_preds",
             "preds_controls": "preds/controls_oof",
             "preds_train_oof": "preds/train_oof",
-            "preds_plots": "preds/plots",
             "reports_features": "reports/feature_reports",
             "reports_stable": "reports/stable_panel",
             "reports_panels": "reports/panels",

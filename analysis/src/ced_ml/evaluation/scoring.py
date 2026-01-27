@@ -14,8 +14,6 @@ References:
     - Collins et al. (2015). TRIPOD Statement. BMJ.
 """
 
-from __future__ import annotations
-
 import logging
 from typing import Any
 

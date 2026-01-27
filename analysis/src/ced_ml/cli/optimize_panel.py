@@ -2,6 +2,18 @@
 
 This module provides the `ced optimize-panel` command for finding minimum
 viable protein panels through Recursive Feature Elimination.
+
+PRIMARY USE CASE:
+    Optimize panel size for a trained ensemble model (clinical deployment).
+
+WORKFLOW:
+    1. Train base models across splits (ced train)
+    2. Train ensemble meta-learner (ced train-ensemble)
+    3. Optimize panel size (ced optimize-panel)
+
+NOTE: For consensus panels from multiple base models, use the aggregation
+pipeline (ced aggregate-splits) which automatically computes feature stability
+and consensus panels via frequency-based voting.
 """
 
 import logging
@@ -134,7 +146,7 @@ def run_optimize_panel(
         min_size: Minimum panel size to evaluate.
         min_auroc_frac: Early stop if AUROC drops below this fraction of max.
         cv_folds: CV folds for OOF AUROC estimation.
-        step_strategy: Elimination strategy ("adaptive", "linear", "geometric").
+        step_strategy: Elimination strategy ("geometric", "fine", "linear").
         outdir: Output directory (default: alongside model in optimize_panel/).
         use_stability_panel: If True, start from stability ranking; else all proteins.
         verbose: Verbosity level.
@@ -201,6 +213,23 @@ def run_optimize_panel(
     model_name = bundle.get("model_name", "unknown")
     pipeline = bundle.get("model")
     resolved_cols = bundle.get("resolved_columns", {})
+
+    # Validate that this is not an ENSEMBLE model
+    if model_name == "ENSEMBLE":
+        raise ValueError(
+            "Direct RFE on ENSEMBLE models is not supported.\n\n"
+            "The ensemble meta-learner operates on base model predictions (4 features), "
+            "not raw proteins (2,920 features).\n\n"
+            "Use the TWO-PASS workflow instead:\n"
+            "  1. Run RFE on best single model (e.g., LR_EN):\n"
+            "     ced optimize-panel --model-path results/LR_EN/.../LR_EN__final_model.joblib ...\n"
+            "  2. Extract optimized panel from feature_ranking.csv\n"
+            "  3. Retrain base models on optimized panel:\n"
+            "     ced train --model LR_EN,RF,XGBoost --fixed-panel optimized_panel.csv --split-seed 0\n"
+            "  4. Retrain ensemble:\n"
+            "     ced train-ensemble --base-models LR_EN,RF,XGBoost --split-seed 0\n\n"
+            "See docs/reference/FEATURE_SELECTION.md (Workflow 6) for details."
+        )
 
     if pipeline is None:
         raise ValueError("Model bundle missing 'model' key")
@@ -282,11 +311,29 @@ def run_optimize_panel(
     if use_stability_panel:
         # Try to load stability panel from model directory
         model_dir = Path(model_path).parent.parent  # Go up from core/
+        stable_panel_path = model_dir / "reports" / "stable_panel" / "stable_panel__KBest.csv"
         selected_proteins_path = model_dir / "cv" / "selected_proteins_per_split.csv"
 
         initial_proteins = None
 
-        if selected_proteins_path.exists():
+        # Priority 1: Load from stable_panel__KBest.csv (authoritative source)
+        if stable_panel_path.exists():
+            logger.info(f"Loading stable panel from {stable_panel_path}")
+            stable_df = pd.read_csv(stable_panel_path)
+            initial_proteins = stable_df[stable_df["kept"]]["protein"].tolist()
+            logger.info(f"Loaded {len(initial_proteins)} stable proteins (≥75% threshold)")
+
+            # Validate all proteins exist in data
+            missing = [p for p in initial_proteins if p not in X_train.columns]
+            if missing:
+                logger.warning(
+                    f"{len(missing)} stable proteins not found in data: {missing[:5]}..."
+                )
+                initial_proteins = [p for p in initial_proteins if p in X_train.columns]
+                logger.info(f"After filtering: {len(initial_proteins)} proteins available")
+
+        # Fallback: Load from cv/selected_proteins_per_split.csv (legacy)
+        elif selected_proteins_path.exists():
             logger.info(f"Loading stability panel from {selected_proteins_path}")
             sel_df = pd.read_csv(selected_proteins_path)
 
@@ -310,8 +357,9 @@ def run_optimize_panel(
     else:
         initial_proteins = protein_cols[:start_size]
 
-    # Ensure initial proteins are in the data
-    initial_proteins = [p for p in initial_proteins if p in X_train.columns]
+    # Ensure initial proteins are in the data (for non-stability path)
+    if not use_stability_panel:
+        initial_proteins = [p for p in initial_proteins if p in X_train.columns]
 
     if len(initial_proteins) < min_size:
         raise ValueError(
@@ -325,6 +373,15 @@ def run_optimize_panel(
     )
 
     # Run RFE
+    logger.info("Filtering categorical columns...")
+    filtered_cat_cols = [c for c in cat_cols if c in X_train.columns]
+    logger.info(f"  {len(filtered_cat_cols)} categorical columns found")
+
+    logger.info("Filtering numeric metadata columns...")
+    filtered_meta_num_cols = [c for c in meta_num_cols if c in X_train.columns]
+    logger.info(f"  {len(filtered_meta_num_cols)} numeric metadata columns found")
+
+    logger.info("Calling recursive_feature_elimination...")
     result = recursive_feature_elimination(
         X_train=X_train,
         y_train=y_train,
@@ -333,8 +390,8 @@ def run_optimize_panel(
         base_pipeline=pipeline,
         model_name=model_name,
         initial_proteins=initial_proteins,
-        cat_cols=[c for c in cat_cols if c in X_train.columns],
-        meta_num_cols=[c for c in meta_num_cols if c in X_train.columns],
+        cat_cols=filtered_cat_cols,
+        meta_num_cols=filtered_meta_num_cols,
         min_size=min_size,
         cv_folds=cv_folds,
         step_strategy=step_strategy,
@@ -386,10 +443,25 @@ def run_optimize_panel(
     print(f"{'='*60}")
     print(f"Starting panel size: {len(initial_proteins)}")
     print(f"Max AUROC: {result.max_auroc:.4f}")
+
+    # Show metrics for best panel
+    if result.curve:
+        best_point = max(result.curve, key=lambda x: x["auroc_val"])
+        print(f"\nBest panel (size={best_point['size']}) validation metrics:")
+        print(f"  AUROC:           {best_point['auroc_val']:.4f}")
+        print(f"  PR-AUC:          {best_point.get('prauc_val', float('nan')):.4f}")
+        print(f"  Brier Score:     {best_point.get('brier_val', float('nan')):.4f}")
+        print(f"  Sens@95%Spec:    {best_point.get('sens_at_95spec_val', float('nan')):.4f}")
+
     print("\nRecommended panel sizes:")
     for key, size in result.recommended_panels.items():
         print(f"  {key}: {size} proteins")
+
     print(f"\nResults saved to: {outdir}")
+    print("  - panel_curve.csv (full curve with all metrics)")
+    print("  - metrics_summary.csv (metrics at each panel size)")
+    print("  - recommended_panels.json (threshold-based recommendations)")
+    print("  - feature_ranking.csv (protein elimination order)")
     print(f"Log file: {log_file}")
     print(f"{'='*60}\n")
 

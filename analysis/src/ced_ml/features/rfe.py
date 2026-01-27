@@ -41,7 +41,12 @@ from sklearn.inspection import permutation_importance
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from sklearn.pipeline import Pipeline
 
-from ced_ml.metrics.discrimination import auroc
+from ced_ml.metrics.discrimination import (
+    alpha_sensitivity_at_specificity,
+    auroc,
+    compute_brier_score,
+    prauc,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +75,7 @@ class RFEResult:
 def compute_eval_sizes(
     max_size: int,
     min_size: int,
-    strategy: str = "adaptive",
+    strategy: str = "geometric",
 ) -> list[int]:
     """Compute panel sizes to evaluate based on elimination strategy.
 
@@ -78,9 +83,10 @@ def compute_eval_sizes(
         max_size: Starting panel size.
         min_size: Smallest panel size to evaluate.
         strategy: One of:
-            - "linear": Evaluate every size from max to min.
-            - "geometric": Evaluate at powers of 2 (100, 50, 25, 12, 6, ...).
-            - "adaptive": Same as geometric (fine refinement added post-hoc).
+            - "geometric": Evaluate at powers of 2 (100, 50, 25, 12, 6, ...). [DEFAULT]
+            - "fine": More granular than geometric, evaluates intermediate points.
+              Adds quarter-steps between geometric levels (e.g., 100, 75, 50, 37, 25, 18, 12, ...).
+            - "linear": Evaluate every size from max to min (slowest, most data).
 
     Returns:
         List of panel sizes to evaluate, sorted descending.
@@ -88,6 +94,8 @@ def compute_eval_sizes(
     Example:
         >>> compute_eval_sizes(100, 5, "geometric")
         [100, 50, 25, 12, 6, 5]
+        >>> compute_eval_sizes(100, 5, "fine")
+        [100, 75, 50, 37, 25, 18, 12, 9, 6, 5]
     """
     if max_size <= min_size:
         return [max_size]
@@ -95,12 +103,38 @@ def compute_eval_sizes(
     if strategy == "linear":
         return list(range(max_size, min_size - 1, -1))
 
-    # Geometric / adaptive: powers of 2 plus min_size
+    if strategy == "fine":
+        # Fine-grained strategy: geometric + quarter-step interpolation
+        sizes = []
+        current = max_size
+        while current > min_size:
+            sizes.append(current)
+            # Add intermediate point at 3/4 of current (between current and current//2)
+            quarter_step = max(min_size, int(current * 0.75))
+            if quarter_step not in sizes and quarter_step > min_size:
+                sizes.append(quarter_step)
+            # Add point at half
+            half_step = max(min_size, current // 2)
+            if half_step not in sizes and half_step > min_size:
+                sizes.append(half_step)
+            current = half_step
+            if current in sizes and current <= min_size:
+                break
+
+        # Ensure min_size is included
+        if min_size not in sizes:
+            sizes.append(min_size)
+
+        return sorted(set(sizes), reverse=True)
+
+    # Geometric: powers of 2 plus min_size
     sizes = []
     current = max_size
-    while current >= min_size:
+    while current > min_size:
         sizes.append(current)
         current = max(min_size, current // 2)
+        if current in sizes:  # Prevent infinite loop if we hit min_size
+            break
 
     # Ensure min_size is included
     if min_size not in sizes:
@@ -137,7 +171,7 @@ def compute_feature_importance(
         Dict mapping protein -> importance score (higher = more important).
         Proteins not found return 0.0.
     """
-    importance: dict[str, float] = {p: 0.0 for p in protein_cols}
+    importance: dict[str, float] = dict.fromkeys(protein_cols, 0.0)
 
     # Get classifier from pipeline
     clf = pipeline.named_steps.get("clf")
@@ -178,7 +212,7 @@ def _importance_from_coefficients(
     model_name: str,
 ) -> dict[str, float]:
     """Extract importance from linear model coefficients."""
-    importance: dict[str, float] = {p: 0.0 for p in protein_cols}
+    importance: dict[str, float] = dict.fromkeys(protein_cols, 0.0)
 
     coefs = None
 
@@ -218,7 +252,7 @@ def _importance_from_permutation(
     n_repeats: int,
 ) -> dict[str, float]:
     """Extract importance via permutation importance."""
-    importance: dict[str, float] = {p: 0.0 for p in protein_cols}
+    importance: dict[str, float] = dict.fromkeys(protein_cols, 0.0)
 
     try:
         perm_result = permutation_importance(
@@ -397,6 +431,7 @@ def extract_pareto_frontier(curve: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 def build_lightweight_pipeline(
     base_pipeline: Pipeline,
+    protein_cols: list[str],
     cat_cols: list[str],
 ) -> Pipeline:
     """Build a simplified pipeline for RFE evaluation.
@@ -406,23 +441,30 @@ def build_lightweight_pipeline(
 
     Args:
         base_pipeline: Original trained pipeline to clone classifier from.
-        protein_cols: Proteins for this RFE iteration.
+        protein_cols: Proteins for this RFE iteration (unused but kept for API consistency).
         cat_cols: Categorical metadata columns.
-        meta_num_cols: Numeric metadata columns.
 
     Returns:
         New unfitted Pipeline with [pre, clf] steps.
+        Numeric columns pass through automatically via preprocessor.
     """
     from ced_ml.cli.train import build_preprocessor
+    from ced_ml.models.calibration import OOFCalibratedModel
+
+    # Unwrap OOFCalibratedModel if necessary
+    pipeline = base_pipeline
+    if isinstance(base_pipeline, OOFCalibratedModel):
+        pipeline = base_pipeline.base_model
 
     # Clone the classifier
-    clf = base_pipeline.named_steps.get("clf")
+    clf = pipeline.named_steps.get("clf")
     if clf is None:
         raise ValueError("Base pipeline has no 'clf' step")
 
     cloned_clf = clone(clf)
 
     # Build preprocessor for reduced feature set
+    # Note: build_preprocessor only takes cat_cols; numeric cols pass through automatically
     preprocessor = build_preprocessor(cat_cols)
 
     return Pipeline([("pre", preprocessor), ("clf", cloned_clf)])
@@ -462,7 +504,7 @@ def recursive_feature_elimination(
         meta_num_cols: Numeric metadata columns.
         min_size: Smallest panel to evaluate.
         cv_folds: CV folds for OOF AUROC estimation.
-        step_strategy: Elimination strategy ("adaptive", "linear", "geometric").
+        step_strategy: Elimination strategy ("geometric", "fine", "linear").
         min_auroc_frac: Early stop if AUROC drops below this fraction of max.
         random_state: Random seed.
         n_perm_repeats: Permutation repeats for tree importance.
@@ -470,6 +512,11 @@ def recursive_feature_elimination(
     Returns:
         RFEResult with curve, feature_ranking, and recommended_panels.
     """
+    logger.info("Starting recursive feature elimination")
+    logger.info(f"  initial_proteins: {len(initial_proteins)} proteins")
+    logger.info(f"  X_train shape: {X_train.shape}, y_train shape: {y_train.shape}")
+    logger.info(f"  model_name: {model_name}")
+
     current_proteins = list(initial_proteins)
     curve: list[dict[str, Any]] = []
     feature_ranking: dict[str, int] = {}
@@ -477,7 +524,9 @@ def recursive_feature_elimination(
     max_auroc_seen = 0.0
 
     # Determine evaluation points
+    logger.debug(f"Computing eval sizes: current={len(current_proteins)}, min={min_size}")
     eval_sizes = compute_eval_sizes(len(current_proteins), min_size, step_strategy)
+    logger.debug(f"Eval sizes computed: {eval_sizes}")
     logger.info(f"RFE: Starting with {len(current_proteins)} proteins, target sizes: {eval_sizes}")
 
     for target_size in eval_sizes:
@@ -485,9 +534,7 @@ def recursive_feature_elimination(
         while len(current_proteins) > target_size and len(current_proteins) > min_size:
             # Build pipeline with current panel
             try:
-                pipeline = build_lightweight_pipeline(
-                    base_pipeline, current_proteins, cat_cols, meta_num_cols
-                )
+                pipeline = build_lightweight_pipeline(base_pipeline, current_proteins, cat_cols)
             except Exception as e:
                 logger.error(f"Failed to build pipeline: {e}")
                 break
@@ -533,9 +580,7 @@ def recursive_feature_elimination(
             break
 
         # Build and fit final pipeline for this size
-        pipeline = build_lightweight_pipeline(
-            base_pipeline, current_proteins, cat_cols, meta_num_cols
-        )
+        pipeline = build_lightweight_pipeline(base_pipeline, current_proteins, cat_cols)
         feature_cols = current_proteins + cat_cols + meta_num_cols
         X_train_subset = X_train[feature_cols]
         X_val_subset = X_val[feature_cols]
@@ -543,17 +588,43 @@ def recursive_feature_elimination(
         try:
             pipeline.fit(X_train_subset, y_train)
 
-            # CV AUROC (OOF estimate)
-            cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
-            oof_probs = cross_val_predict(
-                clone(pipeline), X_train_subset, y_train, cv=cv, method="predict_proba"
-            )[:, 1]
-            auroc_cv = auroc(y_train, oof_probs)
-            auroc_cv_std = _bootstrap_auroc_std(y_train, oof_probs, n_bootstrap=50)
+            # CV metrics (OOF estimate) - skip if cv_folds <= 1 for speed
+            if cv_folds > 1:
+                logger.info(f"  Running {cv_folds}-fold CV for size {len(current_proteins)}...")
+                cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+                oof_probs = cross_val_predict(
+                    clone(pipeline), X_train_subset, y_train, cv=cv, method="predict_proba"
+                )[:, 1]
+                auroc_cv = auroc(y_train, oof_probs)
+                prauc_cv = prauc(y_train, oof_probs)
+                brier_cv = compute_brier_score(y_train, oof_probs)
+                sens_cv = alpha_sensitivity_at_specificity(
+                    y_train, oof_probs, target_specificity=0.95
+                )
+                logger.info(
+                    f"  CV AUROC: {auroc_cv:.4f}, PR-AUC: {prauc_cv:.4f}, Brier: {brier_cv:.4f}"
+                )
+                auroc_cv_std = _bootstrap_auroc_std(y_train, oof_probs, n_bootstrap=50)
+            else:
+                # No CV: use training set metrics (biased but fast)
+                train_probs = pipeline.predict_proba(X_train_subset)[:, 1]
+                auroc_cv = auroc(y_train, train_probs)
+                prauc_cv = prauc(y_train, train_probs)
+                brier_cv = compute_brier_score(y_train, train_probs)
+                sens_cv = alpha_sensitivity_at_specificity(
+                    y_train, train_probs, target_specificity=0.95
+                )
+                auroc_cv_std = 0.0
+                logger.info(
+                    f"  Train AUROC: {auroc_cv:.4f}, PR-AUC: {prauc_cv:.4f}, Brier: {brier_cv:.4f}"
+                )
 
-            # Validation AUROC
+            # Validation metrics
             val_probs = pipeline.predict_proba(X_val_subset)[:, 1]
             auroc_val = auroc(y_val, val_probs)
+            prauc_val = prauc(y_val, val_probs)
+            brier_val = compute_brier_score(y_val, val_probs)
+            sens_val = alpha_sensitivity_at_specificity(y_val, val_probs, target_specificity=0.95)
 
         except Exception as e:
             logger.error(f"Evaluation failed at size {len(current_proteins)}: {e}")
@@ -565,11 +636,19 @@ def recursive_feature_elimination(
             "auroc_cv": auroc_cv,
             "auroc_cv_std": auroc_cv_std,
             "auroc_val": auroc_val,
+            "prauc_cv": prauc_cv,
+            "prauc_val": prauc_val,
+            "brier_cv": brier_cv,
+            "brier_val": brier_val,
+            "sens_at_95spec_cv": sens_cv,
+            "sens_at_95spec_val": sens_val,
             "proteins": list(current_proteins),
         }
         curve.append(point)
         logger.info(
-            f"Panel size {len(current_proteins)}: AUROC_cv={auroc_cv:.4f}, AUROC_val={auroc_val:.4f}"
+            f"Panel size {len(current_proteins)}: "
+            f"AUROC_cv={auroc_cv:.4f}, AUROC_val={auroc_val:.4f}, "
+            f"Sens@95%Spec_val={sens_val:.4f}"
         )
 
         # Track max AUROC
@@ -657,6 +736,12 @@ def save_rfe_results(
                 "auroc_cv": p["auroc_cv"],
                 "auroc_cv_std": p["auroc_cv_std"],
                 "auroc_val": p["auroc_val"],
+                "prauc_cv": p.get("prauc_cv", float("nan")),
+                "prauc_val": p.get("prauc_val", float("nan")),
+                "brier_cv": p.get("brier_cv", float("nan")),
+                "brier_val": p.get("brier_val", float("nan")),
+                "sens_at_95spec_cv": p.get("sens_at_95spec_cv", float("nan")),
+                "sens_at_95spec_val": p.get("sens_at_95spec_val", float("nan")),
                 "proteins": json.dumps(p["proteins"]),
             }
             for p in result.curve
@@ -699,6 +784,28 @@ def save_rfe_results(
     )
     pareto_df.to_csv(pareto_path, index=False)
     paths["pareto_frontier"] = pareto_path
+
+    # 5. Metrics summary CSV (panel size vs all metrics)
+    metrics_summary_path = os.path.join(output_dir, "metrics_summary.csv")
+    metrics_df = pd.DataFrame(
+        [
+            {
+                "size": p["size"],
+                "auroc_cv": p["auroc_cv"],
+                "auroc_val": p["auroc_val"],
+                "prauc_cv": p.get("prauc_cv", float("nan")),
+                "prauc_val": p.get("prauc_val", float("nan")),
+                "brier_cv": p.get("brier_cv", float("nan")),
+                "brier_val": p.get("brier_val", float("nan")),
+                "sens_at_95spec_cv": p.get("sens_at_95spec_cv", float("nan")),
+                "sens_at_95spec_val": p.get("sens_at_95spec_val", float("nan")),
+                "auroc_cv_std": p["auroc_cv_std"],
+            }
+            for p in result.curve
+        ]
+    )
+    metrics_df.to_csv(metrics_summary_path, index=False)
+    paths["metrics_summary"] = metrics_summary_path
 
     logger.info(f"Saved RFE results to {output_dir}")
     return paths

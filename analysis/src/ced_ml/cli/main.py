@@ -487,9 +487,9 @@ def train_ensemble(ctx, config, base_models, **kwargs):
 )
 @click.option(
     "--step-strategy",
-    type=click.Choice(["adaptive", "linear", "geometric"]),
+    type=click.Choice(["geometric", "fine", "linear"]),
     default=None,
-    help="Feature elimination strategy (default: adaptive)",
+    help="Feature elimination strategy (default: geometric, fine=more granular)",
 )
 @click.option(
     "--outdir",
@@ -500,7 +500,9 @@ def train_ensemble(ctx, config, base_models, **kwargs):
 @click.option(
     "--use-stability-panel/--use-all-features",
     default=None,
-    help="Start from stability ranking (default) or all features",
+    help="Use stable panel (≥75% threshold) from training. "
+    "Loads from reports/stable_panel/stable_panel__KBest.csv. "
+    "If False, uses all proteins from model. Default: True",
 )
 @click.pass_context
 def optimize_panel(ctx, **kwargs):

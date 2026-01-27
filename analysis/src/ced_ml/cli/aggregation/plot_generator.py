@@ -118,9 +118,6 @@ def generate_aggregated_plots(
         model_plots_dir = out_dir / "diagnostics" / "plots"
         model_plots_dir.mkdir(parents=True, exist_ok=True)
 
-        model_preds_plots_dir = out_dir / "preds" / "plots"
-        model_preds_plots_dir.mkdir(parents=True, exist_ok=True)
-
         # Filter data for this model
         model_test_df = (
             pooled_test_df[pooled_test_df["model"] == model_name]
@@ -239,7 +236,7 @@ def generate_aggregated_plots(
                     plot_risk_distribution(
                         y_true=y_true,
                         scores=y_pred,
-                        out_path=model_preds_plots_dir / f"{data_name}_risk_dist.{fmt}",
+                        out_path=model_plots_dir / f"{data_name}_risk_dist.{fmt}",
                         title=f"Aggregated {data_name.capitalize()} Set Risk Distribution - {model_name}",
                         category_col=category,
                         threshold_bundle=local_bundle,
@@ -268,7 +265,7 @@ def generate_aggregated_plots(
                         plot_risk_distribution(
                             y_true=y_true_train,
                             scores=y_pred_train,
-                            out_path=model_preds_plots_dir / f"train_oof_risk_dist.{fmt}",
+                            out_path=model_plots_dir / f"train_oof_risk_dist.{fmt}",
                             title=f"Aggregated Train OOF Risk Distribution - {model_name}",
                             category_col=category_train,
                             threshold_bundle=oof_bundle,

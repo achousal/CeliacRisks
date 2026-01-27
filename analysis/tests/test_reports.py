@@ -95,7 +95,6 @@ def test_output_directories_all_categories(output_dirs):
         "preds_val",
         "preds_controls",
         "preds_train_oof",
-        "preds_plots",
         "reports_features",
         "reports_stable",
         "reports_panels",
@@ -106,6 +105,9 @@ def test_output_directories_all_categories(output_dirs):
         "diag_learning",
         "diag_dca",
         "diag_tuning",
+        "diag_plots",
+        "diag_screening",
+        "diag_test_ci",
     ]
 
     for category in expected_categories:

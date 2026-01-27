@@ -1581,16 +1581,13 @@ def run_train(
             )
             logger.info("OOF combined plots saved")
 
-        # Generate risk distribution plots (go to preds/plots/)
-        preds_plots_dir = Path(outdirs.preds_plots)
-        preds_plots_dir.mkdir(parents=True, exist_ok=True)
-
+        # Generate risk distribution plots (consolidated with other diagnostic plots)
         # Test set risk distribution
         if config.output.plot_risk_distribution:
             plot_risk_distribution(
                 y_true=y_test,
                 scores=test_preds_df["y_prob"].values,
-                out_path=preds_plots_dir
+                out_path=plots_dir
                 / f"{config.model}__TEST_risk_distribution.{config.output.plot_format}",
                 title=f"{config.model} - Test Set",
                 subtitle="Risk Score Distribution",
@@ -1605,7 +1602,7 @@ def run_train(
             plot_risk_distribution(
                 y_true=y_val,
                 scores=val_preds_df["y_prob"].values,
-                out_path=preds_plots_dir
+                out_path=plots_dir
                 / f"{config.model}__VAL_risk_distribution.{config.output.plot_format}",
                 title=f"{config.model} - Validation Set",
                 subtitle="Risk Score Distribution",
@@ -1629,7 +1626,7 @@ def run_train(
             plot_risk_distribution(
                 y_true=y_train,
                 scores=oof_mean,
-                out_path=preds_plots_dir
+                out_path=plots_dir
                 / f"{config.model}__TRAIN_OOF_risk_distribution.{config.output.plot_format}",
                 title=f"{config.model} - Train OOF",
                 subtitle="Risk Score Distribution (mean across repeats)",
@@ -1639,8 +1636,7 @@ def run_train(
             )
             logger.info("Train OOF risk distribution plot saved")
 
-        logger.info(f"Diagnostic plots saved to: {plots_dir}")
-        logger.info(f"Risk distribution plots saved to: {preds_plots_dir}")
+        logger.info(f"All diagnostic plots saved to: {plots_dir}")
 
     # Step 16: Generate additional artifacts
     log_section(logger, "Generating Additional Artifacts")

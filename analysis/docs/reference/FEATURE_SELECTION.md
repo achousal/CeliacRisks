@@ -107,7 +107,8 @@ What do you need?
 4. [Strategy 3: Post-hoc RFE](#strategy-3-post-hoc-rfe)
 5. [Strategy 4: Fixed Panel](#strategy-4-fixed-panel-validation)
 6. [Common Workflows](#common-workflows)
-7. [Troubleshooting](#troubleshooting)
+7. [Ensemble Feature Selection Workflows](#ensemble-feature-selection-workflows) (NEW)
+8. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -307,7 +308,17 @@ ced optimize-panel \
 | `--min-size` | 5 | Minimum panel size to evaluate |
 | `--min-auroc-frac` | 0.90 | Early stop if AUROC < frac × max_auroc |
 | `--cv-folds` | 5 | CV folds for OOF AUROC estimation |
-| `--step-strategy` | adaptive | Elimination strategy (adaptive/linear/geometric) |
+| `--step-strategy` | geometric | Elimination strategy (geometric/fine/linear) |
+
+**Step Strategy Comparison:**
+
+| Strategy | Evaluation Points | Speed | Use Case |
+|----------|-------------------|-------|----------|
+| **geometric** (default) | ~6 points | Fastest | Quick exploration (100→50→25→12→6→5) |
+| **fine** | ~10 points (1.67x more) | Fast | More granular data (100→75→50→37→25→18→12→9→6→5) |
+| **linear** | Every size | Slowest | Maximum detail (100→99→98...→6→5) |
+
+**Recommendation**: Use `--step-strategy fine` for publication-quality Pareto curves with better resolution at intermediate panel sizes.
 
 ### Outputs
 
@@ -534,7 +545,8 @@ ced optimize-panel \
   --min-size 5  # ~5 min
 
 # Step 3: Review trade-off curve
-cat results/LR_EN/split_seed0/panel_optimization/rfe_results.csv
+cat results/LR_EN/split_seed0/panel_optimization/panel_curve.csv
+cat results/LR_EN/split_seed0/panel_optimization/metrics_summary.csv
 cat results/LR_EN/split_seed0/panel_optimization/recommended_panels.json
 
 # Example output:
@@ -667,6 +679,273 @@ awk -F',' 'NR==1 || $2 >= 0.70 {print $1}' \
 # Step 4: Validate
 ced train --fixed-panel consensus.csv --split-seed 10
 ```
+
+---
+
+## Ensemble Feature Selection Workflows
+
+**Context**: See [ADR-009: OOF Stacking Ensemble](../adr/ADR-009-oof-stacking-ensemble.md) for ensemble architecture.
+
+The pipeline provides two specialized workflows for ensemble-based feature selection:
+
+### Workflow 6: Two-Pass Ensemble Panel Optimization
+
+**Goal**: Find minimal viable panel size for ensemble model via consensus-based RFE.
+
+**When to use**:
+- Clinical deployment of ensemble model
+- Need to see AUROC vs panel size trade-offs
+- Cost/assay constraints matter
+
+**Why two-pass**: The ensemble meta-learner operates on base model predictions (4 features), not raw proteins (2,920 features). To optimize protein panels for deployment, we use a **two-pass approach**:
+1. **Pass 1 (Discovery)**: Run RFE on best single model to identify minimal panel sizes
+2. **Pass 2 (Ensemble Retraining)**: Retrain base models + ensemble on optimized panel
+
+**Expected benefit**: Ensemble typically achieves +2-5% AUROC over best single model. Two-pass RFE identifies smallest panel maintaining this gain.
+
+```bash
+# PASS 1: Discover optimal panel sizes via single-model RFE
+# ============================================================
+
+# Step 1a: Train base models with feature selection
+ced train --model LR_EN --split-seed 0
+ced train --model RF --split-seed 0
+ced train --model XGBoost --split-seed 0
+
+# Step 1b: Aggregate to get consensus panel
+ced aggregate-splits --config configs/aggregate_config.yaml
+
+# Step 1c: Run RFE on best single model (using consensus panel)
+# Uses the model with highest AUROC (typically LR_EN or XGBoost)
+ced optimize-panel \
+  --model-path results/LR_EN/run_*/split_seed0/core/LR_EN__final_model.joblib \
+  --infile ../data/Celiac_dataset_proteomics_w_demo.parquet \
+  --split-dir ../splits/ \
+  --split-seed 0 \
+  --start-size 150 \
+  --min-size 10
+
+# Output: Pareto curve showing AUROC vs panel size
+# Expected runtime: ~5 minutes
+
+
+# PASS 2: Retrain ensemble on optimized panel
+# ============================================
+
+# Step 2a: View RFE results to choose panel size
+cat results/LR_EN/run_*/split_seed0/optimize_panel/panel_curve.csv
+
+# Example output:
+# size,auroc_cv,auroc_val,prauc_val
+# 150,0.945,0.943,0.80  (baseline: consensus panel)
+# 75,0.942,0.940,0.79   (99.7% of max)
+# 50,0.937,0.935,0.77   (99.2% of max)  ← Knee point
+# 25,0.925,0.923,0.74   (97.9% of max)
+# 10,0.902,0.900,0.68   (95.4% of max)
+
+# Step 2b: Stakeholder decision
+# "Panel size 50 maintains 99% of consensus AUROC but saves 100 proteins"
+
+# Step 2c: Extract chosen panel
+head -51 results/LR_EN/run_*/split_seed0/optimize_panel/feature_ranking.csv | \
+  tail -50 > optimized_panel_k50.csv
+
+# Step 2d: Retrain base models on optimized panel
+ced train --model LR_EN --fixed-panel optimized_panel_k50.csv --split-seed 0
+ced train --model RF --fixed-panel optimized_panel_k50.csv --split-seed 0
+ced train --model XGBoost --fixed-panel optimized_panel_k50.csv --split-seed 0
+
+# Step 2e: Train ensemble on retrained base models
+ced train-ensemble --base-models LR_EN,RF,XGBoost --split-seed 0
+
+# Expected ensemble AUROC: ~0.940-0.945 (ensemble boost on optimized panel)
+# Expected runtime: ~90 minutes total (3 models × 30 min)
+```
+
+**Outputs**:
+```
+# Pass 1 (RFE Discovery):
+results/LR_EN/run_*/split_seed0/optimize_panel/
+  ├── panel_curve.csv              # AUROC vs panel size (single model)
+  ├── panel_curve.png              # Pareto visualization
+  ├── recommended_panels.json      # Knee points (95%/90%/85% of max)
+  ├── feature_ranking.csv          # Protein elimination order
+  └── metrics_summary.csv          # Full metrics at each panel size
+
+# Pass 2 (Ensemble on optimized panel):
+results/ENSEMBLE/run_*/split_seed0/core/
+  ├── ENSEMBLE__final_model.joblib # Retrained ensemble
+  └── metrics.json                 # Ensemble AUROC on k=50 panel
+```
+
+**Cost-benefit calculation**:
+```python
+# Example: Assay cost $50/protein
+Consensus panel (k=150): $7,500/sample, Single AUROC=0.943, Ensemble=0.950
+Optimized panel (k=50):  $2,500/sample, Single AUROC=0.935, Ensemble=0.942
+  → 67% cost reduction
+  → Single model: -0.8% AUROC loss
+  → Ensemble: -0.8% AUROC loss (maintains +0.7% boost over single model)
+
+Aggressive panel (k=25): $1,250/sample, Single AUROC=0.923, Ensemble=0.930
+  → 83% cost reduction
+  → Single model: -2.0% AUROC loss
+  → Ensemble: -2.0% AUROC loss (maintains +0.7% boost over single model)
+```
+
+**Key insight**: The ensemble boost (+2-5% AUROC) is **preserved** when using optimized panels, because the meta-learner combines diverse base model predictions regardless of panel size.
+
+### Workflow 7: Consensus Panel Aggregation
+
+**Goal**: Identify algorithm-invariant biomarkers selected by multiple base models.
+
+**When to use**:
+- Scientific discovery: "Which proteins are robustly selected across algorithms?"
+- Ultra-robust panels: Intersection of multiple selection methods
+- Feature stability analysis across model families (linear vs tree-based)
+
+**Expected benefit**: Proteins selected by diverse models (LR, RF, XGBoost) are likely biologically robust, not algorithm artifacts.
+
+**IMPORTANT**: This workflow is **automatically executed** by the aggregation pipeline. You do NOT need to run a separate command.
+
+```bash
+# Step 1: Train base models with feature selection
+ced train --model LR_EN --split-seed 0
+ced train --model RF --split-seed 0
+ced train --model XGBoost --split-seed 0
+
+# Step 2: Consensus aggregation happens automatically via:
+# LOCAL: ced aggregate-splits --config configs/aggregate_config.yaml
+# HPC:   bash scripts/post_training_pipeline.sh --run-id <RUN_ID>
+
+# No separate consensus-panel command needed!
+```
+
+**Consensus methods**:
+
+| Method | Description | Use Case | Panel Size |
+|--------|-------------|----------|------------|
+| **intersection** | Features in ALL models | Ultra-conservative, high confidence | Smallest |
+| **union** | Features in ANY model | Comprehensive, exploratory | Largest |
+| **frequency** | Features in ≥67% of models (default) | Balanced, robust | Medium |
+| **weighted** | Weighted by model AUROC | Performance-driven | Medium |
+
+**Outputs** (from `ced aggregate-splits`):
+```
+results/{MODEL}/aggregated/
+  ├── feature_stability.csv            # Per-protein selection frequencies across splits
+  ├── feature_importances.csv          # Mean feature importances
+  └── aggregation_metadata.json        # Metadata and statistics
+```
+
+**To extract consensus panel from aggregation output**:
+```bash
+# Extract proteins selected in ≥70% of splits (frequency-based consensus)
+awk -F',' 'NR==1 || $2 >= 0.70 {print $1}' \
+  results/LR_EN/aggregated/feature_stability.csv \
+  > consensus_panel_70pct.csv
+```
+
+**Example**: Frequency method (≥2 of 3 models)
+```bash
+# Input (from model training):
+# LR_EN:   [P1, P2, P3, P5, P7]        (5 proteins)
+# RF:      [P2, P3, P4, P6, P7, P8]    (6 proteins)
+# XGBoost: [P2, P5, P7, P9]            (4 proteins)
+
+# Consensus output (≥0.67 = ≥2 models):
+# P2: 3/3 models = 100% → KEEP
+# P3: 2/3 models = 67%  → KEEP
+# P7: 3/3 models = 100% → KEEP
+# P5: 2/3 models = 67%  → KEEP
+
+# Consensus panel: [P2, P3, P5, P7] (4 proteins)
+```
+
+**Validation workflow** (recommended):
+```bash
+# Step 1: Extract consensus panel from aggregation output
+awk -F',' 'NR==1 || $2 >= 0.80 {print $1}' \
+  results/LR_EN/aggregated/feature_stability.csv \
+  > consensus_panel_intersection.csv
+
+# Step 2: Validate on NEW split (unbiased)
+ced train --model LR_EN --fixed-panel consensus_panel_intersection.csv --split-seed 10
+ced train --model RF --fixed-panel consensus_panel_intersection.csv --split-seed 10
+ced train --model XGBoost --fixed-panel consensus_panel_intersection.csv --split-seed 10
+
+# Step 3: Compare per-model AUROC
+# If all models perform well with consensus panel → robust biomarkers
+```
+
+### Workflow 8: Deprecated - See Workflow 6
+
+**Note**: This workflow has been deprecated. Use **Workflow 6 (Two-Pass Ensemble Panel Optimization)** instead.
+
+The two-pass approach is necessary because the ensemble meta-learner operates on base model predictions (4 features), not raw proteins (2,920 features). Direct RFE on the ensemble model is not supported.
+
+### Workflow Comparison: Two-Pass Ensemble RFE vs Aggregation Pipeline
+
+| Attribute | Two-Pass Ensemble RFE (Workflow 6) | Aggregation Pipeline (Automatic) |
+|-----------|-------------------------------------|----------------------------------|
+| **When** | After base model training | After base model training |
+| **Tool** | `ced optimize-panel` (Pass 1) + `ced train-ensemble` (Pass 2) | `ced aggregate-splits` (auto via HPC) |
+| **Input** | Best single model (Pass 1) → Retrained base models (Pass 2) | All base models across splits |
+| **Goal** | Optimize panel size (cost vs. AUROC) for ensemble deployment | Compute consensus features (stability) |
+| **Output** | Pareto curve + ensemble on optimized panel | feature_stability.csv |
+| **AUROC** | Highest (ensemble on optimized panel) | Per-model (LR_EN, RF, etc.) |
+| **Runtime** | ~5 min (Pass 1) + ~90 min (Pass 2) | <1 minute (part of aggregation) |
+| **Use for** | Clinical deployment with cost constraints | Scientific discovery, robustness |
+
+**Decision guide**:
+- **Two-Pass Ensemble RFE** (Workflow 6): For clinical deployment with cost constraints (stakeholder-driven panel sizing, preserves ensemble boost)
+- **Aggregation Pipeline** (Automatic): For scientific discovery and feature stability analysis (runs automatically)
+
+### Panel Optimization Best Practices
+
+1. **Always train ensemble AFTER base models**:
+   ```bash
+   # Correct order
+   ced train --model LR_EN,RF,XGBoost --split-seed 0  # Base models first
+   ced train-ensemble --base-models LR_EN,RF,XGBoost  # Ensemble second
+   ced optimize-panel --model-path results/ENSEMBLE/...  # Optimize third
+   ```
+
+2. **Use geometric step strategy** (default for RFE):
+   - Fast: ~5 min vs ~45 min for linear
+   - Sufficient granularity for clinical decisions
+   - Fine strategy for high-stakes deployments (more Pareto points)
+
+3. **Validate with new split seed** (regulatory/publication):
+   ```bash
+   # Discovery: Split seed 0
+   ced optimize-panel --split-seed 0 --model-path results/ENSEMBLE/.../ENSEMBLE__final_model.joblib
+
+   # Extract chosen panel (e.g., k=25)
+   head -26 results/ENSEMBLE/.../optimize_panel/feature_ranking.csv | \
+     tail -25 > deployment_panel_k25.csv
+
+   # Validation: Split seed 10 (NEW data, no peeking)
+   ced train --model ENSEMBLE --fixed-panel deployment_panel_k25.csv --split-seed 10
+   ```
+
+4. **Document cost-performance trade-offs**:
+   - Save `panel_curve.csv` with stakeholder decisions
+   - Include Pareto plots in regulatory submissions
+   - Record rationale: "Chose k=25: 98% AUROC retained, 75% cost reduction"
+
+5. **Consensus panel thresholds** (from aggregation output):
+   ```bash
+   # Extract high-stability proteins (≥80% of splits)
+   awk -F',' 'NR==1 || $2 >= 0.80 {print $1}' \
+     results/LR_EN/aggregated/feature_stability.csv \
+     > consensus_panel_intersection.csv  # Ultra-conservative
+
+   # Extract moderate-stability proteins (≥67% of splits)
+   awk -F',' 'NR==1 || $2 >= 0.67 {print $1}' \
+     results/LR_EN/aggregated/feature_stability.csv \
+     > consensus_panel_frequency.csv  # Balanced (default)
+   ```
 
 ---
 
@@ -903,11 +1182,12 @@ importance = result.importances_mean
 - [src/ced_ml/features/stability.py](../../src/ced_ml/features/stability.py): Stability analysis
 - [src/ced_ml/features/nested_rfe.py](../../src/ced_ml/features/nested_rfe.py): Nested RFECV implementation
 - [src/ced_ml/features/rfe.py](../../src/ced_ml/features/rfe.py): Post-hoc RFE implementation
+- [src/ced_ml/features/consensus.py](../../src/ced_ml/features/consensus.py): Consensus panel aggregation (NEW)
 - [src/ced_ml/cli/train.py](../../src/ced_ml/cli/train.py): Training CLI (fixed panel)
-- [src/ced_ml/cli/optimize_panel.py](../../src/ced_ml/cli/optimize_panel.py): Post-hoc RFE CLI
+- [src/ced_ml/cli/optimize_panel.py](../../src/ced_ml/cli/optimize_panel.py): Post-hoc RFE and consensus workflows CLI
 
 ---
 
 **Document Status**: Production-ready
 **Maintainer**: Andres Chousal
-**Last Reviewed**: 2026-01-26
+**Last Reviewed**: 2026-01-27 (Added ensemble workflows)

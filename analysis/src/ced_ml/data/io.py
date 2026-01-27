@@ -290,7 +290,7 @@ def validate_binary_outcome(y) -> None:
         unique_vals = np.unique(y_arr[mask])
     else:
         unique_vals = np.unique(y_arr)
-    valid_vals = {0, 1, 0.0, 1.0}
+    valid_vals = {0, 1}
     invalid = [v for v in unique_vals.tolist() if v not in valid_vals]
     if invalid:
         raise ValueError(

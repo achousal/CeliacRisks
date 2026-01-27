@@ -734,8 +734,8 @@ class PanelOptimizeConfig(BaseModel):
     # Cross-validation
     cv_folds: int = Field(
         default=5,
-        ge=2,
-        description="CV folds for OOF AUROC estimation",
+        ge=0,
+        description="CV folds for OOF AUROC estimation (0=skip CV, use train AUROC)",
     )
 
     # Elimination strategy
