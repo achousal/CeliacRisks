@@ -127,9 +127,15 @@ def save_learning_curve_csv(
         out_plot: Optional output path for plot
         meta_lines: Optional metadata lines for plot annotation
     """
-    sizes, train_scores, val_scores = compute_learning_curve(
-        estimator, X, y, scoring, cv, min_frac, n_points, seed
-    )
+    # Reduce screening log verbosity during learning curve generation
+    from ced_ml.features.screening import reduced_screening_verbosity
+
+    logger.info(f"Generating learning curve ({n_points} training sizes, {cv}-fold CV)")
+
+    with reduced_screening_verbosity():
+        sizes, train_scores, val_scores = compute_learning_curve(
+            estimator, X, y, scoring, cv, min_frac, n_points, seed
+        )
 
     metric_label, metric_is_error, train_scores, val_scores = _normalize_metric_scores(
         scoring, train_scores, val_scores

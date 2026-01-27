@@ -283,11 +283,21 @@ class OOFCalibrator:
         if len(np.unique(y_clean)) < 2:
             raise ValueError("Need both classes present for calibration")
 
+        # Compute pre-calibration metrics
+        from sklearn.metrics import brier_score_loss, roc_auc_score
+
+        brier_pre = brier_score_loss(y_clean, oof_clean)
+        auroc_pre = roc_auc_score(y_clean, oof_clean)
+
         if self.method == "isotonic":
             from sklearn.isotonic import IsotonicRegression
 
             self.calibrator_ = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip")
             self.calibrator_.fit(oof_clean, y_clean)
+
+            # Count bins for isotonic
+            n_bins = len(np.unique(self.calibrator_.f_))
+            logger.info(f"OOF calibration ({self.method}, {n_bins} bins)")
         else:
             # Sigmoid (Platt scaling) via logistic regression on log-odds
             eps = 1e-7
@@ -295,8 +305,39 @@ class OOFCalibrator:
             log_odds = np.log(oof_clipped / (1 - oof_clipped))
             self.calibrator_ = LogisticRegression(penalty=None, solver="lbfgs", max_iter=1000)
             self.calibrator_.fit(log_odds.reshape(-1, 1), y_clean)
+            logger.info(f"OOF calibration ({self.method})")
 
+        # Mark as fitted before computing post-calibration metrics
         self.is_fitted = True
+
+        # Compute post-calibration metrics
+        calibrated_preds = self.transform(oof_clean)
+        brier_post = brier_score_loss(y_clean, calibrated_preds)
+        auroc_post = roc_auc_score(y_clean, calibrated_preds)
+
+        brier_improvement = (brier_pre - brier_post) / brier_pre * 100
+        auroc_change = auroc_post - auroc_pre
+
+        logger.info(f"  Pre-calibration:  Brier={brier_pre:.3f}, AUROC={auroc_pre:.3f}")
+        logger.info(
+            f"  Post-calibration: Brier={brier_post:.3f}, AUROC={auroc_post:.3f} ({brier_improvement:+.1f}% Brier improvement)"
+        )
+
+        if self.method == "isotonic":
+            logger.info(
+                "  Rationale: Isotonic regression maps predictions to empirical prevalence bins"
+            )
+        else:
+            logger.info(
+                "  Rationale: Platt scaling fits logistic transform to calibrate probabilities"
+            )
+
+        # Warn if calibration degrades discrimination
+        if auroc_change < -0.01:
+            logger.warning(
+                f"Calibration degraded discrimination: AUROC dropped {auroc_pre:.3f} → {auroc_post:.3f} (check data quality)"
+            )
+
         return self
 
     def transform(self, predictions: np.ndarray) -> np.ndarray:

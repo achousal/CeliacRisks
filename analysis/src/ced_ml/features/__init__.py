@@ -25,9 +25,11 @@ from .panels import (
 from .screening import (
     f_statistic_screen,
     mann_whitney_screen,
+    reduced_screening_verbosity,
     screen_proteins,
     variance_missingness_prefilter,
 )
+from .screening_cache import ScreeningCache, get_screening_cache
 from .stability import (
     build_frequency_panel,
     compute_selection_frequencies,
@@ -58,8 +60,12 @@ __all__ = [
     # Screening
     "f_statistic_screen",
     "mann_whitney_screen",
+    "reduced_screening_verbosity",
     "screen_proteins",
     "variance_missingness_prefilter",
+    # Screening cache
+    "ScreeningCache",
+    "get_screening_cache",
     # Stability
     "build_frequency_panel",
     "compute_selection_frequencies",

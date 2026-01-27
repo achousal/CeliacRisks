@@ -413,3 +413,35 @@ class TestIntegration:
         selected2 = select_kbest_features(X2, y2, k=1, protein_cols=["P1", "P2"])
 
         assert selected1 == selected2
+
+
+def test_screening_transformer_attributes():
+    """Test ScreeningTransformer sets both selected_features_ and selected_proteins_."""
+    from ced_ml.features.kbest import ScreeningTransformer
+
+    rng = np.random.default_rng(42)
+    X = pd.DataFrame(
+        {
+            "P1": rng.normal(0, 1, 100),
+            "P2": rng.normal(1.5, 1, 100),
+            "P3": rng.normal(0, 1, 100),
+        }
+    )
+    y = np.concatenate([np.zeros(50), np.ones(50)])
+
+    screener = ScreeningTransformer(method="mannwhitney", top_n=2, protein_cols=["P1", "P2", "P3"])
+    screener.fit(X, y)
+
+    # Both attributes should exist
+    assert hasattr(screener, "selected_features_"), "Missing selected_features_ attribute"
+    assert hasattr(screener, "selected_proteins_"), "Missing selected_proteins_ attribute"
+
+    # They should be identical (selected_proteins_ is an alias)
+    assert (
+        screener.selected_features_ == screener.selected_proteins_
+    ), "selected_features_ and selected_proteins_ should be identical"
+
+    # Should have selected exactly 2 proteins
+    assert (
+        len(screener.selected_proteins_) == 2
+    ), f"Expected 2 proteins, got {len(screener.selected_proteins_)}"

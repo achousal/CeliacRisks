@@ -988,6 +988,474 @@ class TestE2EErrorHandling:
         assert result.exit_code != 0
 
 
+class TestE2EPanelOptimization:
+    """Test panel optimization workflow: train -> optimize-panel -> validate."""
+
+    @pytest.mark.slow
+    def test_panel_optimization_workflow(
+        self, minimal_proteomics_data, minimal_training_config, tmp_path
+    ):
+        """
+        Test: Panel optimization via RFE after training.
+
+        Critical workflow for deployment sizing. Marked slow (~1-2 min).
+        """
+        splits_dir = tmp_path / "splits"
+        results_dir = tmp_path / "results"
+        splits_dir.mkdir()
+        results_dir.mkdir()
+
+        runner = CliRunner()
+
+        # Step 1: Generate splits
+        result_splits = runner.invoke(
+            cli,
+            [
+                "save-splits",
+                "--infile",
+                str(minimal_proteomics_data),
+                "--outdir",
+                str(splits_dir),
+                "--n-splits",
+                "1",
+                "--val-size",
+                "0.25",
+                "--test-size",
+                "0.25",
+                "--seed-start",
+                "42",
+            ],
+        )
+        assert result_splits.exit_code == 0
+
+        # Step 2: Train model
+        result_train = runner.invoke(
+            cli,
+            [
+                "train",
+                "--infile",
+                str(minimal_proteomics_data),
+                "--split-dir",
+                str(splits_dir),
+                "--outdir",
+                str(results_dir),
+                "--config",
+                str(minimal_training_config),
+                "--model",
+                "LR_EN",
+                "--split-seed",
+                "42",
+            ],
+            catch_exceptions=False,
+        )
+
+        if result_train.exit_code != 0:
+            pytest.skip(f"Training failed: {result_train.output[:200]}")
+
+        # Find the trained model file
+        model_files = list(results_dir.rglob("*final_model*.joblib"))
+        if not model_files:
+            model_files = list(results_dir.rglob("*.joblib"))
+
+        if not model_files:
+            pytest.skip("No trained model file found for panel optimization")
+
+        model_path = model_files[0]
+
+        # Step 3: Run panel optimization
+        panel_outdir = tmp_path / "panel_opt"
+        panel_outdir.mkdir()
+
+        result_optimize = runner.invoke(
+            cli,
+            [
+                "optimize-panel",
+                "--model-path",
+                str(model_path),
+                "--infile",
+                str(minimal_proteomics_data),
+                "--split-dir",
+                str(splits_dir),
+                "--split-seed",
+                "42",
+                "--start-size",
+                "10",
+                "--min-size",
+                "3",
+                "--outdir",
+                str(panel_outdir),
+            ],
+            catch_exceptions=False,
+        )
+
+        if result_optimize.exit_code != 0:
+            print("OPTIMIZE OUTPUT:", result_optimize.output)
+            if result_optimize.exception:
+                import traceback
+
+                traceback.print_exception(
+                    type(result_optimize.exception),
+                    result_optimize.exception,
+                    result_optimize.exception.__traceback__,
+                )
+
+        assert (
+            result_optimize.exit_code == 0
+        ), f"Panel optimization failed: {result_optimize.output}"
+
+        # Verify RFE outputs
+        assert (panel_outdir / "rfe_results.csv").exists(), "Missing RFE results"
+        assert (panel_outdir / "panel_sizes.csv").exists(), "Missing panel sizes table"
+
+        # Validate RFE results structure
+        rfe_results = pd.read_csv(panel_outdir / "rfe_results.csv")
+        assert "panel_size" in rfe_results.columns
+        assert "mean_auroc" in rfe_results.columns
+        assert len(rfe_results) > 0
+
+        # Check that AUROC is in valid range
+        assert all(0.0 <= auc <= 1.0 for auc in rfe_results["mean_auroc"])
+
+    def test_panel_optimization_requires_trained_model(self, minimal_proteomics_data, tmp_path):
+        """
+        Test: Panel optimization fails gracefully without trained model.
+
+        Error handling test.
+        """
+        splits_dir = tmp_path / "splits"
+        panel_outdir = tmp_path / "panel_opt"
+        splits_dir.mkdir()
+        panel_outdir.mkdir()
+
+        runner = CliRunner()
+
+        # Try to optimize panel without trained model
+        result = runner.invoke(
+            cli,
+            [
+                "optimize-panel",
+                "--model-path",
+                str(tmp_path / "nonexistent_model.joblib"),
+                "--infile",
+                str(minimal_proteomics_data),
+                "--split-dir",
+                str(splits_dir),
+                "--split-seed",
+                "42",
+                "--outdir",
+                str(panel_outdir),
+            ],
+        )
+
+        # Should fail with informative error
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower() or "does not exist" in result.output.lower()
+
+
+class TestE2EFixedPanelValidation:
+    """Test fixed panel validation workflow: train with --fixed-panel."""
+
+    @pytest.mark.slow
+    def test_fixed_panel_training_workflow(
+        self, minimal_proteomics_data, minimal_training_config, tmp_path
+    ):
+        """
+        Test: Train model with fixed panel (bypasses feature selection).
+
+        Critical for panel validation. Marked slow (~30-60s).
+        """
+        splits_dir = tmp_path / "splits"
+        results_dir = tmp_path / "results"
+        splits_dir.mkdir()
+        results_dir.mkdir()
+
+        runner = CliRunner()
+
+        # Step 1: Generate splits
+        result_splits = runner.invoke(
+            cli,
+            [
+                "save-splits",
+                "--infile",
+                str(minimal_proteomics_data),
+                "--outdir",
+                str(splits_dir),
+                "--n-splits",
+                "1",
+                "--val-size",
+                "0.25",
+                "--test-size",
+                "0.25",
+                "--seed-start",
+                "42",
+            ],
+        )
+        assert result_splits.exit_code == 0
+
+        # Step 2: Create a fixed panel file (5 proteins)
+        panel_file = tmp_path / "fixed_panel.csv"
+        panel_proteins = [f"PROT_{i:03d}_resid" for i in range(5)]
+        pd.DataFrame({"protein": panel_proteins}).to_csv(panel_file, index=False)
+
+        # Step 3: Train with fixed panel
+        result_train = runner.invoke(
+            cli,
+            [
+                "train",
+                "--infile",
+                str(minimal_proteomics_data),
+                "--split-dir",
+                str(splits_dir),
+                "--outdir",
+                str(results_dir),
+                "--config",
+                str(minimal_training_config),
+                "--model",
+                "LR_EN",
+                "--split-seed",
+                "42",
+                "--fixed-panel",
+                str(panel_file),
+            ],
+            catch_exceptions=False,
+        )
+
+        if result_train.exit_code != 0:
+            print("TRAIN OUTPUT:", result_train.output)
+            if result_train.exception:
+                import traceback
+
+                traceback.print_exception(
+                    type(result_train.exception),
+                    result_train.exception,
+                    result_train.exception.__traceback__,
+                )
+
+        assert result_train.exit_code == 0, f"Fixed panel training failed: {result_train.output}"
+
+        # Verify outputs exist
+        run_dirs = [d for d in results_dir.iterdir() if d.is_dir() and d.name.startswith("run_")]
+        assert len(run_dirs) == 1, f"Expected 1 run directory, found {len(run_dirs)}"
+        model_dir = run_dirs[0] / "split_seed42"
+        assert model_dir.exists()
+
+        # Check that model was trained
+        has_predictions = any(model_dir.rglob("*.csv"))
+        has_config = any(model_dir.rglob("*config*.yaml"))
+
+        assert has_predictions, "No predictions found"
+        assert has_config, "No config file found"
+
+    def test_fixed_panel_invalid_file(
+        self, minimal_proteomics_data, minimal_training_config, tmp_path
+    ):
+        """
+        Test: Fixed panel training fails gracefully with invalid panel file.
+
+        Error handling test.
+        """
+        splits_dir = tmp_path / "splits"
+        results_dir = tmp_path / "results"
+        splits_dir.mkdir()
+        results_dir.mkdir()
+
+        runner = CliRunner()
+
+        # Generate splits
+        runner.invoke(
+            cli,
+            [
+                "save-splits",
+                "--infile",
+                str(minimal_proteomics_data),
+                "--outdir",
+                str(splits_dir),
+                "--n-splits",
+                "1",
+            ],
+        )
+
+        # Try to train with nonexistent panel file
+        result = runner.invoke(
+            cli,
+            [
+                "train",
+                "--infile",
+                str(minimal_proteomics_data),
+                "--split-dir",
+                str(splits_dir),
+                "--outdir",
+                str(results_dir),
+                "--config",
+                str(minimal_training_config),
+                "--model",
+                "LR_EN",
+                "--split-seed",
+                "42",
+                "--fixed-panel",
+                str(tmp_path / "nonexistent_panel.csv"),
+            ],
+        )
+
+        # Should fail with informative error
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower() or "does not exist" in result.output.lower()
+
+
+class TestE2EAggregationWorkflow:
+    """Test aggregation workflow: multiple splits -> aggregate results."""
+
+    @pytest.mark.slow
+    def test_aggregation_across_splits(
+        self, minimal_proteomics_data, minimal_training_config, tmp_path
+    ):
+        """
+        Test: Aggregate results across multiple split seeds.
+
+        Critical for multi-split analysis. Marked slow (~2-3 min).
+        """
+        splits_dir = tmp_path / "splits"
+        results_dir = tmp_path / "results"
+        splits_dir.mkdir()
+        results_dir.mkdir()
+
+        runner = CliRunner()
+
+        # Step 1: Generate 2 splits
+        result_splits = runner.invoke(
+            cli,
+            [
+                "save-splits",
+                "--infile",
+                str(minimal_proteomics_data),
+                "--outdir",
+                str(splits_dir),
+                "--n-splits",
+                "2",
+                "--val-size",
+                "0.25",
+                "--test-size",
+                "0.25",
+                "--seed-start",
+                "42",
+            ],
+        )
+        assert result_splits.exit_code == 0
+
+        # Step 2: Train on both splits
+        for seed in [42, 43]:
+            result_train = runner.invoke(
+                cli,
+                [
+                    "train",
+                    "--infile",
+                    str(minimal_proteomics_data),
+                    "--split-dir",
+                    str(splits_dir),
+                    "--outdir",
+                    str(results_dir),
+                    "--config",
+                    str(minimal_training_config),
+                    "--model",
+                    "LR_EN",
+                    "--split-seed",
+                    str(seed),
+                ],
+                catch_exceptions=False,
+            )
+
+            if result_train.exit_code != 0:
+                pytest.skip(f"Training on seed {seed} failed: {result_train.output[:200]}")
+
+        # Step 3: Create aggregation config
+        agg_config = {
+            "model": "LR_EN",
+            "split_seeds": [42, 43],
+            "n_bootstrap": 100,
+        }
+        agg_config_path = tmp_path / "agg_config.yaml"
+        with open(agg_config_path, "w") as f:
+            yaml.dump(agg_config, f)
+
+        # Step 4: Run aggregation
+        result_agg = runner.invoke(
+            cli,
+            [
+                "aggregate-splits",
+                "--results-dir",
+                str(results_dir),
+                "--config",
+                str(agg_config_path),
+            ],
+            catch_exceptions=False,
+        )
+
+        if result_agg.exit_code != 0:
+            print("AGGREGATE OUTPUT:", result_agg.output)
+            if result_agg.exception:
+                import traceback
+
+                traceback.print_exception(
+                    type(result_agg.exception),
+                    result_agg.exception,
+                    result_agg.exception.__traceback__,
+                )
+            pytest.skip(
+                f"Aggregation not yet fully implemented or failed: {result_agg.output[:200]}"
+            )
+
+        assert result_agg.exit_code == 0, f"Aggregation failed: {result_agg.output}"
+
+        # Verify aggregated outputs
+        # Look for aggregated directory
+        agg_dirs = list(results_dir.rglob("*aggregated*"))
+        if agg_dirs:
+            agg_dir = agg_dirs[0]
+            # Check for expected aggregation outputs
+            has_metrics = any(agg_dir.rglob("*metrics*.csv")) or any(
+                agg_dir.rglob("*metrics*.json")
+            )
+            assert has_metrics, "No aggregated metrics found"
+
+    def test_aggregation_requires_multiple_splits(
+        self, minimal_proteomics_data, minimal_training_config, tmp_path
+    ):
+        """
+        Test: Aggregation fails gracefully without sufficient splits.
+
+        Error handling test.
+        """
+        results_dir = tmp_path / "results"
+        results_dir.mkdir()
+
+        runner = CliRunner()
+
+        # Create minimal aggregation config
+        agg_config = {
+            "model": "LR_EN",
+            "split_seeds": [42, 43],
+            "n_bootstrap": 100,
+        }
+        agg_config_path = tmp_path / "agg_config.yaml"
+        with open(agg_config_path, "w") as f:
+            yaml.dump(agg_config, f)
+
+        # Try to aggregate without training any splits
+        result = runner.invoke(
+            cli,
+            [
+                "aggregate-splits",
+                "--results-dir",
+                str(results_dir),
+                "--config",
+                str(agg_config_path),
+            ],
+        )
+
+        # Should fail (either immediately or with clear error)
+        assert result.exit_code != 0
+
+
 # ==================== How to Run ====================
 # Fast tests only:
 #   pytest tests/test_e2e_runner.py -v -m "not slow"

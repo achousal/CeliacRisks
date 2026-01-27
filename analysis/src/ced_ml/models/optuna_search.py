@@ -460,12 +460,36 @@ class OptunaSearchCV(BaseEstimator):
                     logger.warning(f"[optuna] CV failed for params {params}: {e}")
                     raise optuna.TrialPruned() from e
 
+        # Add trial callback for progress logging
+        logger.info(
+            f"Hyperparameter search: {self.n_trials} trials (sampler={self.sampler}, pruner={self.pruner})"
+        )
+
+        def trial_callback(study: optuna.Study, trial: optuna.Trial) -> None:
+            """Log progress every 10th trial."""
+            trial_number = trial.number + 1  # 1-indexed for logging
+
+            # Log every 10th trial
+            if trial_number % 10 == 0:
+                if trial.state == optuna.trial.TrialState.COMPLETE:
+                    if self.multi_objective:
+                        score_str = f"AUROC={trial.values[0]:.3f}, Brier={trial.values[1]:.3f}"
+                    else:
+                        score_str = f"score={trial.value:.3f}"
+
+                    # Format params concisely
+                    param_str = ", ".join([f"{k}={v}" for k, v in trial.params.items()])
+                    logger.info(
+                        f"  Trial {trial_number}/{self.n_trials}: {score_str}, params={{{param_str}}}"
+                    )
+
         # Run optimization
         self.study_.optimize(
             objective,
             n_trials=self.n_trials,
             timeout=self.timeout,
             show_progress_bar=self.verbose > 0,
+            callbacks=[trial_callback] if logger.isEnabledFor(logging.INFO) else None,
         )
 
         # Extract results
@@ -498,9 +522,21 @@ class OptunaSearchCV(BaseEstimator):
             self.best_estimator_.set_params(**self.best_params_)
             self.best_estimator_.fit(X_arr, y_arr)
 
+        # Log summary with hyperparameter importance
+        n_pruned = len([t for t in self.study_.trials if t.state == optuna.trial.TrialState.PRUNED])
         logger.info(
-            f"[optuna] Completed {self.n_trials_} trials. " f"Best score: {self.best_score_:.4f}"
+            f"  Completed {len(completed_trials)} trials ({n_pruned} pruned): best_score={self.best_score_:.3f}"
         )
+
+        # Log hyperparameter importance if enough trials
+        if len(completed_trials) >= 20 and not self.multi_objective:
+            try:
+                importance = optuna.importance.get_param_importances(self.study_)
+                top_params = sorted(importance.items(), key=lambda x: x[1], reverse=True)[:3]
+                importance_str = ", ".join([f"{k} ({v:.2f})" for k, v in top_params])
+                logger.info(f"  Top hyperparameter importance: {importance_str}")
+            except Exception:
+                pass  # Importance calculation may fail for some samplers
 
         return self
 

@@ -184,8 +184,8 @@ log "============================================"
 log "Step 1/4: Generate splits"
 
   SPLITS_EXIST=0
-  if ls "${SPLITS_DIR}"/train_idx_seed*.csv 1>/dev/null 2>&1 && \
-     ls "${SPLITS_DIR}"/val_idx_seed*.csv 1>/dev/null 2>&1; then
+  if ls "${SPLITS_DIR}"/train_idx_*_seed*.csv 1>/dev/null 2>&1 && \
+     ls "${SPLITS_DIR}"/val_idx_*_seed*.csv 1>/dev/null 2>&1; then
     SPLITS_EXIST=1
   fi
 

@@ -411,6 +411,7 @@ def choose_threshold_objective(
     fbeta: float = 1.0,
     fixed_spec: float = 0.90,
     fixed_ppv: float = 0.5,
+    log_details: bool = False,
 ) -> tuple[str, float]:
     """Select threshold based on specified objective.
 
@@ -422,6 +423,7 @@ def choose_threshold_objective(
         fbeta: Beta parameter for F-beta score (default 1.0)
         fixed_spec: Target specificity for 'fixed_spec' objective (default 0.90)
         fixed_ppv: Target precision for 'fixed_ppv' objective (default 0.5)
+        log_details: Whether to log threshold selection details
 
     Returns:
         Tuple of (objective_name, threshold)
@@ -448,23 +450,68 @@ def choose_threshold_objective(
 
     obj = objective.strip().lower()
     if obj == "max_f1":
-        return ("max_f1", threshold_max_f1(y_true, p))
-    if obj == "max_fbeta":
-        return ("max_fbeta", threshold_max_fbeta(y_true, p, beta=fbeta))
-    if obj == "youden":
-        return ("youden", threshold_youden(y_true, p))
-    if obj == "fixed_spec":
-        return (
-            "fixed_spec",
-            threshold_for_specificity(y_true, p, target_spec=float(fixed_spec)),
-        )
-    if obj == "fixed_ppv":
-        return (
-            "fixed_ppv",
-            threshold_for_precision(y_true, p, target_ppv=float(fixed_ppv)),
-        )
-    # fallback
-    return ("max_f1", threshold_max_f1(y_true, p))
+        threshold = threshold_max_f1(y_true, p)
+        obj_name = "max_f1"
+    elif obj == "max_fbeta":
+        threshold = threshold_max_fbeta(y_true, p, beta=fbeta)
+        obj_name = "max_fbeta"
+    elif obj == "youden":
+        threshold = threshold_youden(y_true, p)
+        obj_name = "youden"
+    elif obj == "fixed_spec":
+        threshold = threshold_for_specificity(y_true, p, target_spec=float(fixed_spec))
+        obj_name = "fixed_spec"
+    elif obj == "fixed_ppv":
+        threshold = threshold_for_precision(y_true, p, target_ppv=float(fixed_ppv))
+        obj_name = "fixed_ppv"
+    else:
+        # fallback
+        threshold = threshold_max_f1(y_true, p)
+        obj_name = "max_f1"
+
+    if log_details:
+        # Compute metrics at selected threshold
+        metrics = binary_metrics_at_threshold(y_true, p, threshold)
+
+        if obj_name == "fixed_spec":
+            logger.info(f"Threshold selection: {obj_name}={fixed_spec:.2f}")
+            logger.info(
+                f"  Selected threshold: {threshold:.3f} (sens={metrics['sensitivity']:.2f}, spec={metrics['specificity']:.2f})"
+            )
+        elif obj_name == "fixed_ppv":
+            logger.info(f"Threshold selection: {obj_name}={fixed_ppv:.2f}")
+            logger.info(
+                f"  Selected threshold: {threshold:.3f} (sens={metrics['sensitivity']:.2f}, prec={metrics['precision']:.2f})"
+            )
+        else:
+            logger.info(f"Threshold selection: {obj_name}")
+            logger.info(
+                f"  Selected threshold: {threshold:.3f} (sens={metrics['sensitivity']:.2f}, spec={metrics['specificity']:.2f})"
+            )
+
+        # Compute alternative thresholds for comparison
+        youden_thr = threshold_youden(y_true, p) if obj_name != "youden" else threshold
+        youden_metrics = binary_metrics_at_threshold(y_true, p, youden_thr)
+
+        logger.info("  Alternative thresholds:")
+        if obj_name != "youden":
+            j_stat = youden_metrics["tpr"] - youden_metrics["fpr"]
+            logger.info(
+                f"    Youden: {youden_thr:.3f} (sens={youden_metrics['sensitivity']:.2f}, "
+                f"spec={youden_metrics['specificity']:.2f}, J={j_stat:.2f})"
+            )
+
+        # Log rationale
+        if obj_name == "fixed_spec":
+            logger.info(
+                f"  Rationale: Fixed spec={fixed_spec:.2f} prioritizes high specificity for screening"
+            )
+        elif obj_name == "youden":
+            logger.info("  Rationale: Youden's J maximizes (sensitivity + specificity - 1)")
+        elif obj_name == "max_f1":
+            logger.info("  Rationale: Max F1 balances precision and recall")
+
+    return (obj_name, threshold)
 
 
 def compute_multi_target_specificity_metrics(

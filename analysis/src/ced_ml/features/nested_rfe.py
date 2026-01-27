@@ -45,6 +45,7 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.pipeline import Pipeline
 
 from ced_ml.metrics.discrimination import auroc
+from ced_ml.utils.serialization import save_json
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +176,14 @@ def run_rfecv_within_fold(
     # Evaluate on held-out validation fold
     X_val_selected = X_val_fold.iloc[:, support_mask]
     rfecv.estimator_.fit(X_train_fold.iloc[:, support_mask].values, y_train_fold)
-    val_probs = rfecv.estimator_.predict_proba(X_val_selected.values)[:, 1]
+
+    # Get predictions (use decision_function for models without predict_proba)
+    if hasattr(rfecv.estimator_, "predict_proba"):
+        val_probs = rfecv.estimator_.predict_proba(X_val_selected.values)[:, 1]
+    else:
+        # Use decision_function for models like LinearSVC
+        val_probs = rfecv.estimator_.decision_function(X_val_selected.values)
+
     val_auroc = auroc(y_val_fold, val_probs)
 
     logger.info(
@@ -405,20 +413,19 @@ def save_nested_rfecv_results(
     summary_path = output_dir / "nested_rfecv_summary.json"
     summary = {
         "model": model_name,
-        "split_seed": split_seed,
+        "split_seed": int(split_seed),
         "n_folds": len(result.fold_results),
         "consensus_panel_size": len(result.consensus_panel),
-        "mean_optimal_size": result.mean_optimal_size,
+        "mean_optimal_size": float(result.mean_optimal_size),
         "std_optimal_size": float(np.std(result.optimal_sizes)) if result.optimal_sizes else 0.0,
-        "optimal_sizes_per_fold": result.optimal_sizes,
+        "optimal_sizes_per_fold": [int(x) for x in result.optimal_sizes],
         "mean_val_auroc": float(np.mean(result.fold_val_aurocs)) if result.fold_val_aurocs else 0.0,
         "std_val_auroc": float(np.std(result.fold_val_aurocs)) if result.fold_val_aurocs else 0.0,
-        "val_aurocs_per_fold": result.fold_val_aurocs,
+        "val_aurocs_per_fold": [float(x) for x in result.fold_val_aurocs],
         "consensus_threshold": 0.80,
         "timestamp": datetime.now().isoformat(),
     }
-    with open(summary_path, "w") as f:
-        json.dump(summary, f, indent=2)
+    save_json(summary, summary_path)
     paths["summary"] = str(summary_path)
 
     # 6. RFECV selection curve plot (if cv_scores_curve exists)

@@ -64,7 +64,7 @@ def test_mann_whitney_screen_basic(sample_data):
 
     assert len(selected) == 10
     assert len(stats) == len(protein_cols)  # All proteins tested
-    assert list(stats.columns) == ["protein", "p_value", "abs_delta", "nonmissing_frac"]
+    assert list(stats.columns) == ["protein", "p_value", "effect_size", "nonmissing_frac"]
 
     # Top proteins should be the discriminative ones (0-19)
     top_indices = [int(p.split("_")[1]) for p in selected]
@@ -184,13 +184,17 @@ def test_screen_proteins_wrapper(sample_data):
 
 
 def test_screen_proteins_no_screening(sample_data):
-    """Test screen_proteins with top_n=0 (no screening)."""
+    """Test screen_proteins with top_n=0 (returns all proteins with statistics)."""
     X, y, protein_cols = sample_data
 
     selected, stats = screen_proteins(X, y, protein_cols, method="mannwhitney", top_n=0)
 
-    assert selected == protein_cols
-    assert len(stats) == 0
+    # Should return all proteins (though may be reordered by p-value)
+    assert set(selected) == set(protein_cols)
+    assert len(selected) == len(protein_cols)
+    # Should compute statistics for all proteins
+    assert len(stats) > 0
+    assert "p_value" in stats.columns
 
 
 def test_screen_proteins_invalid_method(sample_data):
@@ -287,19 +291,19 @@ def test_variance_missingness_prefilter_empty_input():
 
 
 def test_mann_whitney_effect_size_ordering(sample_data):
-    """Test that effect size (abs_delta) is used as tiebreaker."""
+    """Test that effect size is used as tiebreaker."""
     X, y, protein_cols = sample_data
 
     selected, stats = mann_whitney_screen(X, y, protein_cols, top_n=20, min_n_per_group=5)
 
-    # For proteins with similar p-values, higher abs_delta should rank higher
+    # For proteins with similar p-values, higher effect_size should rank higher
     top20_stats = stats.head(20)
 
-    # Check that within small p-value bins, abs_delta is descending
+    # Check that within small p-value bins, effect_size is descending
     small_pval = top20_stats[top20_stats["p_value"] < 0.01]
     if len(small_pval) > 1:
-        # Abs_delta should generally be high for significant proteins
-        assert small_pval["abs_delta"].mean() > 1.0
+        # Effect size should generally be high for significant proteins
+        assert small_pval["effect_size"].mean() > 1.0
 
 
 def test_f_statistic_handles_constant_features():
@@ -360,4 +364,4 @@ def test_mann_whitney_asymmetric_group_sizes():
 
     assert len(selected) == 1
     assert stats.iloc[0]["p_value"] < 0.05  # Should detect difference
-    assert stats.iloc[0]["abs_delta"] > 0.5  # Reasonable effect size
+    assert stats.iloc[0]["effect_size"] > 0.5  # Reasonable effect size

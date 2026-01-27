@@ -12,9 +12,12 @@ Design:
 """
 
 import json
+import logging
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def compute_selection_frequencies(
@@ -174,7 +177,10 @@ def extract_stable_panel(
         >>> len(unions)
         3
     """
+    logger.info(f"Stability panel extraction (threshold={stability_threshold:.2f})")
+
     if selection_log is None or selection_log.empty or selection_col not in selection_log.columns:
+        logger.warning("Empty selection log - no stable panel to extract")
         empty_df = pd.DataFrame(columns=["protein", "selection_freq", "kept"])
         return empty_df, [], []
 
@@ -192,6 +198,7 @@ def extract_stable_panel(
                 continue
 
         repeat_unions.append(repeat_union)
+        logger.debug(f"  Repeat {repeat_id}: {len(repeat_union)} unique proteins")
 
     # Compute frequency = fraction of repeats where protein appears
     all_proteins = sorted(set().union(*repeat_unions)) if repeat_unions else []
@@ -209,6 +216,7 @@ def extract_stable_panel(
 
     panel_df = pd.DataFrame(rows)
     if panel_df.empty:
+        logger.warning("No proteins found in selection log")
         return panel_df, [], repeat_unions
 
     # Sort: kept first, then by frequency (desc), then by name (asc)
@@ -223,6 +231,25 @@ def extract_stable_panel(
         n_fallback = min(fallback_top_n, len(panel_df))
         stable_proteins = panel_df.nlargest(n_fallback, "selection_freq")["protein"].tolist()
         panel_df["kept"] = panel_df["protein"].isin(stable_proteins)
+        logger.warning(
+            f"No proteins met threshold {stability_threshold:.2f} - using top {n_fallback} by frequency"
+        )
+    else:
+        logger.info(
+            f"  {len(stable_proteins)} proteins selected ≥{stability_threshold*100:.0f}% of repeats"
+        )
+
+        freq_min = panel_df[panel_df["kept"]]["selection_freq"].min()
+        freq_max = panel_df[panel_df["kept"]]["selection_freq"].max()
+        freq_median = panel_df[panel_df["kept"]]["selection_freq"].median()
+        logger.info(
+            f"  Selection frequency distribution: min={freq_min:.2f}, median={freq_median:.2f}, max={freq_max:.2f}"
+        )
+
+    logger.info(f"  Final stable panel: {len(stable_proteins)} proteins")
+    logger.info(
+        "  Rationale: Stability filtering ensures reproducibility across independent data splits"
+    )
 
     return panel_df, stable_proteins, repeat_unions
 

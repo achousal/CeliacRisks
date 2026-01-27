@@ -328,12 +328,10 @@ def load_split_indices(
         logger.debug(f"New format not found, trying old format: {train_file_old}")
         train_file, val_file, test_file = train_file_old, val_file_old, test_file_old
 
-    # Validate all files exist
+    # Validate all files exist (val is optional for val_size=0 case)
     missing_files = []
     if not train_file.exists():
         missing_files.append(str(train_file))
-    if not val_file.exists():
-        missing_files.append(str(val_file))
     if not test_file.exists():
         missing_files.append(str(test_file))
 
@@ -352,7 +350,12 @@ def load_split_indices(
         )
 
     train_idx = pd.read_csv(train_file)["idx"].values
-    val_idx = pd.read_csv(val_file)["idx"].values
+    # Val file is optional (may not exist if val_size=0)
+    if val_file.exists():
+        val_idx = pd.read_csv(val_file)["idx"].values
+    else:
+        logger.warning(f"Validation split file not found: {val_file}. Using empty validation set.")
+        val_idx = np.array([], dtype=int)
     test_idx = pd.read_csv(test_file)["idx"].values
 
     # Validate split indices before returning
@@ -424,6 +427,7 @@ def evaluate_on_split(
             fixed_spec=fixed_spec,
             fbeta=fbeta,
             fixed_ppv=fixed_ppv,
+            log_details=True,
         )
 
     binary_metrics = binary_metrics_at_threshold(y, y_probs_adj, threshold)
@@ -447,6 +451,7 @@ def run_train(
     cli_args: dict[str, Any] | None = None,
     overrides: list[str] | None = None,
     verbose: int = 0,
+    log_level: int | None = None,
 ):
     """
     Run model training with new config system.
@@ -455,11 +460,14 @@ def run_train(
         config_file: Path to YAML config file (optional)
         cli_args: Dictionary of CLI arguments (optional)
         overrides: List of config overrides (optional)
-        verbose: Verbosity level (0=INFO, 1=DEBUG)
+        verbose: Verbosity level (0=INFO, 1=DEBUG) - deprecated, use log_level
+        log_level: Logging level constant (logging.DEBUG, logging.INFO, etc.)
     """
-    # Setup logger
-    log_level = 20 - (verbose * 10)
-    logger = setup_logger("ced_ml.train", level=log_level)
+    # Setup logger (use log_level if provided, otherwise fall back to verbose)
+    if log_level is None:
+        log_level = 20 - (verbose * 10)
+    # Use parent logger "ced_ml" so all child modules inherit the level
+    logger = setup_logger("ced_ml", level=log_level)
 
     log_section(logger, "CeD-ML Model Training")
 
@@ -713,6 +721,12 @@ def run_train(
         config.features.screen_top_n = 0
         logger.info("Feature selection strategy set to 'none'")
 
+        # Update feature_cols to use fixed panel proteins + metadata
+        feature_cols = (
+            list(protein_cols) + resolved.numeric_metadata + resolved.categorical_metadata
+        )
+        logger.info(f"Feature columns updated: {len(feature_cols)} total features")
+
     X_train = df_scenario.iloc[train_idx][feature_cols]
     y_train = df_scenario.iloc[train_idx]["y"].values
 
@@ -789,6 +803,29 @@ def run_train(
         protein_cols,
         resolved.categorical_metadata,
     )
+
+    # Determine best k value for final model (if using hybrid_stability with k_grid)
+    strategy = config.features.feature_selection_strategy
+    if strategy == "hybrid_stability" and "sel__k" in best_params_df.columns:
+        k_grid = getattr(config.features, "k_grid", None)
+
+        if k_grid and len(k_grid) > 1:
+            # Multiple k values were tuned: use most frequently selected k (mode)
+            best_k = int(best_params_df["sel__k"].mode()[0])
+            logger.info(f"Multiple k values tuned: using mode k={best_k} for final model")
+        elif k_grid and len(k_grid) == 1:
+            # Single k value: use that value
+            best_k = k_grid[0]
+            logger.info(f"Single k value in config: using k={best_k} for final model")
+        else:
+            # Fallback: use first k from CV results
+            best_k = int(best_params_df["sel__k"].iloc[0])
+            logger.info(f"Using k={best_k} from CV results for final model")
+
+        # Set the k parameter in the final pipeline
+        final_pipeline.set_params(sel__k=best_k)
+        logger.info(f"Final model k-best set to k={best_k}")
+
     final_pipeline.fit(X_train, y_train)
     logger.info("Final model fitted")
 
@@ -822,6 +859,7 @@ def run_train(
             X_train=X_train,
             y_train=y_train,
             random_state=seed,
+            nested_rfecv_result=nested_rfecv_result,
         )
         logger.info(f"Final test panel: {len(final_selected_proteins)} proteins selected")
     except Exception as e:
@@ -851,6 +889,8 @@ def run_train(
     logger.info(f"Val AUROC: {val_metrics['AUROC']:.3f}")
     logger.info(f"Val PRAUC: {val_metrics['PR_AUC']:.3f}")
     logger.info(f"Selected threshold: {val_metrics['threshold']:.3f}")
+    if final_selected_proteins:
+        logger.info(f"Val evaluation using {len(final_selected_proteins)} selected proteins")
 
     # Store validation threshold for reuse on test set (prevents leakage)
     val_threshold = val_metrics["threshold"]
@@ -884,6 +924,8 @@ def run_train(
     logger.info(f"Test AUROC: {test_metrics['AUROC']:.3f}")
     logger.info(f"Test PRAUC: {test_metrics['PR_AUC']:.3f}")
     logger.info(f"Test threshold (from val): {test_metrics['threshold']:.3f}")
+    if final_selected_proteins:
+        logger.info(f"Test evaluation using {len(final_selected_proteins)} selected proteins")
 
     # For backward compatibility, use test_target_prev as the canonical target_prev
     # (used in later sections for logging)
@@ -1035,64 +1077,108 @@ def run_train(
             best_params_df.to_csv(optuna_params_path, index=False)
             logger.info(f"Optuna best params saved: {optuna_params_path}")
 
-            # Generate Optuna plots by refitting final model with hyperparameter search
+            # Generate Optuna plots using existing study (no refitting)
             try:
-                from ced_ml.models.training import _build_hyperparameter_search
                 from ced_ml.plotting.optuna_plots import save_optuna_plots
 
                 logger.info("Generating Optuna hyperparameter tuning plots...")
 
-                # Build and fit hyperparameter search on full training set
-                optuna_pipeline = build_training_pipeline(
-                    config,
-                    classifier,
-                    protein_cols,
-                    resolved.categorical_metadata,
-                )
+                # Try to load study from persistent storage if configured
+                study_loaded = False
+                if config.optuna.storage and config.optuna.study_name:
+                    try:
+                        import optuna
 
-                xgb_spw = None
-                if config.model == "XGBoost":
-                    from ced_ml.models.training import _compute_xgb_scale_pos_weight
-
-                    xgb_spw = _compute_xgb_scale_pos_weight(y_train, config)
-
-                optuna_search = _build_hyperparameter_search(
-                    optuna_pipeline, config.model, config, seed, xgb_spw, grid_rng=None
-                )
-
-                if optuna_search is not None and hasattr(optuna_search, "study_"):
-                    optuna_search.fit(X_train, y_train)
-
-                    if hasattr(optuna_search, "study_") and optuna_search.study_ is not None:
-                        save_optuna_plots(
-                            study=optuna_search.study_,
-                            out_dir=optuna_dir,
-                            prefix=f"{config.model}__",
-                            plot_format=config.output.plot_format,
+                        logger.info(
+                            f"Loading existing Optuna study from storage: {config.optuna.study_name}"
                         )
-                        logger.info(f"Optuna plots saved to: {optuna_dir}")
+                        study = optuna.load_study(
+                            study_name=config.optuna.study_name, storage=config.optuna.storage
+                        )
+                        study_loaded = True
+                        logger.info(
+                            f"Successfully loaded study with {len(study.trials)} trials "
+                            "(reusing from CV, no refitting needed)"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not load study from storage: {e}")
 
-                        # Generate Pareto frontier plot if multi-objective
-                        if (
-                            hasattr(config.optuna, "multi_objective")
-                            and config.optuna.multi_objective
-                        ):
-                            from ced_ml.plotting.optuna_plots import plot_pareto_frontier
+                # Fallback: refit if study not available in storage
+                if not study_loaded:
+                    logger.info(
+                        "No persistent study storage configured, refitting for plots "
+                        "(consider setting optuna.storage and optuna.study_name to avoid this)"
+                    )
+                    from ced_ml.models.training import _build_hyperparameter_search
 
-                            try:
-                                plot_pareto_frontier(
-                                    search_cv=optuna_search,
-                                    outdir=optuna_dir,
-                                    plot_format=config.output.plot_format,
-                                    dpi=config.output.plot_dpi,
-                                )
-                                logger.info(f"Pareto frontier plot saved to: {optuna_dir}")
-                            except Exception as e:
-                                logger.warning(f"Failed to generate Pareto frontier plot: {e}")
+                    # Build and fit hyperparameter search on full training set
+                    optuna_pipeline = build_training_pipeline(
+                        config,
+                        classifier,
+                        protein_cols,
+                        resolved.categorical_metadata,
+                    )
+
+                    xgb_spw = None
+                    if config.model == "XGBoost":
+                        from ced_ml.models.training import _compute_xgb_scale_pos_weight
+
+                        xgb_spw = _compute_xgb_scale_pos_weight(y_train, config)
+
+                    optuna_search = _build_hyperparameter_search(
+                        optuna_pipeline, config.model, config, seed, xgb_spw, grid_rng=None
+                    )
+
+                    if optuna_search is not None:
+                        optuna_search.fit(X_train, y_train)
+                        if hasattr(optuna_search, "study_") and optuna_search.study_ is not None:
+                            study = optuna_search.study_
+                        else:
+                            study = None
                     else:
-                        logger.warning("Optuna study object not available for plotting")
+                        study = None
+
+                # Generate plots if we have a study
+                if study is not None:
+                    save_optuna_plots(
+                        study=study,
+                        out_dir=optuna_dir,
+                        prefix=f"{config.model}__",
+                        plot_format=config.output.plot_format,
+                    )
+                    logger.info(f"Optuna plots saved to: {optuna_dir}")
+
+                    # Generate Pareto frontier plot if multi-objective
+                    # Note: Pareto plot needs the search_cv object, not just the study
+                    # Only available if we had to refit (fallback path)
+                    if (
+                        hasattr(config.optuna, "multi_objective")
+                        and config.optuna.multi_objective
+                        and not study_loaded
+                        and "optuna_search" in locals()
+                    ):
+                        from ced_ml.plotting.optuna_plots import plot_pareto_frontier
+
+                        try:
+                            plot_pareto_frontier(
+                                search_cv=optuna_search,
+                                outdir=optuna_dir,
+                                plot_format=config.output.plot_format,
+                                dpi=config.output.plot_dpi,
+                            )
+                            logger.info(f"Pareto frontier plot saved to: {optuna_dir}")
+                        except Exception as e:
+                            logger.warning(f"Failed to generate Pareto frontier plot: {e}")
+                    elif (
+                        hasattr(config.optuna, "multi_objective")
+                        and config.optuna.multi_objective
+                        and study_loaded
+                    ):
+                        logger.info(
+                            "Pareto frontier plot skipped (requires refitting, use persistent storage to avoid)"
+                        )
                 else:
-                    logger.info("Hyperparameter search not using Optuna, skipping plots")
+                    logger.warning("No Optuna study available for plotting")
 
             except Exception as e:
                 logger.warning(f"Failed to generate Optuna plots: {e}")
@@ -1199,11 +1285,16 @@ def run_train(
     logger.info(f"Config metadata saved: {config_metadata_path}")
 
     # Save predictions
+    test_probs_raw = final_pipeline.predict_proba(X_test)[:, 1]
+    test_probs_adj = adjust_probabilities_for_prevalence(
+        test_probs_raw, sample_prev=train_prev, target_prev=test_target_prev
+    )
     test_preds_df = pd.DataFrame(
         {
             "idx": test_idx,
             "y_true": y_test,
-            "y_prob": final_pipeline.predict_proba(X_test)[:, 1],
+            "y_prob": test_probs_raw,
+            "y_prob_adjusted": test_probs_adj,
             "category": cat_test,
         }
     )
@@ -1221,11 +1312,16 @@ def run_train(
     test_preds_df.to_csv(test_preds_path, index=False)
     logger.info(f"Test predictions saved: {test_preds_path}")
 
+    val_probs_raw = final_pipeline.predict_proba(X_val)[:, 1]
+    val_probs_adj = adjust_probabilities_for_prevalence(
+        val_probs_raw, sample_prev=train_prev, target_prev=val_target_prev
+    )
     val_preds_df = pd.DataFrame(
         {
             "idx": val_idx,
             "y_true": y_val,
-            "y_prob": final_pipeline.predict_proba(X_val)[:, 1],
+            "y_prob": val_probs_raw,
+            "y_prob_adjusted": val_probs_adj,
             "category": cat_val,
         }
     )
@@ -1674,13 +1770,14 @@ def run_train(
     try:
         screen_method = getattr(config.features, "screen_method", "none")
         if screen_method and screen_method != "none":
-            screen_top_n = getattr(config.features, "screen_top_n", 1000)
+            # Request all proteins (top_n=0) to maximize cache reuse
+            # This will hit the cache from feature report generation above
             _, screening_stats = screen_proteins(
                 X_train=X_train,
                 y_train=y_train,
                 protein_cols=protein_cols,
                 method=screen_method,
-                top_n=screen_top_n,
+                top_n=0,  # Get all proteins (reuses cache from feature report)
             )
             if not screening_stats.empty:
                 screening_stats["scenario"] = config.scenario
@@ -1689,7 +1786,7 @@ def run_train(
                     Path(outdirs.diag_screening) / f"{config.model}__screening_results.csv"
                 )
                 screening_stats.to_csv(screening_path, index=False)
-                logger.info(f"Screening results saved: {screening_path}")
+                logger.info(f"Screening results saved: {screening_path} (cached)")
     except Exception as e:
         logger.warning(f"Failed to save screening results: {e}")
 

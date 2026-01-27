@@ -150,9 +150,9 @@ class FeatureConfig(BaseModel):
         ge=5,
         description="Minimum features for RFECV (stops elimination at rfe_target_size // 2)",
     )
-    rfe_step_strategy: Literal["adaptive", "linear", "geometric"] = Field(
+    rfe_step_strategy: Literal["adaptive", "linear", "geometric"] | int = Field(
         default="adaptive",
-        description="RFECV step strategy: adaptive (10% per iter), linear (1 per iter), geometric (same as adaptive)",
+        description="RFECV step strategy: adaptive (10% per iter), linear (1 per iter), geometric (same as adaptive), or integer for fixed step size",
     )
     rfe_min_auroc_frac: float = Field(
         default=0.90,

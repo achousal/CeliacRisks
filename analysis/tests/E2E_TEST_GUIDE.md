@@ -8,8 +8,11 @@ E2E tests validate complete workflows with realistic small fixtures:
 
 1. **Full Pipeline**: splits → train → aggregate
 2. **Ensemble Workflow**: base models → ensemble → aggregate
-3. **HPC Workflow**: config validation → dry-run
-4. **Temporal Validation**: temporal splits → train → evaluate
+3. **Panel Optimization**: train → optimize-panel → validate
+4. **Fixed Panel Validation**: fixed panel → train → evaluate
+5. **Aggregation Workflow**: multiple splits → aggregate results
+6. **HPC Workflow**: config validation → dry-run
+7. **Temporal Validation**: temporal splits → train → evaluate
 
 ## Running Tests
 
@@ -51,12 +54,18 @@ pytest tests/test_e2e_runner.py -v -m "not slow" --cov=ced_ml
 - `test_output_file_structure`: Directory structure validation
 - `test_hpc_config_validation`: Config loading
 - `test_temporal_splits_generation`: Temporal ordering (if implemented)
-- All error handling tests
+- `test_panel_optimization_requires_trained_model`: Error handling for missing model
+- `test_fixed_panel_invalid_file`: Error handling for invalid panel file
+- `test_aggregation_requires_multiple_splits`: Error handling for missing splits
+- All other error handling tests
 
 ### Slow Tests (30s - 3 min each)
 Marked with `@pytest.mark.slow`:
 - `test_full_pipeline_single_model`: Complete pipeline with one model
 - `test_ensemble_training_workflow`: Base models + ensemble training
+- `test_panel_optimization_workflow`: Train → RFE panel optimization
+- `test_fixed_panel_training_workflow`: Training with fixed panel
+- `test_aggregation_across_splits`: Multi-split aggregation
 
 ## Test Structure
 
@@ -150,6 +159,45 @@ Tests failure modes:
 - Graceful error messages
 - Exit code handling
 - User-friendly error reporting
+
+#### `TestE2EPanelOptimization`
+Tests panel size optimization via RFE:
+1. Train model
+2. Run `ced optimize-panel` with RFE
+3. Verify RFE results and panel sizes
+4. Check AUROC degradation curve
+
+**Coverage:**
+- Post-training panel optimization
+- RFE algorithm integration
+- Panel size vs. AUROC trade-offs
+- Error handling for missing models
+
+#### `TestE2EFixedPanelValidation`
+Tests training with fixed panel:
+1. Create fixed panel CSV
+2. Train with `--fixed-panel` flag
+3. Verify feature selection bypassed
+4. Check training completes successfully
+
+**Coverage:**
+- Fixed panel training workflow
+- Feature selection bypass
+- Panel validation with new splits
+- Error handling for invalid panels
+
+#### `TestE2EAggregationWorkflow`
+Tests result aggregation:
+1. Generate multiple splits
+2. Train on each split
+3. Aggregate results with bootstrap CIs
+4. Verify aggregated metrics
+
+**Coverage:**
+- Multi-split training
+- Results aggregation
+- Bootstrap confidence intervals
+- Error handling for insufficient data
 
 ## Deterministic Testing Strategy
 

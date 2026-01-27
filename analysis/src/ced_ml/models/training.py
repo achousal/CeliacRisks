@@ -184,22 +184,39 @@ def oof_predictions_with_nested_cv(
         repeat_num = split_idx // split_divisor
         base_pipeline = clone(pipeline)
 
-        logger.warning(
-            f"[{time.strftime('%F %T')}] {model_name} outer fold {split_idx+1}/{total_outer_folds} "
-            f"(repeat={repeat_num}) start"
+        # Log fold start and statistics
+        fold_start = time.perf_counter()
+        logger.info(f"Outer fold {split_idx+1}/{total_outer_folds} (repeat={repeat_num}):")
+
+        # Log class distribution statistics
+        y_train = y[train_idx]
+        y_val = y[test_idx]
+        n_train_cases = int(np.sum(y_train))
+        n_train_controls = int(len(y_train) - n_train_cases)
+        n_val_cases = int(np.sum(y_val))
+        n_val_controls = int(len(y_val) - n_val_cases)
+        train_prevalence = n_train_cases / len(y_train) if len(y_train) > 0 else 0.0
+        val_prevalence = n_val_cases / len(y_val) if len(y_val) > 0 else 0.0
+
+        logger.info(
+            f"  Train: N={len(y_train)} ({n_train_cases} cases, {n_train_controls} controls, prevalence={train_prevalence:.2f})"
         )
+        logger.info(
+            f"  Val:   N={len(y_val)} ({n_val_cases} cases, {n_val_controls} controls, prevalence={val_prevalence:.2f})"
+        )
+
+        # Warn about extreme class imbalance
+        if train_prevalence < 0.01 or train_prevalence > 0.50:
+            logger.warning(
+                f"Fold {split_idx+1}: Extreme class imbalance (prevalence={train_prevalence:.2%})"
+            )
 
         # Handle XGBoost scale_pos_weight
         xgb_spw = None
         if model_name == "XGBoost":
             xgb_spw = _compute_xgb_scale_pos_weight(y[train_idx], config)
-            try:
-                base_pipeline.set_params(clf__scale_pos_weight=float(xgb_spw))
-            except Exception as e:
-                logger.warning(
-                    f"Failed to set scale_pos_weight={xgb_spw} for XGBoost in fold {split_idx}: {e}. "
-                    "Model will train with default class weighting."
-                )
+            # Set scale_pos_weight - fail fast if parameter doesn't exist (structural bug)
+            base_pipeline.set_params(clf__scale_pos_weight=float(xgb_spw))
 
         # Build inner CV hyperparameter search
         search = _build_hyperparameter_search(
@@ -314,10 +331,36 @@ def oof_predictions_with_nested_cv(
                     f"(val AUROC = {rfecv_result.val_auroc:.4f})"
                 )
 
-            except Exception as e:
-                logger.warning(f"Fold {split_idx}: RFECV failed: {e}. Using initial selection.")
+                # CRITICAL: Retrain model on RFECV-selected features only
+                # Prepare RFECV-filtered data (proteins + metadata)
+                # Extract metadata columns (non-protein columns)
+                metadata_cols = [c for c in X.columns if c not in protein_cols]
+                rfecv_feature_cols = selected_proteins + metadata_cols
+
+                X_train_rfecv = X.iloc[train_idx][rfecv_feature_cols]
+                y_train_rfecv = y[train_idx]
+
+                # Clone the pipeline and retrain on RFECV features
+                pipeline_rfecv = clone(search.best_estimator_)
+                pipeline_rfecv.fit(X_train_rfecv, y_train_rfecv)
+
+                # Apply calibration if needed
+                fitted_model = _apply_per_fold_calibration(
+                    pipeline_rfecv, model_name, config, X_train_rfecv, y_train_rfecv
+                )
+
+                logger.info(
+                    f"Fold {split_idx}: Retrained model on {len(selected_proteins)} RFECV-selected proteins"
+                )
+
+            except (ValueError, RuntimeError, MemoryError) as e:
+                logger.warning(
+                    f"Fold {split_idx}: RFECV failed ({type(e).__name__}: {e}). "
+                    "Using initial selection."
+                )
 
         # Generate OOF predictions for this fold
+        # Note: If RFECV was applied, fitted_model was retrained on selected features
         proba = fitted_model.predict_proba(X.iloc[test_idx])[:, 1]
         proba = np.clip(proba, 0.0, 1.0)
         preds[repeat_num, test_idx] = proba
@@ -357,9 +400,25 @@ def oof_predictions_with_nested_cv(
                 }
             )
 
+        # Log fold completion summary
+        fold_duration = time.perf_counter() - fold_start
+
+        # Get actual feature count used by the model
+        n_features_used = _get_model_feature_count(fitted_model)
+
+        logger.info(
+            f"  Fold completed in {fold_duration:.1f}s: best_score={best_score:.3f}, "
+            f"features_in_model={n_features_used}"
+        )
+
         split_idx += 1
 
     elapsed_sec = time.perf_counter() - t0
+
+    # Explicit memory cleanup after CV loop
+    import gc
+
+    gc.collect()
 
     # Validate: no missing OOF predictions
     for r in range(n_repeats):
@@ -722,6 +781,48 @@ def _apply_per_fold_calibration(
     return calibrated
 
 
+def _get_model_feature_count(fitted_model) -> int:
+    """
+    Get the number of features used by a fitted model.
+
+    Args:
+        fitted_model: Fitted pipeline or calibrated estimator
+
+    Returns:
+        Number of features the model was trained on
+    """
+    # Unwrap CalibratedClassifierCV if needed
+    if isinstance(fitted_model, CalibratedClassifierCV):
+        if hasattr(fitted_model, "estimator"):
+            model = fitted_model.estimator
+        else:
+            model = getattr(fitted_model, "base_estimator", fitted_model)
+    else:
+        model = fitted_model
+
+    # Try to get from the final estimator
+    if isinstance(model, Pipeline):
+        final_step = model.steps[-1][1]
+    else:
+        final_step = model
+
+    # Try different attributes
+    if hasattr(final_step, "n_features_in_"):
+        return int(final_step.n_features_in_)
+    elif hasattr(final_step, "coef_"):
+        # Linear models
+        coef = final_step.coef_
+        if coef.ndim == 1:
+            return len(coef)
+        else:
+            return coef.shape[1]
+    elif hasattr(final_step, "feature_importances_"):
+        # Tree models
+        return len(final_step.feature_importances_)
+
+    return 0
+
+
 def _extract_selected_proteins_from_fold(
     fitted_model,
     model_name: str,
@@ -730,6 +831,7 @@ def _extract_selected_proteins_from_fold(
     X_train: pd.DataFrame,
     y_train: np.ndarray,
     random_state: int,
+    nested_rfecv_result=None,
 ) -> list[str]:
     """
     Extract selected proteins from a fitted model/pipeline.
@@ -739,6 +841,7 @@ def _extract_selected_proteins_from_fold(
     - Tree models (RF/XGBoost): Use permutation importance (if enabled)
     - K-best selection: Extract from SelectKBest step
     - Screening: Extract from TrainOnlyScreenSelector step
+    - RFECV: Use consensus panel from nested CV
 
     Args:
         fitted_model: Fitted pipeline or calibrated estimator
@@ -748,12 +851,19 @@ def _extract_selected_proteins_from_fold(
         X_train: Training fold features (for permutation importance)
         y_train: Training fold labels (for permutation importance)
         random_state: Random seed
+        nested_rfecv_result: NestedRFECVResult with consensus panel (if RFECV enabled)
 
     Returns:
         List of selected protein names (sorted)
     """
+    # Import here to avoid circular dependency
+    from ..models.calibration import OOFCalibratedModel
+
+    # Unwrap OOFCalibratedModel if needed
+    if isinstance(fitted_model, OOFCalibratedModel):
+        pipeline = fitted_model.base_model
     # Unwrap CalibratedClassifierCV if needed
-    if isinstance(fitted_model, CalibratedClassifierCV):
+    elif isinstance(fitted_model, CalibratedClassifierCV):
         if hasattr(fitted_model, "estimator"):
             pipeline = fitted_model.estimator
         else:
@@ -767,19 +877,17 @@ def _extract_selected_proteins_from_fold(
 
     selected_proteins = set()
 
-    # Strategy 1: Extract from screening step (if present)
-    if "screen" in pipeline.named_steps:
-        screen_selected = getattr(pipeline.named_steps["screen"], "selected_proteins_", [])
-        if screen_selected:
-            selected_proteins.update(screen_selected)
-
-    # Strategy 2: Extract from K-best selection (if present)
+    # Strategy 1: Extract from K-best selection (if present)
+    # NOTE: Screening step is NOT included - it's a pre-filter, not the final selection
     strategy = config.features.feature_selection_strategy
 
-    # For RFECV strategy: if screening produced proteins but no k-best step exists,
-    # return screening output (RFECV will refine these features within CV folds)
-    if strategy == "rfecv" and selected_proteins and "prot_sel" not in pipeline.named_steps:
-        return sorted(selected_proteins)
+    # For RFECV strategy: use consensus panel from nested CV if available
+    if strategy == "rfecv" and nested_rfecv_result is not None:
+        consensus_panel = nested_rfecv_result.consensus_panel
+        if consensus_panel:
+            return sorted(consensus_panel)
+        # Fallback: if no consensus panel, return empty (screening is not the final selection)
+        return []
 
     if strategy in ("hybrid_stability", "rfecv"):
         kbest_scope = config.features.kbest_scope
@@ -796,7 +904,7 @@ def _extract_selected_proteins_from_fold(
             if kbest_proteins:
                 selected_proteins.update(kbest_proteins)
 
-    # Strategy 3: Extract from model coefficients (linear models)
+    # Strategy 2: Extract from model coefficients (linear models)
     # Only relevant for hybrid_stability strategy
     if strategy == "hybrid_stability":
         model_proteins = _extract_from_model_coefficients(
@@ -805,7 +913,7 @@ def _extract_selected_proteins_from_fold(
         if model_proteins:
             selected_proteins.update(model_proteins)
 
-    # Strategy 4: Permutation importance for RF (if enabled and hybrid mode)
+    # Strategy 3: Permutation importance for RF (if enabled and hybrid mode)
     if strategy == "hybrid_stability" and model_name == "RF" and config.features.rf_use_permutation:
         perm_proteins = _extract_from_rf_permutation(
             pipeline, X_train, y_train, protein_cols, config, random_state
@@ -958,8 +1066,11 @@ def _extract_from_rf_permutation(
             n_jobs=1,  # Already inside parallel context
         )
         importances = perm_result.importances_mean
-    except Exception as e:
-        logger.warning(f"[perm] WARNING: Permutation importance failed: {e}")
+    except (ValueError, RuntimeError, AttributeError) as e:
+        logger.warning(
+            f"[perm] Permutation importance failed ({type(e).__name__}: {e}). "
+            "Skipping permutation-based selection."
+        )
         return set()
 
     # Sanity check

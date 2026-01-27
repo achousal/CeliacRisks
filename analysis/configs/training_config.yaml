@@ -10,7 +10,7 @@ cv:
   scoring: roc_auc  # Options: roc_auc, average_precision, neg_brier_score
   # n_iter: 2  # Global override: if set, overrides ALL per-model n_iter values below
   inner_folds: 3
-  n_jobs: -1  # Use all available CPUs
+  n_jobs: 1  # CRITICAL: Set to 1 to prevent nested parallelism memory explosion (was -1)
   random_state: 42
   grid_randomize: true  # Randomize numeric grid values for more diverse search
   verbose: 1
@@ -22,14 +22,14 @@ cv:
 # Optuna hyperparameter optimization (optional alternative to RandomizedSearchCV)
 optuna:
   enabled: true  # Set to true to use Optuna instead of RandomizedSearchCV
-  n_trials: 20  # Number of hyperparameter trials (exploratory local testing)
+  n_trials: 5  # Number of hyperparameter trials (exploratory local testing)
   timeout: null  # Optional timeout in seconds (null = no limit)
   sampler: tpe  # Options: tpe, random, cmaes, grid
   sampler_seed: 42  # Seed for reproducibility
   pruner: hyperband  # Options: median, percentile, hyperband, none
   pruner_n_startup_trials: 5  # Number of trials before pruning starts
   pruner_percentile: 20.0  # Percentile for percentile pruner (0-100)
-  n_jobs: -1  # Number of parallel jobs for Optuna
+  n_jobs: 4  # CRITICAL: Limit parallelism to prevent memory explosion with CalibratedClassifierCV (was -1)
   save_study: true  # Save Optuna study object
   save_trials_csv: true  # Save trials as CSV
 
@@ -48,16 +48,16 @@ features:
   screen_top_n: 1000  # Stage 1: Mann-Whitney → keep top 1000
 
   # Strategy 1: Hybrid Stability parameters (used if strategy=hybrid_stability)
-  k_grid: [25, 50, 100, 150, 200, 300, 400]  # K-best tuning grid
+  k_grid: [100]  # K-best tuning grid
   stability_thresh: 0.70  # Stability selection threshold
   stable_corr_thresh: 0.85  # Remove features with r > 0.85
 
   # Strategy 2: RFECV parameters (used if strategy=rfecv)
   # Uncomment these if switching to rfecv strategy
   # rfe_kbest_prefilter: true  # Enable k-best pre-filter (5× speedup)
-  # rfe_kbest_k: 100  # Reduces ~300 → ~100 proteins before RFECV
+  # rfe_kbest_k: 400  # Reduces ~300 → ~100 proteins before RFECV
   # rfe_target_size: 50  # Minimum features (stops at 50//2 = 25)
-  # rfe_step_strategy: adaptive  # Options: adaptive, fixed
+  # rfe_step_strategy: 5  # Options: adaptive, linear, geometric
   # rfe_cv_folds: 3  # Inner CV folds for RFE
   # rfe_consensus_thresh: 0.80  # Consensus threshold across CV repeats
 

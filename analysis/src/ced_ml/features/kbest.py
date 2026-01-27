@@ -9,11 +9,14 @@ Key functions:
 - rank_features_by_score: Rank features by score (descending)
 """
 
+import logging
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from sklearn.feature_selection import SelectKBest, f_classif
+
+logger = logging.getLogger(__name__)
 
 
 def select_kbest_features(
@@ -23,6 +26,7 @@ def select_kbest_features(
     protein_cols: list[str],
     missing_strategy: str = "median",
     fallback_to_variance: bool = True,
+    log_stats: bool = False,
 ) -> list[str]:
     """Select top-K protein features using univariate F-test.
 
@@ -36,6 +40,7 @@ def select_kbest_features(
         protein_cols: List of protein column names to consider
         missing_strategy: Imputation strategy ("median" or "mean")
         fallback_to_variance: If F-test fails, use variance ranking
+        log_stats: Whether to log selection statistics
 
     Returns:
         List of selected protein column names (length <= k)
@@ -58,22 +63,44 @@ def select_kbest_features(
     # Clip k to available range
     k_effective = max(1, min(len(available_prots), k))
 
+    if log_stats:
+        logger.info(f"K-best selection (k={k_effective})")
+        logger.info("  Score function: f_classif (ANOVA F-value)")
+        logger.info(f"  Evaluating {len(available_prots)} proteins")
+
     # Extract and impute protein matrix
     X_proteins = X[available_prots].apply(pd.to_numeric, errors="coerce")
     X_imputed = _impute_proteins(X_proteins, strategy=missing_strategy)
 
     # Compute F-statistics
+    used_fallback = False
     try:
         scores = compute_f_classif_scores(X_imputed.to_numpy(), y)
         selected_indices = rank_features_by_score(scores, k=k_effective)
-    except Exception:
+    except (ValueError, RuntimeError) as e:
         if not fallback_to_variance:
             raise
         # Fallback: rank by variance
+        logger.warning(f"F-test failed ({type(e).__name__}): using variance ranking fallback")
         variances = np.nanvar(X_imputed.to_numpy(), axis=0)
         selected_indices = rank_features_by_score(variances, k=k_effective)
+        used_fallback = True
 
     selected_proteins = [available_prots[i] for i in selected_indices]
+
+    if log_stats and not used_fallback:
+        selected_scores = scores[selected_indices]
+        score_min = float(np.min(selected_scores))
+        score_median = float(np.median(selected_scores))
+        score_max = float(np.max(selected_scores))
+
+        logger.info(
+            f"  Selected protein scores: min={score_min:.2f}, median={score_median:.2f}, max={score_max:.2f}"
+        )
+        logger.info(
+            f"  Rationale: Top-{k_effective} proteins by F-statistic maximize univariate discrimination"
+        )
+
     return selected_proteins
 
 
@@ -314,7 +341,8 @@ def compute_protein_statistics(
 
         _, p_value = stats.ttest_ind(x_case, x_control, equal_var=False, nan_policy="omit")
         p_ttest = float(p_value)
-    except Exception:
+    except (ValueError, RuntimeError, AttributeError):
+        # Graceful degradation: t-test is optional diagnostic statistic
         p_ttest = np.nan
 
     return {
@@ -356,13 +384,19 @@ class ScreeningTransformer:
 
     Wraps screen_proteins to work as an sklearn transformer.
     Screens features using Mann-Whitney or F-statistic, keeping top-N.
+
+    Implements caching to avoid redundant screening on identical data.
     """
+
+    # Class-level cache: {(data_hash, method, top_n): (selected_features, stats)}
+    _screening_cache = {}
 
     def __init__(
         self,
         method: str = "mannwhitney",
         top_n: int = 1000,
         protein_cols: list[str] | None = None,
+        enable_cache: bool = True,
     ):
         """Initialize screening transformer.
 
@@ -370,11 +404,14 @@ class ScreeningTransformer:
             method: "mannwhitney" or "f_classif"
             top_n: Number of top features to keep
             protein_cols: List of protein column names (set during fit)
+            enable_cache: Enable caching to avoid redundant screening (default: True)
         """
         self.method = method
         self.top_n = top_n
         self.protein_cols = protein_cols or []
+        self.enable_cache = enable_cache
         self.selected_features_ = None
+        self.screening_stats_ = None
 
     def fit(self, X: pd.DataFrame, y: np.ndarray = None):
         """Fit screening transformer.
@@ -388,6 +425,8 @@ class ScreeningTransformer:
         """
         if y is None:
             raise ValueError("y must be provided for screening")
+
+        import hashlib
 
         from ced_ml.features.screening import screen_proteins
 
@@ -411,8 +450,31 @@ class ScreeningTransformer:
             numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
             self.protein_cols = numeric_cols
 
+        # Check cache if enabled
+        cache_key = None
+        if self.enable_cache:
+            # Create cache key from data fingerprint + screening params
+            # Use sample IDs (index) + label distribution as fast hash
+            sample_hash = hashlib.md5(
+                str(X.index.tolist()).encode() + str(y.tolist()).encode()
+            ).hexdigest()
+            cache_key = (sample_hash, self.method, self.top_n)
+
+            if cache_key in ScreeningTransformer._screening_cache:
+                import logging
+
+                logger = logging.getLogger(__name__)
+                logger.debug(
+                    f"[CACHE HIT] Reusing screening results (method={self.method}, top_n={self.top_n})"
+                )
+                selected_prots, stats = ScreeningTransformer._screening_cache[cache_key]
+                self.selected_features_ = selected_prots
+                self.selected_proteins_ = selected_prots
+                self.screening_stats_ = stats
+                return self
+
         # Screen proteins only (not metadata)
-        selected_prots, _ = screen_proteins(
+        selected_prots, stats = screen_proteins(
             X_train=X,
             y_train=y,
             protein_cols=self.protein_cols,
@@ -421,6 +483,13 @@ class ScreeningTransformer:
         )
 
         self.selected_features_ = selected_prots
+        self.selected_proteins_ = selected_prots  # Alias for backward compatibility
+        self.screening_stats_ = stats
+
+        # Cache results if enabled
+        if self.enable_cache and cache_key is not None:
+            ScreeningTransformer._screening_cache[cache_key] = (selected_prots, stats)
+
         return self
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
@@ -447,6 +516,14 @@ class ScreeningTransformer:
         cols_to_keep = selected_proteins + non_protein_cols
 
         return X[cols_to_keep]
+
+    @classmethod
+    def clear_cache(cls):
+        """Clear the screening cache.
+
+        Useful for memory management in long-running processes.
+        """
+        cls._screening_cache.clear()
 
     def fit_transform(self, X: pd.DataFrame, y: np.ndarray = None) -> pd.DataFrame:
         """Fit and transform in one step."""

@@ -20,8 +20,8 @@ import pandas as pd
 from ced_ml.data.filters import apply_row_filters
 from ced_ml.data.io import identify_protein_columns, read_proteomics_file
 from ced_ml.data.schema import (
-    CONTROL_LABEL,
     TARGET_COL,
+    get_positive_label,
     get_scenario_labels,
 )
 from ced_ml.data.splits import temporal_order_indices
@@ -369,11 +369,11 @@ def evaluate_holdout(
     scenario_final = scenario or bundle.get("scenario", "IncidentOnly")
 
     # Load data (supports both CSV and Parquet)
-    positive_labels = get_scenario_labels(scenario_final)
+    positive_label = get_positive_label(scenario_final)
     df_raw = read_proteomics_file(infile, validate=True)
 
     # Filter to relevant classes
-    keep_labels = [CONTROL_LABEL] + positive_labels
+    keep_labels = get_scenario_labels(scenario_final)
     df_scenario_raw = df_raw[df_raw[TARGET_COL].isin(keep_labels)].copy()
 
     # Load holdout indices and metadata
@@ -397,7 +397,7 @@ def evaluate_holdout(
             df_filtered = df_filtered.iloc[order_idx].reset_index(drop=True)
 
     # Create binary outcome
-    df_filtered["y"] = df_filtered[TARGET_COL].isin(positive_labels).astype(int)
+    df_filtered["y"] = (df_filtered[TARGET_COL] == positive_label).astype(int)
     y_all = df_filtered["y"].to_numpy()
 
     # Extract resolved columns from bundle (preferred) or fallback to config

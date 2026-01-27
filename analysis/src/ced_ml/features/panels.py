@@ -217,10 +217,10 @@ def prune_correlated_proteins(
 
             # Secondary: Univariate strength (if enabled and tied on frequency)
             if tiebreak_method == "freq_then_univariate":
-                p_value, abs_delta = univariate_map.get(protein, (np.nan, np.nan))
+                p_value, effect_size = univariate_map.get(protein, (np.nan, np.nan))
                 p_val = p_value if np.isfinite(p_value) else 1.0
-                delta_val = abs_delta if np.isfinite(abs_delta) else 0.0
-                # Sort by: freq DESC, p_value ASC, abs_delta DESC, name ASC
+                delta_val = effect_size if np.isfinite(effect_size) else 0.0
+                # Sort by: freq DESC, p_value ASC, effect_size DESC, name ASC
                 return (primary, p_val, -delta_val, protein)
             else:
                 # Sort by: freq DESC, name ASC

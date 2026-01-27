@@ -243,6 +243,52 @@ def compute_and_save_pooled_metrics(
     return pooled_test_metrics, pooled_val_metrics, threshold_info
 
 
+def collect_sample_categories_metadata(
+    pooled_test_df: pd.DataFrame,
+    pooled_val_df: pd.DataFrame,
+    pooled_train_oof_df: pd.DataFrame,
+) -> dict[str, dict[str, int | None]]:
+    """
+    Collect sample category breakdowns from pooled predictions.
+
+    Args:
+        pooled_test_df: Pooled test predictions
+        pooled_val_df: Pooled validation predictions
+        pooled_train_oof_df: Pooled OOF predictions
+
+    Returns:
+        Dictionary mapping split names to category counts
+    """
+    sample_categories_metadata: dict[str, dict[str, int | None]] = {}
+
+    for split_name, df in [
+        ("test", pooled_test_df),
+        ("val", pooled_val_df),
+        ("train_oof", pooled_train_oof_df),
+    ]:
+        if df.empty:
+            continue
+
+        if "category" in df.columns:
+            cat_counts = df["category"].value_counts().to_dict()
+            sample_categories_metadata[split_name] = {
+                "controls": int(cat_counts.get("Controls", 0)),
+                "incident": int(cat_counts.get("Incident", 0)),
+                "prevalent": int(cat_counts.get("Prevalent", 0)),
+                "total": len(df),
+            }
+        else:
+            # Fallback: just total count
+            sample_categories_metadata[split_name] = {
+                "total": len(df),
+                "controls": None,
+                "incident": None,
+                "prevalent": None,
+            }
+
+    return sample_categories_metadata
+
+
 def build_aggregation_metadata(
     n_splits: int,
     split_seeds: list[int],

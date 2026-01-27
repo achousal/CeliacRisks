@@ -21,19 +21,36 @@ from ced_ml import __version__
     count=True,
     help="Increase verbosity (can be repeated: -v, -vv, -vvv)",
 )
+@click.option(
+    "--log-level",
+    type=click.Choice(["debug", "info", "warning", "error"], case_sensitive=False),
+    default="info",
+    help="Logging level (default: info). Use 'debug' for detailed algorithm insights.",
+)
 @click.pass_context
-def cli(ctx, verbose):
+def cli(ctx, verbose, log_level):
     """
     CeD-ML: Machine Learning Pipeline for Celiac Disease Risk Prediction
 
     A modular, reproducible ML pipeline for predicting incident Celiac Disease
     risk from proteomics biomarkers.
     """
+    import logging
+
     from ced_ml.utils.random import apply_seed_global
 
     # Store global options in context
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
+
+    # Convert log_level string to logging constant
+    log_level_map = {
+        "debug": logging.DEBUG,
+        "info": logging.INFO,
+        "warning": logging.WARNING,
+        "error": logging.ERROR,
+    }
+    ctx.obj["log_level"] = log_level_map[log_level.lower()]
 
     # Apply SEED_GLOBAL if set (for single-threaded reproducibility debugging)
     seed_applied = apply_seed_global()
@@ -151,6 +168,7 @@ def save_splits(ctx, config, **kwargs):
         cli_args=cli_args,
         overrides=overrides,
         verbose=ctx.obj.get("verbose", 0),
+        log_level=ctx.obj.get("log_level"),
     )
 
 
@@ -220,6 +238,7 @@ def train(ctx, config, **kwargs):
         cli_args=cli_args,
         overrides=overrides,
         verbose=ctx.obj.get("verbose", 0),
+        log_level=ctx.obj.get("log_level"),
     )
 
 
@@ -281,7 +300,9 @@ def aggregate_splits(ctx, **kwargs):
     # Convert tuple to list for plot_formats
     kwargs["plot_formats"] = list(kwargs["plot_formats"]) if kwargs["plot_formats"] else ["png"]
 
-    run_aggregate_splits(**kwargs, verbose=ctx.obj.get("verbose", 0))
+    run_aggregate_splits(
+        **kwargs, verbose=ctx.obj.get("verbose", 0), log_level=ctx.obj.get("log_level")
+    )
 
 
 @cli.command("eval-holdout")
@@ -392,6 +413,7 @@ def train_ensemble(ctx, config, base_models, **kwargs):
         base_models=base_model_list,
         **kwargs,
         verbose=ctx.obj.get("verbose", 0),
+        log_level=ctx.obj.get("log_level"),
     )
 
 

@@ -683,7 +683,322 @@ def test_rfecv_extracts_screening_proteins_when_no_kbest_step():
         random_state=42,
     )
 
-    # Should extract all 100 screened proteins (not empty list!)
-    assert len(extracted) == 100, f"Expected 100 proteins, got {len(extracted)}"
-    assert set(extracted) == set(screened_proteins), "Should extract all screened proteins"
-    assert extracted == sorted(screened_proteins), "Should return sorted list"
+    # When RFECV strategy is used but no nested_rfecv_result is provided,
+    # should return empty list (screening is not the final selection)
+    assert len(extracted) == 0, f"Expected 0 proteins (no consensus panel), got {len(extracted)}"
+    assert extracted == [], "Should return empty list when no RFECV result"
+
+
+def test_rfecv_uses_consensus_panel_when_provided():
+    """Test that RFECV strategy uses consensus panel from nested CV when provided."""
+    from ced_ml.features.nested_rfe import NestedRFECVResult
+    from ced_ml.models.training import _extract_selected_proteins_from_fold
+    from sklearn.base import BaseEstimator, TransformerMixin
+
+    # Mock screening transformer
+    class MockScreener(BaseEstimator, TransformerMixin):
+        def __init__(self, selected_proteins):
+            self.selected_proteins_ = selected_proteins
+
+        def fit(self, X, y=None):
+            return self
+
+        def transform(self, X):
+            return X[self.selected_proteins_]
+
+    # Create pipeline with screening but NO k-best step
+    screened_proteins = [f"prot_{i}_resid" for i in range(100)]
+    screener = MockScreener(selected_proteins=screened_proteins)
+
+    preprocessor = ColumnTransformer(
+        transformers=[("num", StandardScaler(), screened_proteins)],
+        remainder="drop",
+    )
+
+    pipeline = Pipeline(
+        [
+            ("screen", screener),
+            ("pre", preprocessor),
+            ("clf", LogisticRegression(random_state=42, max_iter=100)),
+        ]
+    )
+
+    # Fit pipeline
+    X = pd.DataFrame(np.random.randn(50, 100), columns=screened_proteins)
+    y = np.random.binomial(1, 0.2, 50)
+    pipeline.fit(X, y)
+
+    # Create config with RFECV strategy
+    config = make_mock_config()
+    config.features.feature_selection_strategy = "rfecv"
+
+    # Create mock nested RFECV result with consensus panel
+    consensus_panel = [f"prot_{i}_resid" for i in range(0, 39)]  # 39 proteins
+    rfecv_result = NestedRFECVResult()
+    rfecv_result.consensus_panel = consensus_panel
+    rfecv_result.feature_stability = {p: 0.85 for p in consensus_panel}
+
+    # Extract proteins WITH nested_rfecv_result
+    extracted = _extract_selected_proteins_from_fold(
+        fitted_model=pipeline,
+        model_name="LR_EN",
+        protein_cols=screened_proteins,
+        config=config,
+        X_train=X,
+        y_train=y,
+        random_state=42,
+        nested_rfecv_result=rfecv_result,
+    )
+
+    # Should use consensus panel (39 proteins), NOT screening output (100 proteins)
+    assert len(extracted) == 39, f"Expected 39 consensus proteins, got {len(extracted)}"
+    assert set(extracted) == set(consensus_panel), "Should extract consensus panel proteins"
+    assert extracted == sorted(consensus_panel), "Should return sorted list"
+
+
+@pytest.mark.slow
+def test_rfecv_actually_reduces_features():
+    """
+    Integration test: Verify RFECV retrains model on selected features.
+
+    This is a regression test for the bug where RFECV selected features
+    (e.g., 30-100 proteins) but the model was never retrained, causing
+    features_in_model to remain at 1004 (1000 screened + 4 metadata).
+
+    Expected behavior:
+    - RFECV selects optimal subset (e.g., 20-50 proteins)
+    - Model is retrained on ONLY those proteins + metadata
+    - features_in_model matches RFECV selection size + metadata columns
+    """
+    from ced_ml.cli.train import build_training_pipeline
+    from ced_ml.models.registry import build_models
+    from ced_ml.models.training import oof_predictions_with_nested_cv
+    from sklearn.datasets import make_classification
+
+    # Generate larger dataset for realistic RFECV
+    X_arr, y = make_classification(
+        n_samples=200,
+        n_features=100,
+        n_informative=20,
+        n_redundant=10,
+        n_classes=2,
+        random_state=42,
+        class_sep=1.5,
+    )
+
+    protein_cols = [f"prot_{i}_resid" for i in range(100)]
+    X = pd.DataFrame(X_arr, columns=protein_cols)
+    X["age"] = np.random.uniform(20, 80, 200)
+    X["sex"] = np.random.choice(["M", "F"], 200)
+
+    # Create config with RFECV enabled
+    config = make_mock_config()
+    config.features.feature_selection_strategy = "rfecv"
+    config.features.screen_top_n = 100  # Screen to 100 proteins
+    config.features.rfe_kbest_prefilter = True
+    config.features.rfe_kbest_k = 50  # Pre-filter to 50 before RFECV
+    config.features.rfe_target_size = 20  # Aim for ~20 proteins
+    config.features.rfe_step_strategy = "adaptive"
+    config.cv.folds = 2  # Fast test
+    config.cv.repeats = 1
+    config.cv.inner_folds = 2
+    config.optuna.enabled = False  # Disable to speed up test
+
+    # Build pipeline
+    classifier = build_models("LR_EN", config, random_state=42, n_jobs=1)
+    pipeline = build_training_pipeline(
+        config,
+        classifier,
+        protein_cols=protein_cols,
+        cat_cols=["sex"],
+    )
+
+    # Run training with RFECV
+    preds, elapsed, best_params_df, selected_proteins_df, _, rfecv_result = (
+        oof_predictions_with_nested_cv(
+            pipeline, "LR_EN", X, y, protein_cols, config, random_state=42
+        )
+    )
+
+    # Verify RFECV results exist
+    assert rfecv_result is not None, "RFECV should return results"
+    assert len(rfecv_result.consensus_panel) > 0, "RFECV should select proteins"
+    assert (
+        rfecv_result.mean_optimal_size < 50
+    ), f"RFECV should reduce from 50 (got {rfecv_result.mean_optimal_size})"
+
+    # Verify predictions were generated
+    assert preds.shape == (1, len(y))
+    assert not np.isnan(preds).any(), "No missing OOF predictions"
+
+    # Verify selected proteins tracking
+    assert len(selected_proteins_df) > 0, "Should track selected proteins per fold"
+    for _, row in selected_proteins_df.iterrows():
+        n_selected = row["n_selected_proteins"]
+        proteins_json = json.loads(row["selected_proteins"])
+
+        # Critical assertion: RFECV should reduce feature count
+        assert n_selected < 50, (
+            f"RFECV should reduce from 50 k-best proteins (got {n_selected}). "
+            "If this is ~50, RFECV is not being applied."
+        )
+        assert len(proteins_json) == n_selected, "Protein list should match count"
+
+    print(
+        f"✓ RFECV reduced to {rfecv_result.mean_optimal_size:.1f} proteins (consensus: {len(rfecv_result.consensus_panel)})"
+    )
+
+
+def test_final_model_kbest_selection_multiple_k():
+    """Test that final model uses mode k when multiple k values are tuned."""
+    from ced_ml.cli.train import build_training_pipeline
+    from ced_ml.models.registry import build_models
+
+    # Create mock config with multiple k values
+    config = make_mock_config()
+    config.features.feature_selection_strategy = "hybrid_stability"
+    config.features.k_grid = [25, 50, 100]
+    config.features.screen_top_n = 0  # Disable screening for simplicity
+
+    # Create mock best_params_df with k values from CV
+    best_params_df = pd.DataFrame(
+        {
+            "model": ["LR_EN"] * 6,
+            "repeat": [0, 0, 1, 1, 2, 2],
+            "outer_split": [0, 1, 2, 3, 4, 5],
+            "sel__k": [100, 100, 50, 100, 100, 100],  # Mode = 100
+        }
+    )
+
+    # Build pipeline
+    classifier = build_models("LR_EN", config, random_state=42, n_jobs=1)
+    protein_cols = [f"prot_{i}_resid" for i in range(20)]
+    pipeline = build_training_pipeline(config, classifier, protein_cols, cat_cols=[])
+
+    # Apply k selection logic (same as in train.py)
+    strategy = config.features.feature_selection_strategy
+    if strategy == "hybrid_stability" and "sel__k" in best_params_df.columns:
+        k_grid = getattr(config.features, "k_grid", None)
+
+        if k_grid and len(k_grid) > 1:
+            best_k = int(best_params_df["sel__k"].mode()[0])
+        elif k_grid and len(k_grid) == 1:
+            best_k = k_grid[0]
+        else:
+            best_k = int(best_params_df["sel__k"].iloc[0])
+
+        pipeline.set_params(sel__k=best_k)
+
+    # Verify final pipeline has k=100 (mode)
+    assert (
+        pipeline.named_steps["sel"].k == 100
+    ), f"Expected k=100 (mode), got {pipeline.named_steps['sel'].k}"
+
+
+def test_final_model_kbest_selection_single_k():
+    """Test that final model uses single k value when only one k in config."""
+    from ced_ml.cli.train import build_training_pipeline
+    from ced_ml.models.registry import build_models
+
+    # Create mock config with single k value
+    config = make_mock_config()
+    config.features.feature_selection_strategy = "hybrid_stability"
+    config.features.k_grid = [100]  # Single value
+    config.features.screen_top_n = 0
+
+    # Create mock best_params_df (shouldn't matter with single k)
+    best_params_df = pd.DataFrame(
+        {
+            "model": ["LR_EN"] * 3,
+            "repeat": [0, 0, 1],
+            "outer_split": [0, 1, 2],
+            "sel__k": [100, 100, 100],
+        }
+    )
+
+    # Build pipeline
+    classifier = build_models("LR_EN", config, random_state=42, n_jobs=1)
+    protein_cols = [f"prot_{i}_resid" for i in range(20)]
+    pipeline = build_training_pipeline(config, classifier, protein_cols, cat_cols=[])
+
+    # Apply k selection logic
+    strategy = config.features.feature_selection_strategy
+    if strategy == "hybrid_stability" and "sel__k" in best_params_df.columns:
+        k_grid = getattr(config.features, "k_grid", None)
+
+        if k_grid and len(k_grid) > 1:
+            best_k = int(best_params_df["sel__k"].mode()[0])
+        elif k_grid and len(k_grid) == 1:
+            best_k = k_grid[0]
+        else:
+            best_k = int(best_params_df["sel__k"].iloc[0])
+
+        pipeline.set_params(sel__k=best_k)
+
+    # Verify final pipeline has k=100
+    assert (
+        pipeline.named_steps["sel"].k == 100
+    ), f"Expected k=100 (from config), got {pipeline.named_steps['sel'].k}"
+
+
+def test_extract_proteins_from_oof_calibrated_model(toy_data):
+    """Test that _extract_selected_proteins_from_fold unwraps OOFCalibratedModel.
+
+    This is a regression test for the bug where OOF-posthoc calibration wrapped
+    the final pipeline in OOFCalibratedModel, causing protein extraction to fail
+    and log "Final test panel: 0 proteins selected".
+    """
+    from ced_ml.models.calibration import OOFCalibratedModel, OOFCalibrator
+    from ced_ml.models.training import _extract_selected_proteins_from_fold
+    from sklearn.feature_selection import SelectKBest, f_classif
+
+    X, y, protein_cols = toy_data
+
+    # Create a pipeline with k-best selection
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", StandardScaler(), protein_cols),
+        ],
+        remainder="drop",
+    )
+
+    pipeline = Pipeline(
+        [
+            ("pre", preprocessor),
+            ("sel", SelectKBest(score_func=f_classif, k=5)),
+            ("clf", LogisticRegression(random_state=42, max_iter=100)),
+        ]
+    )
+
+    pipeline.fit(X, y)
+
+    # Create OOF calibrator and wrap the pipeline
+    oof_calibrator = OOFCalibrator(method="isotonic")
+    y_oof = pipeline.predict_proba(X)[:, 1]
+    oof_calibrator.fit(y_oof, y)
+
+    wrapped_model = OOFCalibratedModel(
+        base_model=pipeline,
+        calibrator=oof_calibrator,
+    )
+
+    # Create config
+    config = make_mock_config()
+    config.features.feature_selection_strategy = "hybrid_stability"
+    config.features.kbest_scope = "transformed"
+
+    # Extract proteins from wrapped model
+    extracted = _extract_selected_proteins_from_fold(
+        fitted_model=wrapped_model,
+        model_name="LR_EN",
+        protein_cols=protein_cols,
+        config=config,
+        X_train=X,
+        y_train=y,
+        random_state=42,
+    )
+
+    # Should extract 5 proteins (k=5), NOT 0
+    assert len(extracted) == 5, f"Expected 5 proteins, got {len(extracted)}"
+    assert all(p in protein_cols for p in extracted)
+    assert extracted == sorted(extracted), "Should return sorted list"

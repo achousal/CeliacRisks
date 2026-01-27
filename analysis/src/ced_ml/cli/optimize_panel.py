@@ -11,8 +11,8 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
-from ced_ml.data.io import read_data_file
-from ced_ml.data.persistence import load_split
+from ced_ml.data.io import read_proteomics_file
+from ced_ml.data.schema import TARGET_COL, get_positive_label
 from ced_ml.features.rfe import (
     RFEResult,
     recursive_feature_elimination,
@@ -86,7 +86,6 @@ def run_optimize_panel(
     model_name = bundle.get("model_name", "unknown")
     pipeline = bundle.get("model")
     resolved_cols = bundle.get("resolved_columns", {})
-    config_dict = bundle.get("config", {})
 
     if pipeline is None:
         raise ValueError("Model bundle missing 'model' key")
@@ -102,33 +101,27 @@ def run_optimize_panel(
 
     # Load data
     logger.info(f"Loading data from {infile}")
-    df = read_data_file(infile)
+    df = read_proteomics_file(infile, validate=True)
 
-    # Load split
+    # Load split indices (CSV format)
     split_path = Path(split_dir)
     scenario = bundle.get("scenario", "IncidentOnly")
 
-    # Try to find split file
-    split_patterns = [
-        split_path / f"split_{split_seed}.pkl",
-        split_path / f"splits_{split_seed}.pkl",
-        split_path / scenario / f"split_{split_seed}.pkl",
-    ]
+    # Try new format first (with scenario)
+    train_file = split_path / f"train_idx_{scenario}_seed{split_seed}.csv"
+    val_file = split_path / f"val_idx_{scenario}_seed{split_seed}.csv"
 
-    split_file = None
-    for pattern in split_patterns:
-        if pattern.exists():
-            split_file = pattern
-            break
+    # Fallback to old format (without scenario)
+    if not train_file.exists():
+        train_file = split_path / f"train_idx_seed{split_seed}.csv"
+        val_file = split_path / f"val_idx_seed{split_seed}.csv"
 
-    if split_file is None:
-        raise FileNotFoundError(f"Split file not found. Tried: {[str(p) for p in split_patterns]}")
+    if not train_file.exists() or not val_file.exists():
+        raise FileNotFoundError(f"Split files not found. Tried: {train_file}, {val_file}")
 
-    logger.info(f"Loading split from {split_file}")
-    split_data = load_split(str(split_file))
-
-    train_idx = split_data.get("train_idx", split_data.get("train", []))
-    val_idx = split_data.get("val_idx", split_data.get("val", []))
+    logger.info(f"Loading splits from {split_path}")
+    train_idx = pd.read_csv(train_file, header=None).squeeze().values
+    val_idx = pd.read_csv(val_file, header=None).squeeze().values
 
     if len(train_idx) == 0 or len(val_idx) == 0:
         raise ValueError("Split file missing train_idx or val_idx")
@@ -143,21 +136,15 @@ def run_optimize_panel(
         feature_cols = [c for c in feature_cols if c in df.columns]
         protein_cols = [c for c in protein_cols if c in df.columns]
 
-    # Get target column
-    target_col = config_dict.get("columns", {}).get("target", "celiac_category")
-    if target_col not in df.columns:
-        # Try common alternatives
-        for alt in ["celiac_category", "target", "label", "y"]:
-            if alt in df.columns:
-                target_col = alt
-                break
+    # Create binary target using schema-defined target column and positive label
+    if TARGET_COL not in df.columns:
+        raise ValueError(
+            f"Target column '{TARGET_COL}' not found in data. "
+            f"Available columns: {list(df.columns[:10])}..."
+        )
 
-    # Create binary target
-    scenario_labels = config_dict.get("scenarios", {}).get(scenario, {}).get("labels", [1])
-    if not scenario_labels:
-        scenario_labels = [1]  # Default: 1 = case
-
-    y_all = df[target_col].isin(scenario_labels).astype(int).values
+    positive_label = get_positive_label(scenario)
+    y_all = (df[TARGET_COL] == positive_label).astype(int).values
 
     # Subset to train/val
     X_train = df.loc[train_idx, feature_cols].copy()

@@ -58,6 +58,7 @@ def run_save_splits(
     cli_args: dict[str, Any] | None = None,
     overrides: list[str] | None = None,
     verbose: int = 0,
+    log_level: int | None = None,
 ):
     """
     Run split generation with new config system.
@@ -66,11 +67,14 @@ def run_save_splits(
         config_file: Path to YAML config file (optional)
         cli_args: Dictionary of CLI arguments (optional)
         overrides: List of config overrides (optional)
-        verbose: Verbosity level (0=INFO, 1=DEBUG)
+        verbose: Verbosity level (0=INFO, 1=DEBUG) - deprecated, use log_level
+        log_level: Logging level constant (logging.DEBUG, logging.INFO, etc.)
     """
     # Setup logger
-    log_level = 20 - (verbose * 10)  # INFO=20, DEBUG=10
-    logger = setup_logger("ced_ml.save_splits", level=log_level)
+    if log_level is None:
+        log_level = 20 - (verbose * 10)  # INFO=20, DEBUG=10
+    # Use parent logger "ced_ml" so all child modules inherit the level
+    logger = setup_logger("ced_ml", level=log_level)
 
     log_section(logger, "CeD-ML Split Generation")
 

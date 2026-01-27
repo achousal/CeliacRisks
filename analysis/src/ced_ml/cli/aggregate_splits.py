@@ -10,11 +10,13 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from ced_ml.cli.aggregation.aggregation import (
     compute_summary_stats,
+)
+from ced_ml.cli.aggregation.artifacts import (
+    generate_additional_artifacts,
 )
 from ced_ml.cli.aggregation.collection import (
     collect_best_hyperparams,
@@ -28,11 +30,15 @@ from ced_ml.cli.aggregation.discovery import (
     discover_ensemble_dirs,
     discover_split_dirs,
 )
+from ced_ml.cli.aggregation.ensemble_metadata import (
+    collect_ensemble_metadata,
+)
 from ced_ml.cli.aggregation.orchestrator import (
     build_aggregation_metadata as build_agg_metadata,
 )
 from ced_ml.cli.aggregation.orchestrator import (
     build_return_summary,
+    collect_sample_categories_metadata,
     compute_and_save_pooled_metrics,
     save_pooled_predictions,
     setup_aggregation_directories,
@@ -180,6 +186,7 @@ def run_aggregate_splits(
     target_specificity: float = 0.95,
     n_boot: int = 500,
     verbose: int = 0,
+    log_level: int | None = None,
     save_plots: bool = True,
     plot_roc: bool = True,
     plot_pr: bool = True,
@@ -199,7 +206,8 @@ def run_aggregate_splits(
         plot_formats: List of plot formats (default ["png"])
         target_specificity: Target specificity for alpha threshold (default 0.95)
         n_boot: Number of bootstrap iterations (for future CI computation)
-        verbose: Verbosity level (0=INFO, 1=DEBUG)
+        verbose: Verbosity level (0=INFO, 1=DEBUG) - deprecated, use log_level
+        log_level: Logging level constant (logging.DEBUG, logging.INFO, etc.)
         save_plots: Whether to save plots at all (default True)
         plot_roc: Whether to generate ROC plots (default True)
         plot_pr: Whether to generate PR plots (default True)
@@ -218,8 +226,10 @@ def run_aggregate_splits(
     if control_spec_targets is None:
         control_spec_targets = [0.90, 0.95, 0.99]
 
-    log_level = 20 - (verbose * 10)
-    logger = setup_logger("ced_ml.aggregate", level=log_level)
+    if log_level is None:
+        log_level = 20 - (verbose * 10)
+    # Use parent logger "ced_ml" so all child modules inherit the level
+    logger = setup_logger("ced_ml", level=log_level)
 
     log_section(logger, "CeD-ML Split Aggregation")
 
@@ -548,32 +558,11 @@ def run_aggregate_splits(
     log_section(logger, "Saving Aggregation Metadata")
 
     # Aggregate sample category breakdowns from pooled predictions
-    sample_categories_metadata = {}
-
-    for split_name, df in [
-        ("test", pooled_test_df),
-        ("val", pooled_val_df),
-        ("train_oof", pooled_train_oof_df),
-    ]:
-        if df.empty:
-            continue
-
-        if "category" in df.columns:
-            cat_counts = df["category"].value_counts().to_dict()
-            sample_categories_metadata[split_name] = {
-                "controls": int(cat_counts.get("Controls", 0)),
-                "incident": int(cat_counts.get("Incident", 0)),
-                "prevalent": int(cat_counts.get("Prevalent", 0)),
-                "total": len(df),
-            }
-        else:
-            # Fallback: just total count
-            sample_categories_metadata[split_name] = {
-                "total": len(df),
-                "controls": None,
-                "incident": None,
-                "prevalent": None,
-            }
+    sample_categories_metadata = collect_sample_categories_metadata(
+        pooled_test_df=pooled_test_df,
+        pooled_val_df=pooled_val_df,
+        pooled_train_oof_df=pooled_train_oof_df,
+    )
 
     log_section(logger, "Generating Aggregated Plots")
 
@@ -644,326 +633,25 @@ def run_aggregate_splits(
 
     log_section(logger, "Generating Additional Artifacts")
 
-    # --- Calibration CSV export ---
-    try:
-        from sklearn.calibration import calibration_curve
-
-        diag_calibration_dir = agg_dir / "diagnostics" / "calibration"
-        diag_calibration_dir.mkdir(parents=True, exist_ok=True)
-
-        calib_bins = 10  # Match train.py default
-        calib_rows = []
-
-        for split_name, df in [("test", pooled_test_df), ("val", pooled_val_df)]:
-            if df.empty:
-                continue
-
-            pred_col = None
-            for col in ["y_prob", "y_pred", "risk_score", "prob", "prediction"]:
-                if col in df.columns:
-                    pred_col = col
-                    break
-
-            if pred_col is None or "y_true" not in df.columns:
-                continue
-
-            y_true = df["y_true"].values
-            y_pred = df[pred_col].values
-
-            mask = np.isfinite(y_true) & np.isfinite(y_pred)
-            y_true = y_true[mask].astype(int)
-            y_pred = y_pred[mask].astype(float)
-
-            if len(y_true) == 0 or len(np.unique(y_true)) < 2:
-                continue
-
-            prob_true, prob_pred = calibration_curve(
-                y_true, y_pred, n_bins=calib_bins, strategy="uniform"
-            )
-
-            for bin_center, obs_freq in zip(prob_pred, prob_true, strict=False):
-                calib_rows.append(
-                    {
-                        "split": split_name,
-                        "bin_center": bin_center,
-                        "observed_freq": obs_freq,
-                        "scenario": "aggregated",
-                        "model": "pooled",
-                    }
-                )
-
-        if calib_rows:
-            calib_df = pd.DataFrame(calib_rows)
-            calib_csv_path = diag_calibration_dir / "calibration.csv"
-            calib_df.to_csv(calib_csv_path, index=False)
-            logger.info(f"Calibration CSV saved: {calib_csv_path}")
-    except Exception as e:
-        if logger:
-            logger.warning(f"Failed to save calibration CSV: {e}")
-
-    # --- DCA CSV export ---
-    try:
-        from ced_ml.metrics.dca import save_dca_results
-
-        diag_dca_dir = agg_dir / "diagnostics" / "dca"
-        diag_dca_dir.mkdir(parents=True, exist_ok=True)
-
-        for split_name, df in [("test", pooled_test_df), ("val", pooled_val_df)]:
-            if df.empty:
-                continue
-
-            pred_col = None
-            for col in ["y_prob", "y_pred", "risk_score", "prob", "prediction"]:
-                if col in df.columns:
-                    pred_col = col
-                    break
-
-            if pred_col is None or "y_true" not in df.columns:
-                continue
-
-            y_true = df["y_true"].values
-            y_pred = df[pred_col].values
-
-            mask = np.isfinite(y_true) & np.isfinite(y_pred)
-            y_true = y_true[mask].astype(int)
-            y_pred = y_pred[mask].astype(float)
-
-            if len(y_true) == 0 or len(np.unique(y_true)) < 2:
-                continue
-
-            dca_result = save_dca_results(
-                y_true=y_true,
-                y_pred_prob=y_pred,
-                out_dir=str(diag_dca_dir),
-                prefix=f"{split_name}__",
-                thresholds=None,
-                report_points=None,
-                prevalence_adjustment=None,
-            )
-            if logger:
-                logger.info(f"DCA CSV ({split_name}): {dca_result.get('dca_csv_path', 'N/A')}")
-    except Exception as e:
-        if logger:
-            logger.warning(f"Failed to save DCA CSV: {e}")
-
-    # --- Screening results aggregation ---
-    try:
-        diag_screening_dir = agg_dir / "diagnostics" / "screening"
-        diag_screening_dir.mkdir(parents=True, exist_ok=True)
-
-        # Concat-as-you-go to avoid accumulating all DataFrames in memory (saves ~500MB)
-        combined_screening = None
-        for split_dir in split_dirs:
-            seed = int(split_dir.name.replace("split_seed", ""))
-            screening_path = split_dir / "diagnostics" / "screening"
-
-            if not screening_path.exists():
-                continue
-
-            for csv_file in screening_path.glob("*_screening_results.csv"):
-                try:
-                    df = pd.read_csv(csv_file)
-                    df["split_seed"] = seed
-                    if combined_screening is None:
-                        combined_screening = df
-                    else:
-                        combined_screening = pd.concat([combined_screening, df], ignore_index=True)
-                except Exception as e:
-                    if logger:
-                        logger.debug(f"Failed to read {csv_file}: {e}")
-
-        if combined_screening is not None:
-            screening_csv_path = diag_screening_dir / "all_screening_results.csv"
-            combined_screening.to_csv(screening_csv_path, index=False)
-            logger.info(f"Screening results aggregated: {screening_csv_path}")
-
-            # Compute summary statistics
-            if "protein" in combined_screening.columns:
-                protein_cols = [
-                    c
-                    for c in combined_screening.columns
-                    if c not in ["split_seed", "scenario", "model", "protein"]
-                ]
-                if protein_cols:
-                    screening_summary = (
-                        combined_screening.groupby("protein")[protein_cols]
-                        .agg(["mean", "std"])
-                        .reset_index()
-                    )
-                    screening_summary.columns = [
-                        "_".join(col).strip("_") for col in screening_summary.columns
-                    ]
-                    screening_summary_path = diag_screening_dir / "screening_summary.csv"
-                    screening_summary.to_csv(screening_summary_path, index=False)
-                    logger.info(f"Screening summary saved: {screening_summary_path}")
-    except Exception as e:
-        if logger:
-            logger.warning(f"Failed to aggregate screening results: {e}")
-
-    # --- Learning curve aggregation ---
-    try:
-        # CSVs go to diagnostics/learning_curve/, plots go to diagnostics/plots/
-        diag_learning_dir = agg_dir / "diagnostics" / "learning_curve"
-        diag_learning_dir.mkdir(parents=True, exist_ok=True)
-        diag_plots_dir = agg_dir / "diagnostics" / "plots"
-        diag_plots_dir.mkdir(parents=True, exist_ok=True)
-
-        # Note: Keep list for aggregate_learning_curve_runs (needs individual DFs)
-        # Memory impact is lower than screening (smaller DataFrames)
-        all_learning_curves = []
-        for split_dir in split_dirs:
-            seed = int(split_dir.name.replace("split_seed", ""))
-            # Individual splits store CSVs in diagnostics/learning_curve/ (singular)
-            lc_path = split_dir / "diagnostics" / "learning_curve"
-
-            if not lc_path.exists():
-                continue
-
-            for csv_file in lc_path.glob("*_learning_curve.csv"):
-                try:
-                    df = pd.read_csv(csv_file)
-                    df["split_seed"] = seed
-                    df["run_dir"] = split_dir.name
-                    all_learning_curves.append(df)
-                except Exception as e:
-                    if logger:
-                        logger.debug(f"Failed to read {csv_file}: {e}")
-
-        if all_learning_curves:
-            combined_lc = pd.concat(all_learning_curves, ignore_index=True)
-            lc_csv_path = diag_learning_dir / "all_learning_curves.csv"
-            combined_lc.to_csv(lc_csv_path, index=False)
-            logger.info(f"Learning curves aggregated: {lc_csv_path}")
-
-            # Generate learning curve summary plot
-            if save_plots and plot_learning_curve:
-                try:
-                    from ced_ml.plotting.learning_curve import (
-                        aggregate_learning_curve_runs,
-                        plot_learning_curve_summary,
-                    )
-
-                    if "train_size" in combined_lc.columns:
-                        # aggregate_learning_curve_runs expects list[pd.DataFrame]
-                        agg_lc = aggregate_learning_curve_runs(all_learning_curves)
-                        if not agg_lc.empty:
-                            # Save aggregated summary CSV to learning_curve dir
-                            agg_lc_path = diag_learning_dir / "learning_curve_summary.csv"
-                            agg_lc.to_csv(agg_lc_path, index=False)
-                            logger.info(f"Learning curve summary: {agg_lc_path}")
-
-                            # Save plots to diagnostics/plots/
-                            for fmt in plot_formats:
-                                plot_learning_curve_summary(
-                                    df=agg_lc,
-                                    out_path=diag_plots_dir / f"learning_curve.{fmt}",
-                                    title="Aggregated Learning Curve",
-                                    meta_lines=meta_lines,
-                                )
-                            logger.info("Learning curve summary plot saved")
-                except Exception as e:
-                    if logger:
-                        logger.debug(f"Failed to generate learning curve plot: {e}")
-    except Exception as e:
-        if logger:
-            logger.warning(f"Failed to aggregate learning curves: {e}")
+    generate_additional_artifacts(
+        pooled_test_df=pooled_test_df,
+        pooled_val_df=pooled_val_df,
+        split_dirs=split_dirs,
+        out_dir=agg_dir,
+        save_plots=save_plots,
+        plot_learning_curve=plot_learning_curve,
+        plot_formats=plot_formats,
+        meta_lines=meta_lines,
+        logger=logger,
+    )
 
     # Collect ensemble-specific metadata if ENSEMBLE model present
-    ensemble_metadata = {}
-    if "ENSEMBLE" in all_models and ensemble_dirs:
-        ensemble_coefs_agg = {}
-        ensemble_configs = {}
-
-        for ed in ensemble_dirs:
-            settings_path = ed / "core" / "run_settings.json"
-            config_path = ed / "config.yaml"
-
-            # Extract coefficients
-            if settings_path.exists():
-                try:
-                    with open(settings_path) as f:
-                        settings = json.load(f)
-                    meta_coef = settings.get("meta_coef", {})
-                    split_seed = settings.get("split_seed", 0)
-                    if meta_coef:
-                        ensemble_coefs_agg[split_seed] = meta_coef
-                except Exception as e:
-                    logger.debug(f"Could not read ensemble settings from {ed}: {e}")
-
-            # Extract base model list and meta-learner config
-            if config_path.exists():
-                try:
-                    import yaml
-
-                    with open(config_path) as f:
-                        config = yaml.safe_load(f)
-                    if "ensemble" in config:
-                        ensemble_cfg = config["ensemble"]
-                        split_seed = int(ed.name.replace("split_seed", "").replace("split_", ""))
-                        ensemble_configs[split_seed] = {
-                            "base_models": ensemble_cfg.get("base_models", []),
-                            "meta_penalty": ensemble_cfg.get("meta_model", {}).get("penalty", "l2"),
-                            "meta_C": ensemble_cfg.get("meta_model", {}).get("C", 1.0),
-                        }
-                except Exception as e:
-                    logger.debug(f"Could not read ensemble config from {config_path}: {e}")
-
-        # Aggregate coefficients across splits
-        if ensemble_coefs_agg:
-            all_coef_names = set()
-            for coef_dict in ensemble_coefs_agg.values():
-                all_coef_names.update(coef_dict.keys())
-
-            coef_stats = {}
-            for name in all_coef_names:
-                vals = [cd.get(name) for cd in ensemble_coefs_agg.values() if name in cd]
-                if vals:
-                    coef_stats[name] = {
-                        "mean": float(np.mean(vals)),
-                        "std": float(np.std(vals)),
-                        "min": float(np.min(vals)),
-                        "max": float(np.max(vals)),
-                        "n_splits": len(vals),
-                    }
-
-            ensemble_metadata["meta_learner_coefficients"] = {
-                "aggregated_stats": coef_stats,
-                "per_split": ensemble_coefs_agg,
-                "n_splits_with_coefs": len(ensemble_coefs_agg),
-            }
-
-        # Add ensemble configuration metadata
-        if ensemble_configs:
-            # Get base models from first available config
-            first_config = next(iter(ensemble_configs.values()), {})
-            ensemble_metadata["ensemble_config"] = {
-                "base_models": first_config.get("base_models", []),
-                "n_base_models": len(first_config.get("base_models", [])),
-                "meta_penalty": first_config.get("meta_penalty", "l2"),
-                "meta_C": first_config.get("meta_C", 1.0),
-                "n_splits_with_config": len(ensemble_configs),
-            }
-
-        # Add ENSEMBLE model performance vs best single model
-        if "ENSEMBLE" in pooled_test_metrics and len(all_models) > 1:
-            ensemble_test = pooled_test_metrics["ENSEMBLE"]
-            base_models_test = {m: pooled_test_metrics[m] for m in all_models if m != "ENSEMBLE"}
-
-            if base_models_test:
-                best_base_auroc = max(
-                    (m.get("AUROC", 0) for m in base_models_test.values()), default=0
-                )
-                ensemble_auroc = ensemble_test.get("AUROC", 0)
-
-                if best_base_auroc > 0:
-                    improvement = ((ensemble_auroc - best_base_auroc) / best_base_auroc) * 100
-                    ensemble_metadata["performance"] = {
-                        "test_AUROC": ensemble_auroc,
-                        "best_base_model_AUROC": best_base_auroc,
-                        "AUROC_improvement_percent": improvement,
-                        "test_PR_AUC": ensemble_test.get("PR_AUC"),
-                        "test_Brier": ensemble_test.get("Brier"),
-                    }
+    ensemble_metadata = collect_ensemble_metadata(
+        ensemble_dirs=ensemble_dirs,
+        all_models=all_models,
+        pooled_test_metrics=pooled_test_metrics,
+        logger=logger,
+    )
 
     # Build and save aggregation metadata
     _ = build_agg_metadata(

@@ -5,10 +5,10 @@ End-to-end tests for the CeliacRisks ML pipeline have been successfully implemen
 ## Deliverables
 
 ### 1. Test Suite (`test_e2e_runner.py`)
-- **850 lines** of comprehensive E2E tests
-- **13 tests** covering 4 critical user workflows
-- **10 fast tests** (<5s each) + **2 slow tests** (30s-3min each)
-- **39% overall code coverage** (+24% from E2E tests)
+- **1,450+ lines** of comprehensive E2E tests
+- **21 tests** covering 7 critical user workflows
+- **13 fast tests** (<5s each) + **5 slow tests** (30s-3min each)
+- **Coverage increased** with new panel optimization and aggregation flows
 
 ### 2. Documentation
 - **E2E_TEST_GUIDE.md**: Complete testing guide (500+ lines)
@@ -41,12 +41,27 @@ End-to-end tests for the CeliacRisks ML pipeline have been successfully implemen
    - Resource specification checks
    - Dry-run readiness
 
-4. **Temporal Validation** (90% covered)
+4. **Panel Optimization** (100% covered)
+   - Train model → RFE optimization
+   - Panel size vs. AUROC trade-offs
+   - Error handling for missing models
+
+5. **Fixed Panel Validation** (100% covered)
+   - Training with fixed panel
+   - Feature selection bypass
+   - Error handling for invalid panels
+
+6. **Aggregation Workflow** (100% covered)
+   - Multi-split training
+   - Results aggregation
+   - Bootstrap confidence intervals
+
+7. **Temporal Validation** (90% covered)
    - Chronological split generation
    - Temporal ordering verification
    - (CLI integration pending)
 
-5. **Error Handling** (100% covered)
+8. **Error Handling** (100% covered)
    - Missing files
    - Invalid model names
    - Missing directories
@@ -54,25 +69,31 @@ End-to-end tests for the CeliacRisks ML pipeline have been successfully implemen
 
 ## Test Results
 
-### Fast Tests (10 tests, ~7s)
+### Fast Tests (13 tests, ~10s)
 ```
-✓ test_splits_generation_basic           PASS
-✓ test_reproducibility_same_seed         PASS
-✓ test_output_file_structure             PASS
-✓ test_ensemble_requires_base_models     PASS
-✓ test_hpc_config_validation             PASS
-✓ test_hpc_dry_run_mode                  PASS
-⊘ test_temporal_splits_generation        SKIP (pending CLI impl)
-✓ test_missing_input_file                PASS
-✓ test_invalid_model_name                PASS
-✓ test_missing_splits_dir                PASS
-✓ test_corrupted_config                  PASS
+✓ test_splits_generation_basic                      PASS
+✓ test_reproducibility_same_seed                    PASS
+✓ test_output_file_structure                        PASS
+✓ test_ensemble_requires_base_models                PASS
+✓ test_hpc_config_validation                        PASS
+✓ test_hpc_dry_run_mode                             PASS
+⊘ test_temporal_splits_generation                   SKIP (pending CLI impl)
+✓ test_panel_optimization_requires_trained_model    PASS
+✓ test_fixed_panel_invalid_file                     PASS
+✓ test_aggregation_requires_multiple_splits         PASS
+✓ test_missing_input_file                           PASS
+✓ test_invalid_model_name                           PASS
+✓ test_missing_splits_dir                           PASS
+✓ test_corrupted_config                             PASS
 ```
 
-### Slow Tests (2 tests, ~2-3min each)
+### Slow Tests (5 tests, ~1-3min each)
 ```
-test_full_pipeline_single_model          SLOW (marked with @pytest.mark.slow)
-test_ensemble_training_workflow          SLOW (marked with @pytest.mark.slow)
+test_full_pipeline_single_model                     SLOW (marked with @pytest.mark.slow)
+test_ensemble_training_workflow                     SLOW (marked with @pytest.mark.slow)
+test_panel_optimization_workflow                    SLOW (marked with @pytest.mark.slow)
+test_fixed_panel_training_workflow                  SLOW (marked with @pytest.mark.slow)
+test_aggregation_across_splits                      SLOW (marked with @pytest.mark.slow)
 ```
 
 ## How to Run
@@ -241,11 +262,13 @@ All E2E tests validate:
 ## Future Enhancements
 
 ### Planned Tests
-1. Aggregation E2E test (multiple splits)
-2. Holdout evaluation E2E test
-3. Multi-scenario workflow test
-4. Config validation E2E test
-5. HPC job submission test (mocked)
+1. ✓ ~~Aggregation E2E test (multiple splits)~~ - COMPLETED
+2. ✓ ~~Panel optimization E2E test~~ - COMPLETED
+3. ✓ ~~Fixed panel validation E2E test~~ - COMPLETED
+4. Holdout evaluation E2E test
+5. Multi-scenario workflow test
+6. Config validation E2E test
+7. HPC job submission test (mocked)
 
 ### Maintenance
 - Update fixtures when schema changes

@@ -30,6 +30,7 @@ def save_optuna_plots(
     study: Any,
     out_dir: Path,
     prefix: str = "",
+    plot_format: str = "html",
 ) -> None:
     """
     Generate and save Optuna study visualization plots.
@@ -44,7 +45,7 @@ def save_optuna_plots(
         study: Optuna Study object
         out_dir: Output directory for plots
         prefix: Filename prefix (e.g., "RF__")
-        plot_format: Output format ("png" or "pdf")
+        plot_format: Output format ("html", "png", or "pdf"). Default is "html" for interactive plots.
 
     Returns:
         None. Plots saved to out_dir.
@@ -80,8 +81,11 @@ def save_optuna_plots(
         try:
             fig = plot_optimization_history(study)
             fig.update_layout(title=f"Optimization History ({n_trials} trials)")
-            out_path = out_dir / f"{prefix}optuna_history.html"
-            fig.write_html(str(out_path))
+            out_path = out_dir / f"{prefix}optuna_history.{plot_format}"
+            if plot_format == "html":
+                fig.write_html(str(out_path))
+            else:
+                fig.write_image(str(out_path))
             logger.info(f"Saved optimization history plot: {out_path}")
         except Exception as e:
             logger.warning(f"Failed to create optimization history plot: {e}")
@@ -91,8 +95,11 @@ def save_optuna_plots(
             try:
                 fig = plot_param_importances(study)
                 fig.update_layout(title="Parameter Importances")
-                out_path = out_dir / f"{prefix}optuna_importances.html"
-                fig.write_html(str(out_path))
+                out_path = out_dir / f"{prefix}optuna_importances.{plot_format}"
+                if plot_format == "html":
+                    fig.write_html(str(out_path))
+                else:
+                    fig.write_image(str(out_path))
                 logger.info(f"Saved parameter importances plot: {out_path}")
             except Exception as e:
                 logger.warning(f"Failed to create parameter importances plot: {e}")
@@ -102,8 +109,11 @@ def save_optuna_plots(
             try:
                 fig = plot_parallel_coordinate(study)
                 fig.update_layout(title="Parallel Coordinate Plot")
-                out_path = out_dir / f"{prefix}optuna_parallel.html"
-                fig.write_html(str(out_path))
+                out_path = out_dir / f"{prefix}optuna_parallel.{plot_format}"
+                if plot_format == "html":
+                    fig.write_html(str(out_path))
+                else:
+                    fig.write_image(str(out_path))
                 logger.info(f"Saved parallel coordinate plot: {out_path}")
             except Exception as e:
                 logger.warning(f"Failed to create parallel coordinate plot: {e}")
@@ -113,8 +123,11 @@ def save_optuna_plots(
             try:
                 fig = plot_slice(study)
                 fig.update_layout(title="Slice Plot (Parameter vs Objective)")
-                out_path = out_dir / f"{prefix}optuna_slice.html"
-                fig.write_html(str(out_path))
+                out_path = out_dir / f"{prefix}optuna_slice.{plot_format}"
+                if plot_format == "html":
+                    fig.write_html(str(out_path))
+                else:
+                    fig.write_image(str(out_path))
                 logger.info(f"Saved slice plot: {out_path}")
             except Exception as e:
                 logger.warning(f"Failed to create slice plot: {e}")

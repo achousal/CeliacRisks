@@ -19,10 +19,10 @@ configs:
 # Execution
 execution:
   models:
-    - LR_EN
+    # - LR_EN
     - LinSVM_cal
-    - RF
-    - XGBoost
+    # - RF
+    # - XGBoost
   n_boot: 200  # Bootstrap iterations for L2 (adequate for ranking)
   overwrite_splits: false
   dry_run: false

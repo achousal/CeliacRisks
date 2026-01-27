@@ -317,9 +317,9 @@ def select_component_representative(
 
         # Secondary: univariate strength (if enabled)
         if tiebreak_method == "freq_then_univariate" and univariate_strength:
-            p_val, abs_delta = univariate_strength.get(protein, (np.nan, np.nan))
+            p_val, effect_size = univariate_strength.get(protein, (np.nan, np.nan))
             p_val_clean = p_val if np.isfinite(p_val) else 1.0
-            delta_clean = abs_delta if np.isfinite(abs_delta) else 0.0
+            delta_clean = effect_size if np.isfinite(effect_size) else 0.0
             k2 = p_val_clean  # Ascending (lower p is better)
             k3 = -delta_clean  # Descending (larger effect is better)
             return (k1, k2, k3, protein)  # Alphabetical tie-break

@@ -17,6 +17,7 @@ from ced_ml.features.nested_rfe import (
 from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.svm import LinearSVC
 
 
 @pytest.fixture
@@ -136,6 +137,33 @@ class TestRunRFECVWithinFold:
         # Selected features should have rank 1
         for f in result.selected_features:
             assert result.feature_ranking[f] == 1
+
+    def test_rfecv_with_linearsvc(self, train_val_split):
+        """RFECV works with LinearSVC (uses decision_function instead of predict_proba)."""
+        X_train, y_train, X_val, y_val, feature_names = train_val_split
+
+        estimator = LinearSVC(C=0.1, max_iter=1000, random_state=42, dual="auto")
+
+        result = run_rfecv_within_fold(
+            X_train_fold=X_train,
+            y_train_fold=y_train,
+            X_val_fold=X_val,
+            y_val_fold=y_val,
+            estimator=estimator,
+            feature_names=feature_names,
+            fold_idx=0,
+            min_features=5,
+            step=10,
+            cv_folds=2,
+            scoring="roc_auc",
+            n_jobs=1,
+            random_state=42,
+        )
+
+        assert isinstance(result, RFECVFoldResult)
+        assert result.optimal_n_features >= 5
+        assert len(result.selected_features) > 0
+        assert 0.0 <= result.val_auroc <= 1.0
 
 
 class TestComputeConsensusPanel:

@@ -205,8 +205,10 @@ def validate_required_columns(df: pd.DataFrame) -> None:
         df: DataFrame to validate
 
     Raises:
-        ValueError: If required columns are missing
+        ValueError: If required columns are missing, or if schema validation fails
     """
+    from ced_ml.data.schema import CONTROL_LABEL, INCIDENT_LABEL, PREVALENT_LABEL
+
     required = [ID_COL, TARGET_COL]
     missing = [col for col in required if col not in df.columns]
     if missing:
@@ -214,6 +216,60 @@ def validate_required_columns(df: pd.DataFrame) -> None:
             f"Required columns missing: {missing}. " f"Available columns: {list(df.columns)}"
         )
     logger.debug(f"Validated required columns: {required}")
+
+    # Validate target column labels
+    valid_labels = {CONTROL_LABEL, INCIDENT_LABEL, PREVALENT_LABEL}
+    observed_labels = set(df[TARGET_COL].dropna().unique())
+    invalid_labels = observed_labels - valid_labels
+    if invalid_labels:
+        raise ValueError(
+            f"Target column '{TARGET_COL}' contains invalid labels: {invalid_labels}. "
+            f"Valid labels: {valid_labels}"
+        )
+
+    # Check for at least one case and one control
+    label_counts = df[TARGET_COL].value_counts()
+    if CONTROL_LABEL not in label_counts or label_counts[CONTROL_LABEL] < 1:
+        raise ValueError(
+            f"Dataset must contain at least 1 control sample ('{CONTROL_LABEL}'). "
+            f"Found labels: {label_counts.to_dict()}"
+        )
+    case_labels = {INCIDENT_LABEL, PREVALENT_LABEL}
+    case_count = sum(label_counts.get(label, 0) for label in case_labels)
+    if case_count < 1:
+        raise ValueError(
+            f"Dataset must contain at least 1 case sample ('{INCIDENT_LABEL}' or '{PREVALENT_LABEL}'). "
+            f"Found labels: {label_counts.to_dict()}"
+        )
+
+    logger.debug(f"Validated target labels: {observed_labels}")
+
+    # Validate metadata column dtypes (common numeric metadata)
+    common_numeric_metadata = ["age", "BMI"]
+    non_numeric_metadata = []
+    for col in common_numeric_metadata:
+        if col in df.columns:
+            if not pd.api.types.is_numeric_dtype(df[col]):
+                non_numeric_metadata.append(f"{col} ({df[col].dtype})")
+
+    if non_numeric_metadata:
+        raise ValueError(
+            f"Metadata columns must be numeric but found non-numeric dtypes: {non_numeric_metadata}"
+        )
+
+    # Validate protein columns are numeric (sample check on first 10 proteins)
+    protein_cols = [col for col in df.columns if col.endswith("_resid")]
+    if protein_cols:
+        sample_proteins = protein_cols[:10]
+        non_numeric_proteins = []
+        for col in sample_proteins:
+            if not pd.api.types.is_numeric_dtype(df[col]):
+                non_numeric_proteins.append(f"{col} ({df[col].dtype})")
+
+        if non_numeric_proteins:
+            raise ValueError(
+                f"Protein columns must be numeric but found non-numeric dtypes in sample: {non_numeric_proteins}"
+            )
 
 
 def validate_binary_outcome(y) -> None:
