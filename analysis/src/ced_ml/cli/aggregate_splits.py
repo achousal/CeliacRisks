@@ -7,7 +7,6 @@ pooled predictions, aggregated plots, and consensus panels.
 
 import json
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,10 +14,7 @@ import numpy as np
 import pandas as pd
 
 from ced_ml.cli.aggregation.aggregation import (
-    compute_pooled_metrics_by_model,
-    compute_pooled_threshold_metrics,
     compute_summary_stats,
-    save_threshold_data,
 )
 from ced_ml.cli.aggregation.collection import (
     collect_best_hyperparams,
@@ -32,9 +28,25 @@ from ced_ml.cli.aggregation.discovery import (
     discover_ensemble_dirs,
     discover_split_dirs,
 )
+from ced_ml.cli.aggregation.orchestrator import (
+    build_aggregation_metadata as build_agg_metadata,
+)
+from ced_ml.cli.aggregation.orchestrator import (
+    build_return_summary,
+    compute_and_save_pooled_metrics,
+    save_pooled_predictions,
+    setup_aggregation_directories,
+)
+from ced_ml.cli.aggregation.plot_generator import (
+    generate_aggregated_plots,
+    generate_model_comparison_report,
+)
+from ced_ml.cli.aggregation.reporting import (
+    aggregate_feature_reports,
+    aggregate_feature_stability,
+    build_consensus_panels,
+)
 from ced_ml.config.loader import load_aggregate_config
-from ced_ml.evaluation.scoring import compute_selection_scores_for_models
-from ced_ml.metrics.thresholds import compute_threshold_bundle
 from ced_ml.utils.logging import log_section, setup_logger
 from ced_ml.utils.metadata import build_aggregated_metadata
 
@@ -161,627 +173,6 @@ def aggregate_hyperparams_summary(
     return summary_df
 
 
-def aggregate_feature_stability(
-    split_dirs: list[Path],
-    stability_threshold: float = 0.75,
-    logger: logging.Logger | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Aggregate feature selection across splits.
-
-    Args:
-        split_dirs: List of split subdirectory paths
-        stability_threshold: Fraction of splits a feature must appear in to be "stable"
-        logger: Optional logger instance
-
-    Returns:
-        Tuple of (feature_stability_df, stable_features_df)
-        - feature_stability_df: All features with selection counts
-        - stable_features_df: Features meeting stability threshold
-    """
-    all_selections = []
-
-    for split_dir in split_dirs:
-        seed = int(split_dir.name.replace("split_seed", ""))
-
-        cv_path = split_dir / "cv" / "selected_proteins_per_split.csv"
-        if not cv_path.exists():
-            if logger:
-                logger.debug(f"No selected proteins file in {split_dir.name}")
-            continue
-
-        try:
-            df = pd.read_csv(cv_path)
-            proteins_col = None
-            for col in ["selected_proteins_split", "selected_proteins", "proteins"]:
-                if col in df.columns:
-                    proteins_col = col
-                    break
-
-            if proteins_col is None:
-                continue
-
-            for _, row in df.iterrows():
-                proteins_str = row[proteins_col]
-                if pd.isna(proteins_str) or not proteins_str:
-                    continue
-
-                if isinstance(proteins_str, str):
-                    proteins = [p.strip() for p in proteins_str.split(",") if p.strip()]
-                else:
-                    proteins = []
-
-                for protein in proteins:
-                    all_selections.append(
-                        {
-                            "split_seed": seed,
-                            "protein": protein,
-                        }
-                    )
-        except Exception as e:
-            if logger:
-                logger.warning(f"Failed to read {cv_path}: {e}")
-
-    if not all_selections:
-        return pd.DataFrame(), pd.DataFrame()
-
-    selection_df = pd.DataFrame(all_selections)
-
-    n_splits = len(split_dirs)
-
-    protein_counts = (
-        selection_df.groupby("protein")["split_seed"]
-        .nunique()
-        .reset_index()
-        .rename(columns={"split_seed": "n_splits_selected"})
-    )
-    protein_counts["selection_fraction"] = protein_counts["n_splits_selected"] / n_splits
-    protein_counts = protein_counts.sort_values("selection_fraction", ascending=False)
-
-    stable_features = protein_counts[
-        protein_counts["selection_fraction"] >= stability_threshold
-    ].copy()
-
-    return protein_counts, stable_features
-
-
-def aggregate_feature_reports(
-    feature_reports_df: pd.DataFrame,
-) -> pd.DataFrame:
-    """
-    Aggregate feature reports across splits.
-
-    Computes mean, std, min, max, and count for selection_freq, effect_size, p_value.
-
-    Args:
-        feature_reports_df: DataFrame with feature reports from all splits
-
-    Returns:
-        DataFrame with aggregated feature statistics
-    """
-    if feature_reports_df.empty:
-        return pd.DataFrame()
-
-    agg_funcs = {
-        "selection_freq": ["mean", "std", "min", "max", "count"],
-    }
-
-    if "effect_size" in feature_reports_df.columns:
-        agg_funcs["effect_size"] = ["mean", "std"]
-    if "p_value" in feature_reports_df.columns:
-        agg_funcs["p_value"] = ["mean", "std"]
-
-    agg_df = feature_reports_df.groupby("protein").agg(agg_funcs).reset_index()
-
-    agg_df.columns = [
-        "_".join(col).strip("_") if col[1] else col[0] for col in agg_df.columns.values
-    ]
-
-    if "selection_freq_count" in agg_df.columns:
-        agg_df.rename(columns={"selection_freq_count": "n_splits"}, inplace=True)
-
-    agg_df = agg_df.sort_values("selection_freq_mean", ascending=False).reset_index(drop=True)
-    agg_df["rank"] = range(1, len(agg_df) + 1)
-
-    col_order = ["rank", "protein", "selection_freq_mean", "selection_freq_std", "n_splits"]
-    if "effect_size_mean" in agg_df.columns:
-        col_order.extend(["effect_size_mean", "effect_size_std"])
-    if "p_value_mean" in agg_df.columns:
-        col_order.extend(["p_value_mean", "p_value_std"])
-
-    remaining_cols = [c for c in agg_df.columns if c not in col_order]
-    col_order.extend(remaining_cols)
-
-    agg_df = agg_df[[c for c in col_order if c in agg_df.columns]]
-
-    return agg_df
-
-
-def build_consensus_panels(
-    split_dirs: list[Path],
-    panel_sizes: list[int] | None = None,
-    threshold: float = 0.75,
-    logger: logging.Logger | None = None,
-) -> dict[int, dict[str, Any]]:
-    """
-    Build consensus panels from per-split panels.
-
-    Args:
-        split_dirs: List of split subdirectory paths
-        panel_sizes: List of panel sizes to build (e.g., [10, 25, 50])
-        threshold: Fraction of splits a protein must appear in
-        logger: Optional logger instance
-
-    Returns:
-        Dictionary mapping panel_size -> panel manifest dict
-    """
-    if panel_sizes is None:
-        panel_sizes = [10, 25, 50]
-
-    results = {}
-
-    for panel_size in panel_sizes:
-        panel_proteins_per_split = []
-
-        for split_dir in split_dirs:
-            panel_dir = split_dir / "reports" / "panels"
-            if not panel_dir.exists():
-                continue
-
-            manifest_files = list(panel_dir.glob(f"*__N{panel_size}__panel_manifest.json"))
-            if not manifest_files:
-                continue
-
-            try:
-                with open(manifest_files[0]) as f:
-                    manifest = json.load(f)
-                    proteins = manifest.get("panel_proteins", [])
-                    if proteins:
-                        panel_proteins_per_split.append(set(proteins))
-            except Exception as e:
-                if logger:
-                    logger.warning(f"Failed to read panel manifest: {e}")
-
-        if not panel_proteins_per_split:
-            continue
-
-        protein_counts: dict[str, int] = {}
-        for protein_set in panel_proteins_per_split:
-            for protein in protein_set:
-                protein_counts[protein] = protein_counts.get(protein, 0) + 1
-
-        n_splits = len(panel_proteins_per_split)
-        min_count = int(np.ceil(threshold * n_splits))
-
-        consensus_proteins = [
-            protein
-            for protein, count in sorted(protein_counts.items(), key=lambda x: (-x[1], x[0]))
-            if count >= min_count
-        ]
-
-        results[panel_size] = {
-            "panel_size": panel_size,
-            "n_splits_with_panel": n_splits,
-            "consensus_threshold": threshold,
-            "min_splits_required": min_count,
-            "n_consensus_proteins": len(consensus_proteins),
-            "consensus_proteins": consensus_proteins,
-            "protein_counts": {p: c for p, c in protein_counts.items() if c >= min_count},
-        }
-
-    return results
-
-
-def generate_aggregated_plots(
-    pooled_test_df: pd.DataFrame,
-    pooled_val_df: pd.DataFrame,
-    pooled_train_oof_df: pd.DataFrame,
-    out_dir: Path,
-    threshold_info: dict[str, Any],
-    plot_formats: list[str],
-    meta_lines: list[str] | None = None,
-    logger: logging.Logger | None = None,
-    plot_roc: bool = True,
-    plot_pr: bool = True,
-    plot_calibration: bool = True,
-    plot_risk_distribution: bool = True,
-    plot_dca: bool = True,
-    plot_oof_combined: bool = True,
-    target_specificity: float = 0.95,
-) -> None:
-    """
-    Generate all aggregated diagnostic plots, separated by model.
-
-    Args:
-        pooled_test_df: DataFrame with pooled test predictions
-        pooled_val_df: DataFrame with pooled validation predictions
-        pooled_train_oof_df: DataFrame with pooled train OOF predictions
-        out_dir: Output directory for plots
-        threshold_info: Dictionary with threshold information (keyed by model)
-        plot_formats: List of plot formats (e.g., ["png", "pdf"])
-        meta_lines: Metadata lines to add to plots
-        logger: Optional logger instance
-        plot_roc: Whether to generate ROC plots
-        plot_pr: Whether to generate PR plots
-        plot_calibration: Whether to generate calibration plots
-        plot_risk_distribution: Whether to generate risk distribution plots
-        plot_dca: Whether to generate DCA plots
-        plot_oof_combined: Whether to generate OOF combined plots
-    """
-    try:
-        from ced_ml.plotting.calibration import plot_calibration_curve
-        from ced_ml.plotting.dca import plot_dca_curve
-        from ced_ml.plotting.risk_dist import plot_risk_distribution
-        from ced_ml.plotting.roc_pr import plot_pr_curve, plot_roc_curve
-    except ImportError as e:
-        if logger:
-            logger.warning(f"Plotting not available: {e}")
-        return
-
-    pred_col_names = ["y_prob", "y_pred", "risk_score", "prob", "prediction"]
-
-    def get_arrays(
-        df: pd.DataFrame,
-    ) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None, np.ndarray | None]:
-        if df.empty:
-            return None, None, None, None
-
-        pred_col = None
-        for col in pred_col_names:
-            if col in df.columns:
-                pred_col = col
-                break
-
-        if pred_col is None or "y_true" not in df.columns:
-            return None, None, None, None
-
-        y_true = df["y_true"].values
-        y_pred = df[pred_col].values
-        split_ids = df["split_seed"].values if "split_seed" in df.columns else None
-        category = df["category"].values if "category" in df.columns else None
-
-        return y_true, y_pred, split_ids, category
-
-    # Detect models present in the data
-    test_models = (
-        pooled_test_df["model"].unique().tolist()
-        if not pooled_test_df.empty and "model" in pooled_test_df.columns
-        else []
-    )
-    val_models = (
-        pooled_val_df["model"].unique().tolist()
-        if not pooled_val_df.empty and "model" in pooled_val_df.columns
-        else []
-    )
-    train_models = (
-        pooled_train_oof_df["model"].unique().tolist()
-        if not pooled_train_oof_df.empty and "model" in pooled_train_oof_df.columns
-        else []
-    )
-    all_models = sorted(set(test_models + val_models + train_models))
-
-    if not all_models:
-        all_models = ["unknown"]
-
-    if logger:
-        logger.info(f"Generating plots for {len(all_models)} model(s): {', '.join(all_models)}")
-
-    # Generate plots for each model separately
-    for model_name in all_models:
-        if logger:
-            logger.info(f"Generating plots for model: {model_name}")
-
-        # Create output directories (model name not needed since parent folder already specifies it)
-        model_plots_dir = out_dir / "diagnostics" / "plots"
-        model_plots_dir.mkdir(parents=True, exist_ok=True)
-
-        model_preds_plots_dir = out_dir / "preds" / "plots"
-        model_preds_plots_dir.mkdir(parents=True, exist_ok=True)
-
-        # Filter data for this model
-        model_test_df = (
-            pooled_test_df[pooled_test_df["model"] == model_name]
-            if not pooled_test_df.empty and "model" in pooled_test_df.columns
-            else pooled_test_df
-        )
-        model_val_df = (
-            pooled_val_df[pooled_val_df["model"] == model_name]
-            if not pooled_val_df.empty and "model" in pooled_val_df.columns
-            else pooled_val_df
-        )
-        model_train_oof_df = (
-            pooled_train_oof_df[pooled_train_oof_df["model"] == model_name]
-            if not pooled_train_oof_df.empty and "model" in pooled_train_oof_df.columns
-            else pooled_train_oof_df
-        )
-
-        # Get model-specific threshold info
-        model_threshold_info = threshold_info.get(model_name, {})
-        dca_thr = model_threshold_info.get("dca_threshold")
-        youden_metrics = model_threshold_info.get("youden_metrics", {})
-        alpha_metrics = model_threshold_info.get("alpha_metrics", {})
-        dca_metrics = model_threshold_info.get("dca_metrics", {})
-
-        metrics_at_thresholds = {}
-        if youden_metrics:
-            metrics_at_thresholds["youden"] = {
-                "fpr": youden_metrics.get("fpr"),
-                "tpr": youden_metrics.get("tpr"),
-            }
-        if alpha_metrics:
-            metrics_at_thresholds["alpha"] = {
-                "fpr": alpha_metrics.get("fpr"),
-                "tpr": alpha_metrics.get("tpr"),
-            }
-        if dca_metrics:
-            metrics_at_thresholds["dca"] = {
-                "fpr": dca_metrics.get("fpr"),
-                "tpr": dca_metrics.get("tpr"),
-            }
-
-        # Add model name to metadata lines
-        model_meta_lines = (meta_lines or []) + [f"Model: {model_name}"]
-
-        # Generate test/val plots
-        for data_name, df in [("test", model_test_df), ("val", model_val_df)]:
-            y_true, y_pred, split_ids, category = get_arrays(df)
-            if y_true is None:
-                if logger:
-                    logger.debug(f"Skipping {data_name} plots for {model_name}: no valid data")
-                continue
-
-            if logger:
-                logger.info(f"Generating aggregated {data_name} plots for {model_name}")
-
-            # Compute threshold bundle (standardized interface) - always compute fresh
-            # for aggregated data to ensure consistency
-            local_bundle = compute_threshold_bundle(
-                y_true,
-                y_pred,
-                target_spec=target_specificity,
-                dca_threshold=dca_thr,
-            )
-
-            # Ensemble models: skip 95% CI band (only use SD) since CI and SD are redundant
-            # when there are no CV repeats per split
-            skip_ci_band = model_name == "ENSEMBLE"
-
-            for fmt in plot_formats:
-                if plot_roc:
-                    plot_roc_curve(
-                        y_true=y_true,
-                        y_pred=y_pred,
-                        out_path=model_plots_dir / f"{data_name}_roc.{fmt}",
-                        title=f"Aggregated {data_name.capitalize()} Set ROC - {model_name}",
-                        split_ids=split_ids,
-                        meta_lines=model_meta_lines,
-                        threshold_bundle=local_bundle,
-                        skip_ci_band=skip_ci_band,
-                    )
-
-                if plot_pr:
-                    plot_pr_curve(
-                        y_true=y_true,
-                        y_pred=y_pred,
-                        out_path=model_plots_dir / f"{data_name}_pr.{fmt}",
-                        title=f"Aggregated {data_name.capitalize()} Set PR Curve - {model_name}",
-                        split_ids=split_ids,
-                        meta_lines=model_meta_lines,
-                        skip_ci_band=skip_ci_band,
-                    )
-
-                if plot_calibration:
-                    plot_calibration_curve(
-                        y_true=y_true,
-                        y_pred=y_pred,
-                        out_path=model_plots_dir / f"{data_name}_calibration.{fmt}",
-                        title=f"Aggregated {data_name.capitalize()} Set Calibration - {model_name}",
-                        split_ids=split_ids,
-                        meta_lines=model_meta_lines,
-                        skip_ci_band=skip_ci_band,
-                    )
-
-                if plot_dca:
-                    plot_dca_curve(
-                        y_true=y_true,
-                        y_pred=y_pred,
-                        out_path=str(model_plots_dir / f"{data_name}_dca.{fmt}"),
-                        title=f"Aggregated {data_name.capitalize()} Set DCA - {model_name}",
-                        split_ids=split_ids,
-                        meta_lines=model_meta_lines,
-                        skip_ci_band=skip_ci_band,
-                    )
-
-                if plot_risk_distribution:
-                    plot_risk_distribution(
-                        y_true=y_true,
-                        scores=y_pred,
-                        out_path=model_preds_plots_dir / f"{data_name}_risk_dist.{fmt}",
-                        title=f"Aggregated {data_name.capitalize()} Set Risk Distribution - {model_name}",
-                        category_col=category,
-                        threshold_bundle=local_bundle,
-                        meta_lines=model_meta_lines,
-                    )
-
-        # Generate train OOF plots if available
-        if not model_train_oof_df.empty:
-            y_true_train, y_pred_train, split_ids_train, category_train = get_arrays(
-                model_train_oof_df
-            )
-            if y_true_train is not None:
-                if logger:
-                    logger.info(f"Generating aggregated train OOF plots for {model_name}")
-
-                # Compute threshold bundle for OOF data
-                oof_bundle = compute_threshold_bundle(
-                    y_true_train,
-                    y_pred_train,
-                    target_spec=target_specificity,
-                    dca_threshold=dca_thr,
-                )
-
-                for fmt in plot_formats:
-                    if plot_risk_distribution:
-                        plot_risk_distribution(
-                            y_true=y_true_train,
-                            scores=y_pred_train,
-                            out_path=model_preds_plots_dir / f"train_oof_risk_dist.{fmt}",
-                            title=f"Aggregated Train OOF Risk Distribution - {model_name}",
-                            category_col=category_train,
-                            threshold_bundle=oof_bundle,
-                            meta_lines=model_meta_lines,
-                        )
-
-                    # Generate OOF combined plots (ROC, PR, Calibration)
-                    if plot_oof_combined:
-                        try:
-                            from ced_ml.plotting.oof import plot_oof_combined
-
-                            # For OOF plots, we need to use the per-repeat predictions
-                            repeat_cols = [
-                                c
-                                for c in model_train_oof_df.columns
-                                if c.startswith("y_prob_repeat")
-                            ]
-
-                            if repeat_cols:
-                                # Get unique sample indices
-                                unique_idx = model_train_oof_df["idx"].unique()
-                                n_samples = len(unique_idx)
-                                n_repeats = len(repeat_cols)
-
-                                # Create oof_preds array (n_repeats x n_samples)
-                                oof_preds = np.full((n_repeats, n_samples), np.nan)
-                                y_true_oof = np.zeros(n_samples)
-
-                                # Map idx to position
-                                idx_to_pos = {idx: pos for pos, idx in enumerate(unique_idx)}
-
-                                # Fill in predictions from first split_seed (they should all have same idx mapping)
-                                first_seed = model_train_oof_df["split_seed"].iloc[0]
-                                seed_df = model_train_oof_df[
-                                    model_train_oof_df["split_seed"] == first_seed
-                                ]
-
-                                for _, row in seed_df.iterrows():
-                                    pos = idx_to_pos[row["idx"]]
-                                    y_true_oof[pos] = row["y_true"]
-                                    for repeat_idx, col in enumerate(repeat_cols):
-                                        oof_preds[repeat_idx, pos] = row[col]
-
-                                plot_oof_combined(
-                                    y_true=y_true_oof,
-                                    oof_preds=oof_preds,
-                                    out_dir=model_plots_dir,
-                                    model_name=model_name,
-                                    scenario="pooled",
-                                    seed=None,
-                                    plot_format=fmt,
-                                    calib_bins=10,
-                                    meta_lines=model_meta_lines,
-                                )
-                        except Exception as e:
-                            if logger:
-                                logger.warning(
-                                    f"Failed to generate OOF combined plots for {model_name}: {e}"
-                                )
-
-                # Generate controls-only risk distribution if available
-
-
-def generate_model_comparison_report(
-    pooled_test_metrics: dict[str, dict[str, float]],
-    pooled_val_metrics: dict[str, dict[str, float]],
-    threshold_info: dict[str, dict[str, Any]],
-    out_dir: Path,
-    logger: logging.Logger | None = None,
-) -> pd.DataFrame:
-    """
-    Generate a model comparison report comparing all models including ENSEMBLE.
-
-    Args:
-        pooled_test_metrics: Dict mapping model name to test metrics
-        pooled_val_metrics: Dict mapping model name to val metrics
-        threshold_info: Dict mapping model name to threshold information
-        out_dir: Output directory for the report
-        logger: Optional logger instance
-
-    Returns:
-        DataFrame with model comparison data
-    """
-    if not pooled_test_metrics:
-        return pd.DataFrame()
-
-    rows = []
-    for model_name in sorted(pooled_test_metrics.keys()):
-        test_metrics = pooled_test_metrics.get(model_name, {})
-        val_metrics = pooled_val_metrics.get(model_name, {})
-        model_threshold = threshold_info.get(model_name, {})
-
-        row = {
-            "model": model_name,
-            "is_ensemble": model_name == "ENSEMBLE",
-            # Test metrics
-            "test_AUROC": test_metrics.get("AUROC"),
-            "test_PR_AUC": test_metrics.get("PR_AUC"),
-            "test_Brier": test_metrics.get("Brier"),
-            "test_n_samples": test_metrics.get("n_samples"),
-            "test_n_positive": test_metrics.get("n_positive"),
-            "test_prevalence": test_metrics.get("prevalence"),
-            # Calibration
-            "test_calib_slope": test_metrics.get("calib_slope"),
-            # Val metrics
-            "val_AUROC": val_metrics.get("AUROC"),
-            "val_PR_AUC": val_metrics.get("PR_AUC"),
-            "val_Brier": val_metrics.get("Brier"),
-            # Thresholds
-            "youden_threshold": model_threshold.get("youden_threshold"),
-            "alpha_threshold": model_threshold.get("alpha_threshold"),
-            "dca_threshold": model_threshold.get("dca_threshold"),
-        }
-
-        # Add multi-target specificity metrics if present
-        for key in test_metrics:
-            if key.startswith("sens_ctrl_") or key.startswith("prec_ctrl_"):
-                row[f"test_{key}"] = test_metrics[key]
-
-        rows.append(row)
-
-    df = pd.DataFrame(rows)
-
-    # Sort by test AUROC descending
-    if "test_AUROC" in df.columns:
-        df = df.sort_values("test_AUROC", ascending=False)
-
-    # Save to reports directory
-    reports_dir = out_dir / "reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
-
-    report_path = reports_dir / "model_comparison.csv"
-    df.to_csv(report_path, index=False)
-
-    if logger:
-        logger.info(f"Model comparison report saved: {report_path}")
-
-        # Log summary of comparison
-        if "ENSEMBLE" in df["model"].values:
-            ensemble_row = df[df["model"] == "ENSEMBLE"].iloc[0]
-            best_base = df[df["model"] != "ENSEMBLE"].iloc[0] if len(df) > 1 else None
-
-            if best_base is not None:
-                ensemble_auroc = ensemble_row.get("test_AUROC")
-                best_base_auroc = best_base.get("test_AUROC")
-                if ensemble_auroc is not None and best_base_auroc is not None:
-                    improvement = (ensemble_auroc - best_base_auroc) * 100
-                    logger.info(
-                        f"ENSEMBLE vs best base ({best_base['model']}): "
-                        f"AUROC {ensemble_auroc:.4f} vs {best_base_auroc:.4f} "
-                        f"({improvement:+.2f} pp)"
-                    )
-
-    return df
-
-
 def run_aggregate_splits(
     results_dir: str,
     stability_threshold: float = 0.75,
@@ -854,20 +245,13 @@ def run_aggregate_splits(
     for ed in ensemble_dirs:
         logger.info(f"  ENSEMBLE/{ed.name}")
 
-    agg_dir = results_path / "aggregated"
-    agg_dir.mkdir(parents=True, exist_ok=True)
-
-    core_dir = agg_dir / "core"
-    core_dir.mkdir(parents=True, exist_ok=True)
-
-    cv_dir = agg_dir / "cv"
-    cv_dir.mkdir(parents=True, exist_ok=True)
-
-    preds_dir = agg_dir / "preds"
-    preds_dir.mkdir(parents=True, exist_ok=True)
-
-    reports_dir = agg_dir / "reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
+    # Setup directory structure
+    dirs = setup_aggregation_directories(results_path)
+    agg_dir = dirs["agg"]
+    core_dir = dirs["core"]
+    cv_dir = dirs["cv"]
+    preds_dir = dirs["preds"]
+    reports_dir = dirs["reports"]
 
     logger.info(f"Output: {agg_dir}")
 
@@ -897,66 +281,23 @@ def run_aggregate_splits(
             )
             logger.info(f"Merged ENSEMBLE OOF predictions: {len(ensemble_oof_df)} samples")
 
-    if not pooled_test_df.empty:
-        test_preds_dir = preds_dir / "test_preds"
-        test_preds_dir.mkdir(parents=True, exist_ok=True)
-        # Save combined file (all models)
-        pooled_test_df.to_csv(test_preds_dir / "pooled_test_preds.csv", index=False)
-        # Save per-model files
-        if "model" in pooled_test_df.columns:
-            for model_name, model_df in pooled_test_df.groupby("model"):
-                model_df.to_csv(
-                    test_preds_dir / f"pooled_test_preds__{model_name}.csv", index=False
-                )
-        logger.info(
-            f"Pooled test predictions: {len(pooled_test_df)} samples from "
-            f"{pooled_test_df['split_seed'].nunique()} splits, "
-            f"{pooled_test_df['model'].nunique() if 'model' in pooled_test_df.columns else 1} model(s)"
-        )
-
-    if not pooled_val_df.empty:
-        val_preds_dir = preds_dir / "val_preds"
-        val_preds_dir.mkdir(parents=True, exist_ok=True)
-        # Save combined file (all models)
-        pooled_val_df.to_csv(val_preds_dir / "pooled_val_preds.csv", index=False)
-        # Save per-model files
-        if "model" in pooled_val_df.columns:
-            for model_name, model_df in pooled_val_df.groupby("model"):
-                model_df.to_csv(val_preds_dir / f"pooled_val_preds__{model_name}.csv", index=False)
-        logger.info(
-            f"Pooled val predictions: {len(pooled_val_df)} samples from "
-            f"{pooled_val_df['split_seed'].nunique()} splits, "
-            f"{pooled_val_df['model'].nunique() if 'model' in pooled_val_df.columns else 1} model(s)"
-        )
-
-    if not pooled_train_oof_df.empty:
-        train_oof_dir = preds_dir / "train_oof"
-        train_oof_dir.mkdir(parents=True, exist_ok=True)
-
-        # Compute mean across CV repeats for each split
-        repeat_cols = [c for c in pooled_train_oof_df.columns if c.startswith("y_prob_repeat")]
-        if repeat_cols:
-            pooled_train_oof_df["y_prob"] = pooled_train_oof_df[repeat_cols].mean(axis=1)
-
-        # Save combined file (all models)
-        pooled_train_oof_df.to_csv(train_oof_dir / "pooled_train_oof.csv", index=False)
-        # Save per-model files
-        if "model" in pooled_train_oof_df.columns:
-            for model_name, model_df in pooled_train_oof_df.groupby("model"):
-                model_df.to_csv(train_oof_dir / f"pooled_train_oof__{model_name}.csv", index=False)
-        logger.info(
-            f"Pooled train OOF predictions: {len(pooled_train_oof_df)} samples from "
-            f"{pooled_train_oof_df['split_seed'].nunique()} splits, "
-            f"{pooled_train_oof_df['model'].nunique() if 'model' in pooled_train_oof_df.columns else 1} model(s)"
-        )
+    # Save pooled predictions
+    save_pooled_predictions(pooled_test_df, pooled_val_df, pooled_train_oof_df, preds_dir, logger)
 
     log_section(logger, "Computing Pooled Metrics")
 
-    pooled_test_metrics: dict[str, dict[str, float]] = {}
-    pooled_val_metrics: dict[str, dict[str, float]] = {}
-    threshold_info: dict[str, Any] = {}
+    # Compute and save pooled metrics
+    pooled_test_metrics, pooled_val_metrics, threshold_info = compute_and_save_pooled_metrics(
+        pooled_test_df=pooled_test_df,
+        pooled_val_df=pooled_val_df,
+        target_specificity=target_specificity,
+        control_spec_targets=control_spec_targets,
+        core_dir=core_dir,
+        agg_dir=agg_dir,
+        logger=logger,
+    )
 
-    # Detect models present in predictions
+    # Detect all models
     test_models = (
         pooled_test_df["model"].unique().tolist()
         if not pooled_test_df.empty and "model" in pooled_test_df.columns
@@ -968,77 +309,6 @@ def run_aggregate_splits(
         else []
     )
     all_models = sorted(set(test_models + val_models))
-
-    if len(all_models) > 1:
-        logger.info(f"Multiple models detected: {', '.join(all_models)}")
-    elif all_models:
-        logger.info(f"Single model: {all_models[0]}")
-
-    if not pooled_test_df.empty:
-        # Compute per-model pooled metrics
-        pooled_test_metrics = compute_pooled_metrics_by_model(
-            pooled_test_df, spec_targets=control_spec_targets
-        )
-
-        if pooled_test_metrics:
-            # Save per-model metrics
-            metrics_rows = list(pooled_test_metrics.values())
-            pd.DataFrame(metrics_rows).to_csv(core_dir / "pooled_test_metrics.csv", index=False)
-
-            # Log per-model results
-            for model_name, metrics in pooled_test_metrics.items():
-                logger.info(f"Pooled test [{model_name}] AUROC: {metrics.get('AUROC', 'N/A'):.4f}")
-                logger.info(
-                    f"Pooled test [{model_name}] PR-AUC: {metrics.get('PR_AUC', 'N/A'):.4f}"
-                )
-                logger.info(f"Pooled test [{model_name}] Brier: {metrics.get('Brier', 'N/A'):.4f}")
-
-            # Compute and save selection scores
-            selection_scores = compute_selection_scores_for_models(pooled_test_metrics)
-            if selection_scores:
-                selection_df = pd.DataFrame(
-                    [
-                        {"model": model_name, "selection_score": score}
-                        for model_name, score in sorted(
-                            selection_scores.items(), key=lambda x: x[1], reverse=True
-                        )
-                    ]
-                )
-                selection_df.to_csv(core_dir / "selection_scores.csv", index=False)
-                logger.info("Selection scores computed and saved")
-                for model_name, score in selection_scores.items():
-                    logger.info(f"Selection score [{model_name}]: {score:.4f}")
-
-        # Compute threshold info per model
-        threshold_info = {}
-        for model_name in test_models:
-            model_df = pooled_test_df[pooled_test_df["model"] == model_name]
-            model_threshold = compute_pooled_threshold_metrics(
-                model_df, target_spec=target_specificity, logger=logger
-            )
-            if model_threshold:
-                threshold_info[model_name] = model_threshold
-                logger.info(
-                    f"Youden threshold [{model_name}]: {model_threshold.get('youden_threshold', 'N/A'):.4f}"
-                )
-                logger.info(
-                    f"Alpha threshold [{model_name}] (spec={target_specificity}): "
-                    f"{model_threshold.get('alpha_threshold', 'N/A'):.4f}"
-                )
-
-        # Save threshold data to CSV
-        if threshold_info:
-            save_threshold_data(threshold_info, agg_dir, logger)
-
-    if not pooled_val_df.empty:
-        pooled_val_metrics = compute_pooled_metrics_by_model(
-            pooled_val_df, spec_targets=control_spec_targets
-        )
-        if pooled_val_metrics:
-            metrics_rows = list(pooled_val_metrics.values())
-            pd.DataFrame(metrics_rows).to_csv(core_dir / "pooled_val_metrics.csv", index=False)
-            for model_name, metrics in pooled_val_metrics.items():
-                logger.info(f"Pooled val [{model_name}] AUROC: {metrics.get('AUROC', 'N/A'):.4f}")
 
     # Generate model comparison report (includes ENSEMBLE if available)
     log_section(logger, "Generating Model Comparison Report")
@@ -1339,28 +609,33 @@ def run_aggregate_splits(
 
     # Aggregate Optuna hyperparameter tuning trials across splits
     try:
-        from ced_ml.plotting.optuna_plots import aggregate_optuna_trials
 
-        optuna_trials = []
+        # Concat-as-you-go to avoid accumulating all DataFrames in memory
+        optuna_trials_combined = None
+        n_optuna_trials = 0
         for split_dir in split_dirs:
             optuna_csv = split_dir / "cv" / "optuna" / "optuna_trials.csv"
             if optuna_csv.exists():
                 try:
                     df = pd.read_csv(optuna_csv)
-                    optuna_trials.append(df)
+                    if optuna_trials_combined is None:
+                        optuna_trials_combined = df
+                    else:
+                        optuna_trials_combined = pd.concat(
+                            [optuna_trials_combined, df], ignore_index=True
+                        )
+                    n_optuna_trials += 1
                 except Exception as e:
                     logger.warning(f"Failed to load optuna trials from {optuna_csv}: {e}")
 
-        if optuna_trials:
+        if optuna_trials_combined is not None:
             optuna_dir = agg_dir / "cv" / "optuna"
             optuna_dir.mkdir(parents=True, exist_ok=True)
 
-            aggregate_optuna_trials(
-                trials_dfs=optuna_trials,
-                out_dir=optuna_dir,
-                prefix="",
-            )
-            logger.info(f"Aggregated {len(optuna_trials)} Optuna trial sets: {optuna_dir}")
+            # Save combined trials directly (already concatenated)
+            combined_csv = optuna_dir / "optuna_trials.csv"
+            optuna_trials_combined.to_csv(combined_csv, index=False)
+            logger.info(f"Aggregated {n_optuna_trials} Optuna trial sets: {optuna_dir}")
         else:
             logger.info("No Optuna trials found (optional - depends on config.optuna.enabled)")
 
@@ -1476,7 +751,8 @@ def run_aggregate_splits(
         diag_screening_dir = agg_dir / "diagnostics" / "screening"
         diag_screening_dir.mkdir(parents=True, exist_ok=True)
 
-        all_screening = []
+        # Concat-as-you-go to avoid accumulating all DataFrames in memory (saves ~500MB)
+        combined_screening = None
         for split_dir in split_dirs:
             seed = int(split_dir.name.replace("split_seed", ""))
             screening_path = split_dir / "diagnostics" / "screening"
@@ -1488,13 +764,15 @@ def run_aggregate_splits(
                 try:
                     df = pd.read_csv(csv_file)
                     df["split_seed"] = seed
-                    all_screening.append(df)
+                    if combined_screening is None:
+                        combined_screening = df
+                    else:
+                        combined_screening = pd.concat([combined_screening, df], ignore_index=True)
                 except Exception as e:
                     if logger:
                         logger.debug(f"Failed to read {csv_file}: {e}")
 
-        if all_screening:
-            combined_screening = pd.concat(all_screening, ignore_index=True)
+        if combined_screening is not None:
             screening_csv_path = diag_screening_dir / "all_screening_results.csv"
             combined_screening.to_csv(screening_csv_path, index=False)
             logger.info(f"Screening results aggregated: {screening_csv_path}")
@@ -1530,6 +808,8 @@ def run_aggregate_splits(
         diag_plots_dir = agg_dir / "diagnostics" / "plots"
         diag_plots_dir.mkdir(parents=True, exist_ok=True)
 
+        # Note: Keep list for aggregate_learning_curve_runs (needs individual DFs)
+        # Memory impact is lower than screening (smaller DataFrames)
         all_learning_curves = []
         for split_dir in split_dirs:
             seed = int(split_dir.name.replace("split_seed", ""))
@@ -1685,78 +965,37 @@ def run_aggregate_splits(
                         "test_Brier": ensemble_test.get("Brier"),
                     }
 
-    agg_metadata: dict[str, Any] = {
-        "timestamp": datetime.now().isoformat(),
-        "n_splits": n_splits,
-        "split_seeds": split_seeds,
-        "models": all_models,
-        "n_models": len(all_models),
-        "n_boot": n_boot,
-        "stability_threshold": stability_threshold,
-        "target_specificity": target_specificity,
-        "sample_categories": sample_categories_metadata,
-        "pooled_metrics": {
-            "test": pooled_test_metrics,  # Now keyed by model
-            "val": pooled_val_metrics,  # Now keyed by model
-        },
-        "thresholds": threshold_info,  # Now keyed by model
-        "ensemble": ensemble_metadata if ensemble_metadata else None,
-        "feature_consensus": {
-            "n_features_analyzed": (
-                len(feature_stability_df) if not feature_stability_df.empty else 0
-            ),
-            "n_stable_features": len(stable_features_df) if not stable_features_df.empty else 0,
-            "top_10_features": (
-                stable_features_df["protein"].head(10).tolist()
-                if not stable_features_df.empty
-                else []
-            ),
-        },
-        "feature_reports": {
-            "n_proteins_in_reports": len(agg_feature_report) if not agg_feature_report.empty else 0,
-            "n_splits_with_reports": (
-                all_feature_reports["split_seed"].nunique() if not all_feature_reports.empty else 0
-            ),
-            "top_10_by_selection_freq": (
-                agg_feature_report.head(10)["protein"].tolist()
-                if not agg_feature_report.empty
-                else []
-            ),
-        },
-        "consensus_panels": {
-            str(k): {
-                "n_proteins": v["n_consensus_proteins"],
-                "n_splits_with_panel": v["n_splits_with_panel"],
-            }
-            for k, v in consensus_panels.items()
-        },
-        "files_generated": [f.name for f in agg_dir.rglob("*") if f.is_file()],
-    }
-
-    agg_metadata_path = agg_dir / "aggregation_metadata.json"
-    with open(agg_metadata_path, "w") as f:
-        json.dump(agg_metadata, f, indent=2)
-    logger.info(f"Metadata saved: {agg_metadata_path}")
+    # Build and save aggregation metadata
+    _ = build_agg_metadata(
+        n_splits=n_splits,
+        split_seeds=split_seeds,
+        all_models=all_models,
+        n_boot=n_boot,
+        stability_threshold=stability_threshold,
+        target_specificity=target_specificity,
+        sample_categories_metadata=sample_categories_metadata,
+        pooled_test_metrics=pooled_test_metrics,
+        pooled_val_metrics=pooled_val_metrics,
+        threshold_info=threshold_info,
+        feature_stability_df=feature_stability_df,
+        stable_features_df=stable_features_df,
+        agg_feature_report=agg_feature_report,
+        all_feature_reports=all_feature_reports,
+        consensus_panels=consensus_panels,
+        ensemble_metadata=ensemble_metadata,
+        agg_dir=agg_dir,
+    )
+    logger.info(f"Metadata saved: {agg_dir / 'aggregation_metadata.json'}")
 
     log_section(logger, "Aggregation Complete")
     logger.info(f"Results saved to: {agg_dir}")
 
-    # Build per-model summary for return value
-    per_model_summary = {}
-    for model_name in all_models:
-        model_test = pooled_test_metrics.get(model_name, {})
-        model_threshold = threshold_info.get(model_name, {})
-        per_model_summary[model_name] = {
-            "pooled_test_auroc": model_test.get("AUROC"),
-            "pooled_test_prauc": model_test.get("PR_AUC"),
-            "youden_threshold": model_threshold.get("youden_threshold"),
-        }
-
-    return {
-        "status": "success",
-        "output_dir": str(agg_dir),
-        "n_splits": n_splits,
-        "models": all_models,
-        "per_model": per_model_summary,
-        "n_stable_features": len(stable_features_df) if not stable_features_df.empty else 0,
-    }
+    # Build and return summary
+    return build_return_summary(
+        all_models=all_models,
+        pooled_test_metrics=pooled_test_metrics,
+        threshold_info=threshold_info,
+        n_splits=n_splits,
+        stable_features_df=stable_features_df,
+        agg_dir=agg_dir,
+    )

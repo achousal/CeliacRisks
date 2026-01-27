@@ -1,11 +1,67 @@
 """Aggregation submodules for split results processing."""
 
+from ced_ml.cli.aggregation.aggregation import (
+    compute_pooled_metrics_by_model,
+    compute_pooled_threshold_metrics,
+    compute_summary_stats,
+    save_threshold_data,
+)
+from ced_ml.cli.aggregation.collection import (
+    collect_best_hyperparams,
+    collect_ensemble_hyperparams,
+    collect_ensemble_predictions,
+    collect_feature_reports,
+    collect_metrics,
+    collect_predictions,
+)
 from ced_ml.cli.aggregation.discovery import (
     discover_ensemble_dirs,
     discover_split_dirs,
 )
+from ced_ml.cli.aggregation.orchestrator import (
+    build_aggregation_metadata,
+    build_return_summary,
+    compute_and_save_pooled_metrics,
+    save_pooled_predictions,
+    setup_aggregation_directories,
+)
+from ced_ml.cli.aggregation.plot_generator import (
+    generate_aggregated_plots,
+    generate_model_comparison_report,
+)
+from ced_ml.cli.aggregation.reporting import (
+    aggregate_feature_reports,
+    aggregate_feature_stability,
+    build_consensus_panels,
+)
 
 __all__ = [
+    # Discovery
     "discover_ensemble_dirs",
     "discover_split_dirs",
+    # Collection
+    "collect_best_hyperparams",
+    "collect_ensemble_hyperparams",
+    "collect_ensemble_predictions",
+    "collect_feature_reports",
+    "collect_metrics",
+    "collect_predictions",
+    # Aggregation
+    "compute_pooled_metrics_by_model",
+    "compute_pooled_threshold_metrics",
+    "compute_summary_stats",
+    "save_threshold_data",
+    # Reporting
+    "aggregate_feature_reports",
+    "aggregate_feature_stability",
+    "build_consensus_panels",
+    # Plot Generation
+    "generate_aggregated_plots",
+    "generate_model_comparison_report",
+    # Orchestration
+    "build_aggregation_metadata",
+    "build_return_summary",
+    "compute_and_save_pooled_metrics",
+    "save_pooled_predictions",
+    "setup_aggregation_directories",
 ]
