@@ -11,6 +11,7 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
+from ced_ml.data.filters import apply_row_filters
 from ced_ml.data.io import read_proteomics_file
 from ced_ml.data.schema import TARGET_COL, get_positive_label
 from ced_ml.features.rfe import (
@@ -155,8 +156,10 @@ def run_optimize_panel(
     logger = logging.getLogger(__name__)
     logger.setLevel(log_level)
 
-    # Create logs/features directory
-    log_dir = Path(__file__).parent.parent.parent.parent / "logs" / "features"
+    # Create logs/features directory at root level (parallel to results/)
+    # __file__ is: .../analysis/src/ced_ml/cli/optimize_panel.py
+    # Go up to project root: .. (cli) .. (ced_ml) .. (src) .. (analysis) .. (root) / logs / features
+    log_dir = Path(__file__).parent.parent.parent.parent.parent / "logs" / "features"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # Timestamped log file
@@ -213,7 +216,14 @@ def run_optimize_panel(
 
     # Load data
     logger.info(f"Loading data from {infile}")
-    df = read_proteomics_file(infile, validate=True)
+    df_raw = read_proteomics_file(infile, validate=True)
+
+    # Apply row filters (must match split generation)
+    logger.info("Applying row filters...")
+    df, filter_stats = apply_row_filters(df_raw, meta_num_cols=meta_num_cols)
+    logger.info(f"Filtered: {filter_stats['n_in']:,} → {filter_stats['n_out']:,} rows")
+    logger.info(f"  Removed {filter_stats['n_removed_uncertain_controls']} uncertain controls")
+    logger.info(f"  Removed {filter_stats['n_removed_dropna_meta_num']} rows with missing metadata")
 
     # Load split indices (CSV format)
     split_path = Path(split_dir)
@@ -258,11 +268,11 @@ def run_optimize_panel(
     positive_label = get_positive_label(scenario)
     y_all = (df[TARGET_COL] == positive_label).astype(int).values
 
-    # Subset to train/val
-    X_train = df.loc[train_idx, feature_cols].copy()
+    # Subset to train/val (use iloc for position-based indexing)
+    X_train = df.iloc[train_idx][feature_cols].copy()
     y_train = y_all[train_idx]
 
-    X_val = df.loc[val_idx, feature_cols].copy()
+    X_val = df.iloc[val_idx][feature_cols].copy()
     y_val = y_all[val_idx]
 
     logger.info(f"Train: {len(X_train)} samples, {y_train.sum()} cases")

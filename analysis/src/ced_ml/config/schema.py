@@ -50,7 +50,7 @@ class SplitsConfig(BaseModel):
     temporal_cutoff: str | None = None
 
     # Output
-    outdir: Path = Field(default=Path("splits"))
+    outdir: Path = Field(default=Path("../splits"))
     save_indices_only: bool = False
     overwrite: bool = False
 
@@ -610,7 +610,7 @@ class TrainingConfig(BaseModel):
     optuna: OptunaConfig = Field(default_factory=OptunaConfig)
 
     # Output
-    outdir: Path = Field(default=Path("results"))
+    outdir: Path = Field(default=Path("../results"))
     run_name: str | None = None
     run_id: str | None = None
 
@@ -644,8 +644,8 @@ class AggregateConfig(BaseModel):
     """Configuration for aggregate-splits command."""
 
     # Input/output
-    results_dir: Path = Field(default=Path("results"))
-    outdir: Path = Field(default=Path("results_aggregated"))
+    results_dir: Path = Field(default=Path("../results"))
+    outdir: Path = Field(default=Path("../results_aggregated"))
 
     # Discovery
     split_pattern: str = "split_seed*"
@@ -782,7 +782,7 @@ class HoldoutEvalConfig(BaseModel):
     infile: Path
     holdout_idx: Path
     model_artifact: Path
-    outdir: Path = Field(default=Path("holdout_results"))
+    outdir: Path = Field(default=Path("../holdout_results"))
 
     # Evaluation settings
     scenario: str | None = None

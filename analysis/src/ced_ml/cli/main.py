@@ -524,6 +524,8 @@ def optimize_panel(ctx, **kwargs):
         ced optimize-panel --config configs/optimize_panel.yaml
         ced optimize-panel --model-path results/LR_EN/... --infile data/input.parquet
     """
+    from pathlib import Path
+
     from ced_ml.cli.optimize_panel import run_optimize_panel
     from ced_ml.config.loader import load_panel_optimize_config
 
@@ -545,6 +547,23 @@ def optimize_panel(ctx, **kwargs):
             if detected_path:
                 kwargs["model_path"] = detected_path
                 click.echo(f"Auto-detected model: {detected_path}")
+
+                # Auto-detect infile and split_dir from project structure if not provided
+                if kwargs.get("infile") is None:
+                    project_root = Path(detected_path).parent.parent.parent.parent.parent.parent
+                    data_file = project_root / "data" / "Celiac_dataset_proteomics_w_demo.parquet"
+                    if not data_file.exists():
+                        # Try CSV version
+                        data_file = project_root / "data" / "Celiac_dataset_proteomics_w_demo.csv"
+                    if data_file.exists():
+                        kwargs["infile"] = str(data_file)
+
+                if kwargs.get("split_dir") is None:
+                    project_root = Path(detected_path).parent.parent.parent.parent.parent.parent
+                    split_dir = project_root / "splits"
+                    if split_dir.exists():
+                        kwargs["split_dir"] = str(split_dir)
+
         except Exception as e:
             raise click.ClickException(f"Error detecting model path: {e}") from e
 

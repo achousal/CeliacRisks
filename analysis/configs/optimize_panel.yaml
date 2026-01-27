@@ -6,7 +6,6 @@
 # Quick start (no config needed):
 #   ced optimize-panel --run-id 20260127_104409 --model LinSVM_cal
 #   ced optimize-panel --run-id 20260127_104409              # auto-detects first model
-#   ced optimize-panel                                       # auto-detects latest run
 #
 # Reference: docs/reference/FEATURE_SELECTION.md#strategy-3-post-hoc-rfe
 
@@ -33,4 +32,4 @@ use_stability_panel: true          # Use stability ranking from training (defaul
 
 # Output
 # outdir: results/custom_output    # Default: alongside model in optimize_panel/ subdirectory
-verbose: 0                         # Verbosity: 0=warnings, 1=info, 2=debug (default: 0)
+verbose: 2                         # Verbosity: 0=warnings, 1=info, 2=debug
