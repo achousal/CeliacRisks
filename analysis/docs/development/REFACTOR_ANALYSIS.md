@@ -832,5 +832,11 @@ cli/
 - ✅ Break backward compatibility (no re-exports)
 - ✅ Keep utilities local until reused
 
-**Next Step**: Begin PR 1.1 (Discovery module extraction)
-pr 1.1 done.
+**Progress**:
+- ✅ PR 1.1: Discovery module (83 lines) - DONE
+- ✅ PR 1.2: Collection module (449 lines) - DONE
+  - aggregate_splits.py reduced from 2,733 → 2,248 lines (485 lines removed)
+  - All 12 aggregate_hyperparams tests passing
+  - Zero import regressions
+
+**Next Step**: PR 1.3 (Aggregation module extraction)
