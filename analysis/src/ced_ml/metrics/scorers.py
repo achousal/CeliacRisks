@@ -57,7 +57,9 @@ def make_tpr_at_fpr_scorer(target_fpr: float) -> Callable:
         >>> scores = cross_val_score(clf, X, y, cv=5, scoring=scorer)
     """
     return make_scorer(
-        lambda y, p, **kwargs: tpr_at_fpr_score(y, p, target_fpr=target_fpr),
+        lambda y, p, **kwargs: tpr_at_fpr_score(
+            y, p, target_fpr=target_fpr
+        ),  # noqa: ARG005 - sklearn API
         needs_proba=True,
         greater_is_better=True,
     )
