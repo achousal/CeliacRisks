@@ -3,8 +3,8 @@
 **Production-grade ML pipeline for disease risk prediction from high-dimensional biomarker data**
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)
-![Tests](https://img.shields.io/badge/tests-1081%20passing-success)
-![Coverage](https://img.shields.io/badge/coverage-65%25-yellowgreen)
+![Tests](https://img.shields.io/badge/tests-1271%20passing-success)
+![Coverage](https://img.shields.io/badge/coverage-14%25-red)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 ---
@@ -15,9 +15,11 @@ A modular ML framework for predicting disease risk from proteomics or other high
 
 **Core features:**
 - Multi-model ensemble with stacking (RF, XGBoost, SVM, Logistic Regression)
-- Nested cross-validation with rigorous feature selection
+- Five feature selection strategies (hybrid stability, nested RFECV, post-hoc RFE, cross-model consensus, fixed panel)
+- Nested cross-validation with Bayesian hyperparameter optimization
 - Unbiased calibration (OOF-posthoc strategy)
 - Clinical decision curve analysis
+- Cross-model consensus panel generation via Robust Rank Aggregation
 - HPC-ready (LSF/Slurm) with full provenance tracking
 
 ---
@@ -53,7 +55,12 @@ For manual control over individual steps, see [CLI Reference](analysis/docs/refe
 ### ML Pipeline
 - **Models**: Logistic Regression (ElasticNet), Random Forest, XGBoost, Linear SVM
 - **Ensemble**: Out-of-fold stacking with L2 meta-learner
-- **Feature Selection**: Effect size → k-best → stability selection → correlation pruning
+- **Feature Selection**: Five strategies optimized for different use cases
+  - Hybrid stability (default, ~30 min)
+  - Nested RFECV (scientific discovery, ~22 hrs)
+  - Post-hoc RFE (single-model deployment, ~10 min)
+  - Cross-model consensus via RRA (robust deployment, ~15 min)
+  - Fixed panel validation (regulatory, ~30 min)
 - **Hyperparameter Tuning**: Bayesian optimization (Optuna TPE, 100 trials)
 - **Temporal Validation**: Chronological splits to prevent future data leakage
 
@@ -65,9 +72,10 @@ For manual control over individual steps, see [CLI Reference](analysis/docs/refe
 
 ### Production Features
 - **Reproducibility**: Fixed seeds, YAML configs, Git commit tracking
-- **HPC Support**: LSF/Slurm array jobs with automated post-processing
+- **HPC Support**: LSF/Slurm array jobs with automated post-processing (conda/venv compatible)
 - **Provenance**: Complete metadata for every run (config, environment, timing)
-- **Testing**: 1,081 tests, 65% coverage
+- **Testing**: 1,271 tests with comprehensive E2E coverage
+- **Investigation Framework**: Factorial experiment design for methodological optimization
 
 ---
 
@@ -109,9 +117,11 @@ calibration:
 
 | Document | Description |
 |----------|-------------|
+| [CLAUDE.md](CLAUDE.md) | Project overview (START HERE) |
 | [ARCHITECTURE.md](analysis/docs/ARCHITECTURE.md) | Technical architecture + code pointers |
 | [ADRs](analysis/docs/adr/) | 15 architectural decisions (split strategy, calibration, ensembles, etc.) |
 | [CLI_REFERENCE.md](analysis/docs/reference/CLI_REFERENCE.md) | Complete command reference |
+| [FEATURE_SELECTION.md](analysis/docs/reference/FEATURE_SELECTION.md) | Five feature selection strategies guide |
 | [HYPERPARAMETER_TUNING.md](analysis/docs/reference/HYPERPARAMETER_TUNING.md) | Tuning guide |
 | [ARTIFACTS.md](analysis/docs/reference/ARTIFACTS.md) | Output structure |
 

@@ -395,8 +395,8 @@ def oof_predictions_with_nested_cv(
                     "repeat": repeat_num,
                     "outer_split": split_idx,
                     "n_selected_proteins": len(selected_proteins),
-                    # Store as sorted list (pandas will serialize to JSON automatically)
-                    "selected_proteins": sorted(selected_proteins),
+                    # Store as JSON string (CSV cannot store native lists)
+                    "selected_proteins": json.dumps(sorted(selected_proteins)),
                     "rfecv_applied": rfecv_enabled,
                 }
             )

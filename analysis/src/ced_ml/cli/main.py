@@ -353,14 +353,20 @@ def eval_holdout(ctx, **kwargs):
 @click.option(
     "--results-dir",
     type=click.Path(exists=True),
-    required=True,
-    help="Directory containing base model results (e.g., results/)",
+    required=False,
+    help="Directory containing base model results (auto-detected if --run-id provided)",
 )
 @click.option(
     "--base-models",
     type=str,
     default=None,
-    help="Comma-separated list of base models (e.g., LR_EN,RF,XGBoost)",
+    help="Comma-separated list of base models (auto-detected if --run-id provided)",
+)
+@click.option(
+    "--run-id",
+    type=str,
+    default=None,
+    help="Run ID for auto-detection (e.g., 20260127_115115). Auto-discovers results-dir and base-models.",
 )
 @click.option(
     "--split-seed",
@@ -393,13 +399,27 @@ def train_ensemble(ctx, config, base_models, **kwargs):
     This command collects out-of-fold (OOF) predictions from previously trained
     base models and trains a meta-learner (Logistic Regression) to combine them.
 
+    AUTO-DETECTION MODE (recommended):
+        Use --run-id to automatically discover results directory and base models:
+            ced train-ensemble --run-id 20260127_115115 --split-seed 0
+
+    MANUAL MODE:
+        Explicitly specify results directory and base models:
+            ced train-ensemble --results-dir results/ --base-models LR_EN,RF,XGBoost
+
     Requirements:
         - Base models must be trained first using 'ced train'
         - OOF predictions must exist in results_dir/{model}/split_{seed}/preds/train_oof/
 
-    Example:
+    Examples:
+        # Auto-detect from run-id (simplest)
+        ced train-ensemble --run-id 20260127_115115 --split-seed 0
+
+        # Manual specification
         ced train-ensemble --results-dir results/ --base-models LR_EN,RF,XGBoost
-        ced train-ensemble --config configs/training_config.yaml --results-dir results/
+
+        # With config file
+        ced train-ensemble --config configs/training_config.yaml --run-id 20260127_115115
     """
     from ced_ml.cli.train_ensemble import run_train_ensemble
 

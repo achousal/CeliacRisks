@@ -3,15 +3,23 @@
 # post_training_pipeline.sh
 #
 # Comprehensive post-training pipeline with detailed logging:
-# 1. Validate base model outputs
-# 2. Train ensemble (if enabled)
-# 3. Aggregate results across splits
-# 4. Generate validation reports
+# 1. Auto-detect models and splits from run-id
+# 2. Validate base model outputs
+# 3. Train ensemble (if enabled, auto-detects base models)
+# 4. Aggregate results across splits
+# 5. Generate validation reports
 #
-# Usage:
+# Usage (auto-detection - RECOMMENDED):
 #   cd analysis/
 #   bash scripts/post_training_pipeline.sh --run-id 20260122_120000
 #   bash scripts/post_training_pipeline.sh --run-id 20260122_120000 --train-ensemble
+#
+# Manual overrides (legacy, disables auto-detection):
+#   bash scripts/post_training_pipeline.sh --run-id 20260122_120000 \
+#     --results-dir ../results --base-models LR_EN,RF,XGBoost
+#
+# NOTE: Ensemble training now uses --run-id for full auto-detection.
+#       No need to coordinate BASE_MODELS between script and CLI.
 #============================================================
 
 set -euo pipefail
@@ -26,6 +34,7 @@ RESULTS_DIR=""
 CONFIG_FILE=""
 BASE_MODELS=""
 MIN_SPLITS=1
+AUTO_DETECT=1  # Enable auto-detection by default
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -35,6 +44,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --results-dir)
       RESULTS_DIR="$2"
+      AUTO_DETECT=0  # Disable auto-detection if user provides results-dir
       shift 2
       ;;
     --config)
@@ -43,6 +53,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --base-models)
       BASE_MODELS="$2"
+      AUTO_DETECT=0  # Disable auto-detection if user provides base-models
       shift 2
       ;;
     --train-ensemble)
@@ -55,10 +66,26 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown option: $1"
+      echo "Usage: bash post_training_pipeline.sh --run-id <RUN_ID> [OPTIONS]"
+      echo "Required:"
+      echo "  --run-id ID              Run identifier (e.g., 20260122_120000)"
+      echo "Optional:"
+      echo "  --train-ensemble         Train ensemble meta-learner"
+      echo "  --min-splits N           Minimum splits required (default: 1)"
+      echo "  --results-dir DIR        Override results directory (disables auto-detection)"
+      echo "  --base-models M1,M2,...  Override base models (disables auto-detection)"
+      echo "  --config FILE            Override config file (default: configs/pipeline_hpc.yaml)"
       exit 1
       ;;
   esac
 done
+
+# Validate required argument
+if [[ -z "${RUN_ID}" ]]; then
+  echo "Error: --run-id is required"
+  echo "Usage: bash post_training_pipeline.sh --run-id <RUN_ID> [--train-ensemble] [--min-splits N]"
+  exit 1
+fi
 
 #==============================================================
 # SETUP
@@ -67,8 +94,9 @@ BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${BASE_DIR}"
 
 # Timestamped log file for this post-processing run
-# Mirrors logs/aggregation/run_{RUN_ID} structure
-POST_LOG_DIR="${BASE_DIR}/logs/aggregation/run_${RUN_ID:-$(date +"%Y%m%d_%H%M%S")}"
+# Logs deposited at root level: ../logs/aggregation/run_{RUN_ID}
+ROOT_DIR="$(cd "${BASE_DIR}/.." && pwd)"
+POST_LOG_DIR="${ROOT_DIR}/logs/aggregation/run_${RUN_ID:-$(date +"%Y%m%d_%H%M%S")}"
 mkdir -p "${POST_LOG_DIR}"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_FILE="${POST_LOG_DIR}/post_training_${RUN_ID:-${TIMESTAMP}}.log"
@@ -150,17 +178,73 @@ get_yaml_nested_list() {
   fi
 }
 
-# Load config
+#==============================================================
+# AUTO-DETECTION (if enabled)
+#==============================================================
+if [[ ${AUTO_DETECT} -eq 1 ]]; then
+  log_section "Auto-Detecting Configuration from Run ID: ${RUN_ID}"
+
+  # Auto-detect results directory
+  if [[ -z "${RESULTS_DIR}" ]]; then
+    # Try config file first
+    RESULTS_DIR_FROM_CONFIG=$(get_yaml "${CONFIG_FILE}" "results_dir")
+    RESULTS_DIR="${BASE_DIR}/${RESULTS_DIR_FROM_CONFIG}"
+
+    # Verify it exists
+    if [[ ! -d "${RESULTS_DIR}" ]]; then
+      # Try default fallback
+      RESULTS_DIR="${BASE_DIR}/results"
+      if [[ ! -d "${RESULTS_DIR}" ]]; then
+        log_error "Results directory not found. Tried:"
+        log_error "  - ${BASE_DIR}/${RESULTS_DIR_FROM_CONFIG}"
+        log_error "  - ${RESULTS_DIR}"
+        exit 1
+      fi
+    fi
+    log "Detected results directory: ${RESULTS_DIR}"
+  fi
+
+  # Auto-detect base models by scanning for run_${RUN_ID} directories
+  if [[ -z "${BASE_MODELS}" ]]; then
+    DETECTED_MODELS=()
+    for MODEL_DIR in "${RESULTS_DIR}"/*; do
+      [[ ! -d "${MODEL_DIR}" ]] && continue
+      MODEL_NAME=$(basename "${MODEL_DIR}")
+
+      # Skip ENSEMBLE (it's generated, not a base model)
+      [[ "${MODEL_NAME}" == "ENSEMBLE" ]] && continue
+
+      # Check if this model has run_${RUN_ID} directory
+      if [[ -d "${MODEL_DIR}/run_${RUN_ID}" ]]; then
+        DETECTED_MODELS+=("${MODEL_NAME}")
+      fi
+    done
+
+    if [[ ${#DETECTED_MODELS[@]} -eq 0 ]]; then
+      log_warning "No models detected with run_${RUN_ID}. Falling back to config."
+      # Fallback to config
+      TRAINING_CONFIG=$(get_yaml "${CONFIG_FILE}" "training")
+      TRAINING_CONFIG="${BASE_DIR}/${TRAINING_CONFIG}"
+      BASE_MODELS=$(get_yaml_nested_list "${TRAINING_CONFIG}" "ensemble" "base_models")
+      if [[ -z "${BASE_MODELS}" ]]; then
+        BASE_MODELS=$(get_yaml_list "${CONFIG_FILE}" "models")
+      fi
+    else
+      BASE_MODELS=$(IFS=,; echo "${DETECTED_MODELS[*]}")
+      log "Detected base models: ${BASE_MODELS}"
+    fi
+  fi
+fi
+
+# Load remaining config values
+TRAINING_CONFIG=$(get_yaml "${CONFIG_FILE}" "training")
+TRAINING_CONFIG="${BASE_DIR}/${TRAINING_CONFIG}"
+
+# If still empty after auto-detection, fall back to config
 if [[ -z "${RESULTS_DIR}" ]]; then
   RESULTS_DIR=$(get_yaml "${CONFIG_FILE}" "results_dir")
   RESULTS_DIR="${BASE_DIR}/${RESULTS_DIR}"
 fi
-
-TRAINING_CONFIG=$(get_yaml "${CONFIG_FILE}" "training")
-TRAINING_CONFIG="${BASE_DIR}/${TRAINING_CONFIG}"
-
-# Ensemble training is opt-in via --train-ensemble flag
-# No longer read from config file (ensemble.enabled removed)
 
 if [[ -z "${BASE_MODELS}" ]]; then
   BASE_MODELS=$(get_yaml_nested_list "${TRAINING_CONFIG}" "ensemble" "base_models")
@@ -184,14 +268,16 @@ else
   log "Using active Conda environment: ${CONDA_DEFAULT_ENV}"
 fi
 
-log_section "Post-Training Pipeline"
-log "Run ID: ${RUN_ID:-auto}"
+log_section "Post-Training Pipeline Configuration"
+log "Run ID: ${RUN_ID}"
+log "Auto-detection: $([ ${AUTO_DETECT} -eq 1 ] && echo 'enabled' || echo 'disabled (manual overrides provided)')"
 log "Results directory: ${RESULTS_DIR}"
 log "Config file: ${CONFIG_FILE}"
 log "Training config: ${TRAINING_CONFIG}"
 log "Base models: ${BASE_MODELS}"
 log "Train ensemble: ${TRAIN_ENSEMBLE}"
 log "Bootstrap iterations: ${N_BOOT}"
+log "Minimum splits required: ${MIN_SPLITS}"
 log "Log file: ${LOG_FILE}"
 
 #==============================================================
@@ -270,8 +356,7 @@ fi
 if [[ ${TRAIN_ENSEMBLE} -eq 1 ]]; then
   log_section "Step 2: Train Ensemble Meta-Learner"
 
-  ENSEMBLE_MODELS=$(IFS=,; echo "${VALIDATED_MODELS[*]}")
-  log "Using base models: ${ENSEMBLE_MODELS}"
+  log "Auto-detecting base models from run_id ${RUN_ID}"
 
   ENSEMBLE_TRAINED=0
   ENSEMBLE_FAILED=0
@@ -288,12 +373,10 @@ if [[ ${TRAIN_ENSEMBLE} -eq 1 ]]; then
       continue
     fi
 
-    # Train ensemble
+    # Train ensemble (auto-detects base models from run-id)
     set +e
     ced train-ensemble \
-      --config "${TRAINING_CONFIG}" \
-      --results-dir "${RESULTS_DIR}" \
-      --base-models "${ENSEMBLE_MODELS}" \
+      --run-id "${RUN_ID}" \
       --split-seed "${SEED}" \
       --outdir "${ENSEMBLE_OUT}" \
       2>&1 | tee -a "${LOG_FILE}"

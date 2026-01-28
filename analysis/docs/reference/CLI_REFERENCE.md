@@ -13,16 +13,17 @@ High-level command-line interface reference for the Celiac Disease risk predicti
 
 ## Available Commands
 
-The CLI provides eight main commands accessed via `ced <command>`:
+The CLI provides nine main commands accessed via `ced <command>`:
 
 1. `save-splits` - Generate stratified train/val/test splits
 2. `train` - Train single model on one split (supports fixed-panel validation)
 3. `train-ensemble` - Train stacking meta-learner on base model predictions
-4. `optimize-panel` - Post-hoc RFE panel size optimization (deployment trade-offs)
+4. `optimize-panel` - Post-hoc RFE panel size optimization for single models
 5. `consensus-panel` - Cross-model consensus panel via Robust Rank Aggregation
 6. `aggregate-splits` - Aggregate results across multiple splits with bootstrap CIs
 7. `eval-holdout` - Evaluate trained model on external holdout data
 8. `config` - Validate and compare configuration files
+9. `convert-to-parquet` - Convert proteomics CSV to Parquet format
 
 Run `ced --help` or `ced <command> --help` for detailed usage.
 
@@ -76,11 +77,12 @@ Run `ced --help` or `ced <command> --help` for detailed usage.
 **Key Capabilities:**
 - Nested CV for unbiased hyperparameter tuning (outer x inner folds)
 - Optuna or RandomizedSearchCV for hyperparameter optimization
-- Four feature selection strategies (choose via config or CLI flag):
+- Five feature selection strategies (choose via config or CLI flag):
   - **Strategy 1**: `hybrid_stability` (default) - Fast, tuned k-best + stability
   - **Strategy 2**: `rfecv` - Automatic sizing, consensus panels (slow)
-  - **Strategy 3**: Post-hoc RFE via `ced optimize-panel` (run after training)
-  - **Strategy 4**: Fixed panel via `--fixed-panel` flag (validation mode)
+  - **Strategy 3**: Post-hoc RFE via `ced optimize-panel` (single-model deployment)
+  - **Strategy 4**: Consensus panel via `ced consensus-panel` (cross-model deployment)
+  - **Strategy 5**: Fixed panel via `--fixed-panel` flag (validation mode)
   - See [FEATURE_SELECTION.md](FEATURE_SELECTION.md) for detailed comparison and [ADR-013](../adr/ADR-013-four-strategy-feature-selection.md) for rationale
 - Isotonic or Platt scaling calibration
 - OOF (out-of-fold) or per-fold calibration strategies

@@ -1,8 +1,8 @@
 # Feature Selection Reference
 
 **Status**: Production
-**Last Updated**: 2026-01-26
-**Applies to**: CeD-ML v1.2.0+
+**Last Updated**: 2026-01-28
+**Applies to**: CeD-ML v1.3.0+
 
 ---
 
@@ -40,7 +40,7 @@ NO (Research, feature discovery, cost not a factor)
 │             ced train (30 min)
 │             Output: Stable panel at tuned k
 │
-Already have a panel to validate? → Fixed Panel (Strategy 4)
+Already have a panel to validate? → Fixed Panel (Strategy 5)
                                       ced train --fixed-panel panel.csv --split-seed 10
                                       Output: Unbiased AUROC only
 ```
@@ -70,32 +70,38 @@ What do you need?
 │     Config: feature_selection_strategy: rfecv
 │     Runtime: ~22 hours (or ~5 hours with k-best pre-filter)
 │
-├─ DEPLOYMENT PANEL SIZING (cost vs. performance)
+├─ SINGLE-MODEL DEPLOYMENT PANEL SIZING (cost vs. performance)
 │  └─ Strategy 3: Aggregated RFE
-│     Command: ced optimize-panel --results-dir results/MODEL/run_X --infile data.parquet --split-dir splits/
+│     Command: ced optimize-panel --run-id <RUN_ID> --model LR_EN
 │     Runtime: ~10 minutes (run after aggregation)
 │
+├─ CROSS-MODEL CONSENSUS PANEL (robust deployment)
+│  └─ Strategy 4: Consensus Panel
+│     Command: ced consensus-panel --run-id <RUN_ID>
+│     Runtime: ~15 minutes (run after aggregation)
+│
 └─ UNBIASED VALIDATION (regulatory, literature comparison)
-   └─ Strategy 4: Fixed Panel
+   └─ Strategy 5: Fixed Panel
       Command: ced train --fixed-panel panel.csv --split-seed 10
       Runtime: ~30 minutes
 ```
 
 ### Strategy Comparison
 
-| Attribute | Hybrid Stability | Nested RFECV | Aggregated RFE | Fixed Panel |
-|-----------|------------------|--------------|--------------|-------------|
-| **When** | During training | During training | After aggregation | During training |
-| **Speed** | Fast (~30 min) | Slow (~22 hrs) | Fast (~10 min) | Fast (~30 min) |
-| **Use for** | Production | Discovery | **Deployment sizing** | Validation |
-| **Panel size** | Tuned (k_grid) | Automatic (max AUROC) | **User-optimized** | Fixed (input) |
-| **Cost consideration** | Partial (k_grid) | ❌ None (always max) | ✅ **Full visibility** | N/A |
-| **Trade-off curve** | No | No | ✅ **Yes (Pareto)** | No |
-| **Leakage** | None | None | None (consensus) | None |
-| **Output** | Stable k-panels | Consensus panels | **AUROC vs k curve** | Unbiased AUROC |
-| **Best for** | Fast baseline | Feature stability | **Clinical deployment** | Regulatory filing |
+| Attribute | Hybrid Stability | Nested RFECV | Aggregated RFE | Consensus Panel | Fixed Panel |
+|-----------|------------------|--------------|--------------|-----------------|-------------|
+| **When** | During training | During training | After aggregation | After aggregation | During training |
+| **Speed** | Fast (~30 min) | Slow (~22 hrs) | Fast (~10 min) | Fast (~15 min) | Fast (~30 min) |
+| **Use for** | Production | Discovery | Single-model sizing | Cross-model sizing | Validation |
+| **Panel size** | Tuned (k_grid) | Automatic (max AUROC) | User-optimized | RRA consensus | Fixed (input) |
+| **Model scope** | Single | Single | Single | Multiple | Single |
+| **Cost consideration** | Partial (k_grid) | ❌ None (always max) | ✅ Full visibility | ✅ Consensus trade-off | N/A |
+| **Trade-off curve** | No | No | ✅ Yes (Pareto) | Via per-model RFE | No |
+| **Leakage** | None | None | None (consensus) | None (consensus) | None |
+| **Output** | Stable k-panels | Consensus panels | AUROC vs k curve | Cross-model panel | Unbiased AUROC |
+| **Best for** | Fast baseline | Feature stability | Clinical deployment | Robust deployment | Regulatory filing |
 
-**Design rationale**: See [ADR-013](../adr/ADR-013-four-strategy-feature-selection.md) for why we need four strategies.
+**Design rationale**: See [ADR-013](../adr/ADR-013-four-strategy-feature-selection.md) for why we need five strategies.
 
 ---
 
@@ -105,10 +111,11 @@ What do you need?
 2. [Strategy 1: Hybrid Stability](#strategy-1-hybrid-stability-default)
 3. [Strategy 2: Nested RFECV](#strategy-2-nested-rfecv)
 4. [Strategy 3: Post-hoc RFE](#strategy-3-post-hoc-rfe)
-5. [Strategy 4: Fixed Panel](#strategy-4-fixed-panel-validation)
-6. [Common Workflows](#common-workflows)
-7. [Ensemble Feature Selection Workflows](#ensemble-feature-selection-workflows) (NEW)
-8. [Troubleshooting](#troubleshooting)
+5. [Strategy 4: Consensus Panel](#strategy-4-consensus-panel-cross-model-deployment)
+6. [Strategy 5: Fixed Panel](#strategy-5-fixed-panel-validation)
+7. [Common Workflows](#common-workflows)
+8. [Ensemble Feature Selection Workflows](#ensemble-feature-selection-workflows)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -429,7 +436,78 @@ Unlike RFECV, post-hoc RFE gives you **control over the AUROC vs. cost trade-off
 
 ---
 
-## Strategy 4: Fixed Panel Validation
+## Strategy 4: Consensus Panel (Cross-Model Deployment)
+
+**Pipeline**: Aggregate multiple models → RRA ranking → correlation clustering → final panel
+
+### When to Use
+- Clinical deployment requiring robust feature selection across multiple algorithms
+- Reduce model-specific bias in feature selection
+- Generate deployment panel from ensemble of base models (LR_EN, RF, XGBoost, LinSVM)
+- Before fixed-panel validation training
+
+### Quick Start
+
+```bash
+# Step 1: Train base models across splits
+ced train --model LR_EN --split-seed 0
+ced train --model RF --split-seed 0
+ced train --model XGBoost --split-seed 0
+ced train --model LinSVM_cal --split-seed 0
+
+# Step 2: Aggregate results for each model
+ced aggregate-splits --config configs/aggregate_config.yaml
+
+# Step 3: (Optional) Run panel optimization per model
+ced optimize-panel --run-id 20260127_115115
+
+# Step 4: Generate cross-model consensus panel
+ced consensus-panel --run-id 20260127_115115
+
+# Step 5: Validate consensus panel (use NEW split seed)
+ced train --model LR_EN \
+  --fixed-panel results/consensus_panel/run_20260127_115115/final_panel.txt \
+  --split-seed 10
+```
+
+### How It Works
+
+**Robust Rank Aggregation (RRA):**
+1. **Per-model composite ranking**: Combines stability frequency (0-1) + RFE importance (elimination order)
+   - If RFE available: weighted average of stability rank + RFE rank
+   - If RFE missing: uses stability rank only
+2. **Cross-model aggregation**: Geometric mean of reciprocal ranks (Stuart et al. 2003)
+   - Proteins ranked highly by multiple models receive lower (better) consensus scores
+3. **Correlation clustering**: Spearman correlation matrix → hierarchical clustering → keep one representative per cluster
+4. **Final panel**: Top N proteins by consensus score after redundancy removal
+
+**Parameters:**
+- `--target-size 25` - Desired panel size (default: 25)
+- `--stability-threshold 0.75` - Minimum selection frequency per model (default: 0.75)
+- `--corr-threshold 0.85` - Correlation threshold for redundancy removal (default: 0.85)
+- `--rfe-weight 0.5` - Weight for RFE vs stability (0=stability only, 1=RFE only)
+- `--rra-method geometric_mean` - Aggregation method (default: geometric_mean)
+
+### Outputs
+
+```
+results/consensus_panel/run_<RUN_ID>/
+├── final_panel.txt                 # One protein per line (for --fixed-panel)
+├── final_panel.csv                 # Panel with consensus scores
+├── consensus_ranking.csv           # All proteins with RRA scores
+├── per_model_rankings.csv          # Per-model composite rankings
+├── correlation_clusters.csv        # Cluster assignments
+└── consensus_metadata.json         # Run parameters and statistics
+```
+
+### Advantages / Limitations
+
+**Pros**: Model-agnostic robustness, reduces single-model bias, incorporates both stability and importance, automatic redundancy removal
+**Cons**: Requires multiple trained models, 15 min runtime, more complex interpretation than single-model selection
+
+---
+
+## Strategy 5: Fixed Panel Validation
 
 **Pipeline**: Bypass feature selection → train on exact panel → report unbiased AUROC
 

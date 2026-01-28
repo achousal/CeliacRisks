@@ -172,10 +172,100 @@ def _collect_base_model_test_metrics(
     return collected
 
 
+def discover_base_models_for_run(
+    run_id: str | None = None,
+    split_seed: int = 0,
+    skip_ensemble: bool = True,
+) -> tuple[str, list[str]]:
+    """Auto-detect results directory and base models from run_id.
+
+    Args:
+        run_id: Run ID (e.g., "20260127_104409"). If None, auto-detects latest.
+        split_seed: Split seed (default: 0)
+        skip_ensemble: If True, exclude ENSEMBLE models (default: True)
+
+    Returns:
+        Tuple of (results_dir, base_models) where:
+            - results_dir: Root results directory
+            - base_models: List of base model names with OOF predictions
+
+    Raises:
+        FileNotFoundError: If no models found or results directory missing
+    """
+    from pathlib import Path
+
+    # Determine results directory (project root / results)
+    results_dir = Path(__file__).parent.parent.parent.parent.parent / "results"
+
+    if not results_dir.exists():
+        raise FileNotFoundError(f"Results directory not found: {results_dir}")
+
+    # Auto-detect run_id if not provided
+    if not run_id:
+        run_ids = []
+        for model_dir in results_dir.glob("*/"):
+            if model_dir.name.startswith(".") or model_dir.name == "investigations":
+                continue
+            for run_dir in model_dir.glob("run_*"):
+                if run_dir.is_dir():
+                    rid = run_dir.name.replace("run_", "")
+                    run_ids.append(rid)
+
+        if not run_ids:
+            raise FileNotFoundError("No runs found in results directory")
+
+        # Sort by timestamp (format: YYYYMMDD_HHMMSS)
+        run_ids.sort(reverse=True)
+        run_id = run_ids[0]
+
+    # Find all models for this run with OOF predictions
+    base_models = []
+
+    for model_dir in sorted(results_dir.glob("*/")):
+        model_name = model_dir.name
+
+        # Skip hidden/special directories
+        if model_name.startswith(".") or model_name == "investigations":
+            continue
+
+        # Skip ENSEMBLE if requested
+        if skip_ensemble and model_name == "ENSEMBLE":
+            continue
+
+        # Check if run exists for this model
+        run_path = model_dir / f"run_{run_id}"
+        if not run_path.exists():
+            continue
+
+        # Check for split seed directory
+        split_path = run_path / f"split_seed{split_seed}"
+        if not split_path.exists():
+            continue
+
+        # Check for OOF predictions
+        oof_path = split_path / "preds" / "train_oof" / f"train_oof__{model_name}.csv"
+        if oof_path.exists():
+            base_models.append(model_name)
+
+    if not base_models:
+        if skip_ensemble:
+            raise FileNotFoundError(
+                f"No base models found for run {run_id}, split {split_seed} (ENSEMBLE excluded).\n"
+                f"Base models must have OOF predictions in: results/{{MODEL}}/run_{run_id}/split_seed{split_seed}/preds/train_oof/"
+            )
+        else:
+            raise FileNotFoundError(
+                f"No models found for run {run_id}, split {split_seed} with OOF predictions"
+            )
+
+    return str(results_dir), base_models
+
+
 def run_train_ensemble(
     config_file: str | None = None,
     results_dir: str | None = None,
     base_models: list[str] | None = None,
+    run_id: str | None = None,
     split_seed: int = 0,
     outdir: str | None = None,
     meta_penalty: str | None = None,
@@ -187,15 +277,17 @@ def run_train_ensemble(
 
     This function:
     1. Loads configuration (from file or defaults)
-    2. Collects OOF predictions from base models
-    3. Trains the meta-learner
-    4. Generates and saves ensemble predictions
-    5. Computes and reports metrics
+    2. Auto-detects results_dir and base_models from run_id (if provided)
+    3. Collects OOF predictions from base models
+    4. Trains the meta-learner
+    5. Generates and saves ensemble predictions
+    6. Computes and reports metrics
 
     Args:
         config_file: Path to YAML config file (optional)
-        results_dir: Directory containing base model results
-        base_models: List of base model names (overrides config)
+        results_dir: Directory containing base model results (auto-detected if run_id provided)
+        base_models: List of base model names (auto-detected if run_id provided)
+        run_id: Run ID for auto-detection (e.g., "20260127_115115")
         split_seed: Split seed for identifying model outputs
         outdir: Output directory (overrides results_dir/ENSEMBLE/split_{seed})
         meta_penalty: Meta-learner regularization (overrides config)
@@ -220,11 +312,29 @@ def run_train_ensemble(
         logger.info(f"Loading config from: {config_file}")
         config = load_training_config(config_file=config_file)
 
+    # Auto-detect from run_id if provided
+    if run_id is not None:
+        logger.info(f"Auto-detecting models for run_id: {run_id}")
+        detected_results_dir, detected_base_models = discover_base_models_for_run(
+            run_id=run_id,
+            split_seed=split_seed,
+            skip_ensemble=True,
+        )
+
+        # Use detected values if not explicitly provided
+        if results_dir is None:
+            results_dir = detected_results_dir
+            logger.info(f"  Auto-detected results_dir: {results_dir}")
+
+        if base_models is None:
+            base_models = detected_base_models
+            logger.info(f"  Auto-detected base models: {base_models}")
+
     # Determine results directory
     if results_dir is None and config is not None:
         results_dir = str(config.outdir)
     if results_dir is None:
-        raise ValueError("Must provide --results-dir or config with outdir")
+        raise ValueError("Must provide --results-dir, --run-id, or config with outdir")
 
     results_path = Path(results_dir)
     if not results_path.exists():

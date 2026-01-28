@@ -1,12 +1,12 @@
 # CeliacRisks Project Documentation
 
 **Project**: Machine Learning Pipeline for Incident Celiac Disease Risk Prediction
-**Version**: 1.2.0
-**Updated**: 2026-01-26
+**Version**: 1.3.0
+**Updated**: 2026-01-28
 **Primary Package**: ced-ml
 **Python**: 3.10+
 **Project Owner**: Andres Chousal (Chowell Lab)
-**Status**: Production-ready with stacking ensemble, OOF-posthoc calibration, temporal validation, and panel optimization
+**Status**: Production-ready with stacking ensemble, OOF-posthoc calibration, temporal validation, panel optimization, and cross-model consensus
 
 ---
 
@@ -44,7 +44,8 @@ ced save-splits --config configs/splits_config.yaml --infile ../data/input.parqu
 ced train --config configs/training_config.yaml --model LR_EN --infile ../data/input.parquet --split-seed 0
 ced train-ensemble --base-models LR_EN,RF,XGBoost --split-seed 0
 ced aggregate-splits --config configs/aggregate_config.yaml
-ced optimize-panel --results-dir results/LR_EN/run_X --infile ../data/input.parquet --split-dir splits/
+ced optimize-panel --run-id 20260127_115115 --model LR_EN
+ced consensus-panel --run-id 20260127_115115
 ```
 
 ---
@@ -64,7 +65,7 @@ ced optimize-panel --results-dir results/LR_EN/run_X --infile ../data/input.parq
 
 ## Package Architecture
 
-**Stats**: ~27,000 lines of code, 1,130+ tests (65% coverage).
+**Stats**: ~56,800 lines of code (including tests), 1,271 tests (14% coverage after refactoring expansion).
 
 For detailed architecture with code pointers, see [docs/ARCHITECTURE.md](analysis/docs/ARCHITECTURE.md).
 
@@ -72,11 +73,11 @@ For detailed architecture with code pointers, see [docs/ARCHITECTURE.md](analysi
 | Layer | Modules | Purpose |
 |-------|---------|---------|
 | Data | `io`, `splits`, `persistence`, `filters`, `schema`, `columns` | Data loading, split generation, column resolution |
-| Features | `screening`, `kbest`, `stability`, `corr_prune`, `panels`, `rfe`, `nested_rfe` | Feature selection (rfe=post-hoc, nested_rfe=during training) |
-| Models | `registry`, `hyperparams`, `optuna_search`, `training`, `calibration`, `prevalence` | Model training and hyperparameter optimization |
+| Features | `screening`, `kbest`, `stability`, `corr_prune`, `panels`, `rfe`, `nested_rfe`, `consensus` | Feature selection and cross-model consensus |
+| Models | `registry`, `hyperparams`, `optuna_search`, `training`, `calibration`, `prevalence`, `stacking` | Model training, hyperparameter optimization, and ensemble learning |
 | Metrics | `discrimination`, `thresholds`, `dca`, `bootstrap` | Performance metrics |
 | Evaluation | `predict`, `reports`, `holdout` | Prediction and reporting |
-| Plotting | `roc_pr`, `calibration`, `risk_dist`, `dca`, `learning_curve`, `oof`, `optuna_plots` | Visualization |
+| Plotting | `roc_pr`, `calibration`, `risk_dist`, `dca`, `learning_curve`, `oof`, `optuna_plots`, `panel_curve`, `ensemble` | Visualization |
 
 For output structure details, see [docs/reference/ARTIFACTS.md](analysis/docs/reference/ARTIFACTS.md).
 
@@ -151,19 +152,21 @@ Output: `../results/{model}/split_seed{N}/`
 
 ### 3. Feature Selection
 
-The pipeline provides **three** distinct feature selection methods, each optimized for different use cases:
+The pipeline provides **four** distinct feature selection methods, each optimized for different use cases:
 
 | Method | Type | Use Case | Speed |
 |--------|------|----------|-------|
 | **Hybrid Stability** | During training | Production models (default) | Fast (~30 min) |
 | **Nested RFECV** | During training | Scientific discovery | Slow (~22 hours) |
-| **Aggregated RFE** | After aggregation | **Deployment optimization** | Fast (~10 min) |
+| **Aggregated RFE** | After aggregation | **Single-model deployment optimization** | Fast (~10 min) |
+| **Consensus Panel** | After aggregation | **Cross-model deployment optimization** | Fast (~15 min) |
 | **Fixed Panel** | During training | Panel validation | Fast (~30 min) |
 
 **Quick Start:**
 - Default: `feature_selection_strategy: hybrid_stability` (recommended)
 - For feature stability analysis: `feature_selection_strategy: rfecv`
-- **For deployment panel sizing: `ced optimize-panel` (uses consensus across all splits)**
+- **For single-model panel sizing: `ced optimize-panel --run-id <RUN_ID> --model LR_EN`**
+- **For cross-model consensus panel: `ced consensus-panel --run-id <RUN_ID>`**
 - For panel validation: `ced train --fixed-panel panel.csv --split-seed 10`
 
 **IMPORTANT:** Methods 1-2 are mutually exclusive (choose during training). Methods 3-5 are post-training tools.
@@ -177,13 +180,18 @@ ced train --model LR_EN --split-seed 0
 ced train --model RF --split-seed 0
 ced train --model XGBoost --split-seed 0
 
-# Train stacking ensemble
-ced train-ensemble --base-models LR_EN,RF,XGBoost --split-seed 0
+# Train stacking ensemble (auto-detects base models from run-id)
+ced train-ensemble --run-id 20260127_115115 --split-seed 0
+
+# Alternative: Explicit base models (manual)
+ced train-ensemble --results-dir results/ --base-models LR_EN,RF,XGBoost --split-seed 0
 ```
 Trains L2 logistic regression meta-learner on OOF predictions from base models.
 Expected improvement: +2-5% AUROC over best single model.
 
-Output: `../results/ENSEMBLE/split_seed{N}/`
+**Auto-detection** (recommended): Use `--run-id` to automatically discover results directory and base models.
+
+Output: `../results/ENSEMBLE/run_{RUN_ID}/split_seed{N}/`
 
 ### 5. Post-Training Pipeline (HPC only)
 After HPC jobs complete, run the comprehensive post-processing script:
@@ -191,15 +199,26 @@ After HPC jobs complete, run the comprehensive post-processing script:
 # Check job status
 bjobs -w | grep CeD_
 
-# When all jobs done, run post-processing
+# When all jobs done, run post-processing (auto-detects everything from run-id)
 bash scripts/post_training_pipeline.sh --run-id <RUN_ID>
+
+# With ensemble training
+bash scripts/post_training_pipeline.sh --run-id <RUN_ID> --train-ensemble
+
+# Manual overrides (disables auto-detection)
+bash scripts/post_training_pipeline.sh --run-id <RUN_ID> \
+  --base-models LR_EN,RF,XGBoost \
+  --results-dir ../results
 ```
 
-This automated pipeline:
-1. **Validates** base model outputs (checks required files per split)
-2. **Trains ensemble** meta-learner on OOF predictions (if enabled)
-3. **Aggregates** results across splits (per model, with bootstrap CIs)
-4. **Generates** validation reports and summary JSON
+This automated pipeline **auto-detects** models and splits from the run-id:
+1. **Auto-detects** base models by scanning for `run_{RUN_ID}` directories
+2. **Validates** base model outputs (checks required files per split)
+3. **Trains ensemble** meta-learner on OOF predictions (if `--train-ensemble`, auto-detects base models)
+4. **Aggregates** results across splits (per model, with bootstrap CIs)
+5. **Generates** validation reports and summary JSON
+
+**No config coordination needed** - just provide `--run-id` and the script handles the rest. Ensemble training now uses `ced train-ensemble --run-id <RUN_ID>` for full auto-detection (no need to specify base models).
 
 Aggregation includes:
 - Calibration: Brier score, slope, intercept
@@ -338,17 +357,17 @@ For complete CLI documentation, see [analysis/docs/reference/CLI_REFERENCE.md](a
 pytest tests/ -v
 ```
 
-**Test suite:** 810 tests covering:
+**Test suite:** 1,271 tests covering:
 - Data I/O (CSV/Parquet), column resolution, and split generation
-- Feature screening, k-best, stability, correlation pruning, panels
-- Model registry, hyperparameters, training, calibration, prevalence
+- Feature screening, k-best, stability, correlation pruning, panels, RFE, consensus
+- Model registry, hyperparameters, training, calibration, prevalence, stacking
 - Discrimination, thresholds, DCA, bootstrap
 - Prediction, reports, holdout evaluation
-- ROC/PR, calibration, risk distribution, DCA, learning curve, OOF plots
-- CLI integration (zero duplication verified)
+- ROC/PR, calibration, risk distribution, DCA, learning curve, OOF, panel optimization plots
+- CLI integration (including optimize-panel, consensus-panel, ensemble)
 - Config validation and comparison
 
-**Coverage:** 65% overall
+**Coverage:** 14% overall (after major refactoring expansion)
 
 **Test markers:**
 - `slow`: Integration tests that train real models (10-20s each). Skip with `pytest -m "not slow"` for faster development.
@@ -437,7 +456,7 @@ bjobs -w | grep CeD_
 
 ## Enhanced Testing Info
 
-**Test suite**: 1,081 tests covering data I/O, feature selection, models, metrics, evaluation, plotting, and CLI integration.
+**Test suite**: 1,271 tests covering data I/O, feature selection, models, metrics, evaluation, plotting, and CLI integration.
 
 ```bash
 # With coverage
@@ -606,9 +625,17 @@ ls results/{MODEL}/run_{RUN_ID}/split_seed*/preds/train_oof/
 
 ## Recent Major Changes
 
+**2026-01-28:**
+1. **Ensemble Training Auto-Detection** - `ced train-ensemble` now supports `--run-id` for automatic base model discovery (no config coordination needed)
+2. **Post-Training Pipeline Auto-Detection** - `post_training_pipeline.sh` now auto-detects models and splits from run-id (no config coordination needed)
+3. **Conda Environment Support** - HPC post-training pipeline now supports both venv and conda environments
+
 **2026-01-27:**
-1. **Panel Optimization Command Simplification** - `ced optimize-panel` now runs aggregated RFE exclusively (deprecated per-split RFE)
-2. **Cross-Model Consensus Panel** - `ced consensus-panel` generates consensus protein panel via RRA across multiple models
+1. **Cross-Model Consensus Panel** - `ced consensus-panel` generates consensus protein panel via Robust Rank Aggregation across multiple models
+2. **Multi-Model Batch Processing** - `ced optimize-panel --run-id` now processes all base models automatically
+3. **Investigation Workflows Consolidation** - Factorial experiment framework for prevalent case and control ratio optimization
+4. **Test Suite Modernization** - Expanded to 1,271 tests with improved E2E coverage and ensemble testing
+5. **Modular Aggregation Refactor** - Extracted orchestration helpers and metrics aggregation for maintainability
 
 **2026-01-26:**
 1. **Aggregated Panel Optimization** - Panel sizing via RFE on consensus stable proteins across all splits
@@ -620,5 +647,5 @@ ls results/{MODEL}/run_{RUN_ID}/split_seed*/preds/train_oof/
 
 ---
 
-**Last Updated**: 2026-01-27
-**Status**: Fully integrated with panel optimization and cross-model consensus for clinical deployment
+**Last Updated**: 2026-01-28
+**Status**: Fully integrated with panel optimization, cross-model consensus, and investigation framework for clinical deployment

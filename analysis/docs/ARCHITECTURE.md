@@ -1,8 +1,8 @@
 # CeliacRisks Architecture
 
-**Version:** 2.0
-**Date:** 2026-01-24
-**Status:** Streamlined algorithmic documentation
+**Version:** 2.1
+**Date:** 2026-01-28
+**Status:** Streamlined algorithmic documentation with consensus panel integration
 
 ---
 
@@ -56,10 +56,11 @@ ML pipeline for predicting **incident Celiac Disease (CeD)** risk from proteomic
 
 ### 2.2 Feature Selection Strategies
 
-The pipeline provides **four distinct strategies**, each optimized for different phases and objectives. No single approach satisfies all needs:
+The pipeline provides **five distinct strategies**, each optimized for different phases and objectives. No single approach satisfies all needs:
 - Production models need fast, reproducible selection with explicit tuning
 - Scientific papers require feature stability analysis across folds
-- Clinical deployment demands panel size optimization balancing cost vs. performance
+- Single-model deployment demands panel size optimization balancing cost vs. performance
+- Cross-model deployment requires consensus across multiple algorithms
 - Regulatory validation requires unbiased estimates on predetermined panels
 
 See [ADR-013: Four-Strategy Feature Selection Framework](adr/ADR-013-four-strategy-feature-selection.md) for the architectural decision documenting the rationale, alternatives considered, and trade-offs.
@@ -68,7 +69,8 @@ See [ADR-013: Four-Strategy Feature Selection Framework](adr/ADR-013-four-strate
 |----------|-------|----------|-------|--------|
 | **Hybrid Stability** | During training | Production models (default) | Fast (~30 min) | Stable k-selected panels |
 | **Nested RFECV** | During training | Scientific discovery | Slow (5-22 hours) | Consensus panels |
-| **Post-hoc RFE** | After training | Deployment optimization | Very fast (~5 min) | Pareto curves |
+| **Post-hoc RFE** | After training | Single-model deployment | Very fast (~5 min) | Pareto curves |
+| **Consensus Panel** | After training | Cross-model deployment | Fast (~15 min) | RRA consensus panel |
 | **Fixed Panel** | During training | Regulatory validation | Fast (~30 min) | Unbiased AUROC |
 
 **Strategy 1: Hybrid Stability (Default)**
@@ -83,18 +85,25 @@ See [ADR-013: Four-Strategy Feature Selection Framework](adr/ADR-013-four-strate
 3. **RFECV per fold:** Recursive elimination within each outer CV fold
 4. **Consensus panel:** Aggregate features selected in ≥ rfe_consensus_thresh of folds (default: 0.80)
 
-**Strategy 3: Post-hoc RFE (CLI: `ced optimize-panel`)**
+**Strategy 3: Post-hoc RFE (CLI: `ced optimize-panel --run-id <RUN_ID> --model <MODEL>`)**
 - Run after training on pre-trained model
 - Iterative feature elimination with validation set AUROC tracking
 - Outputs Pareto curve (panel size vs. AUROC) and recommendations
+- Multi-model batch processing: `ced optimize-panel --run-id <RUN_ID>` processes all base models
 
-**Strategy 4: Fixed Panel (CLI: `ced train --fixed-panel panel.csv`)**
+**Strategy 4: Consensus Panel (CLI: `ced consensus-panel --run-id <RUN_ID>`)**
+- Run after aggregation across multiple models
+- Robust Rank Aggregation (RRA) across model-specific stability + RFE rankings
+- Correlation-based clustering to handle redundant proteins
+- Outputs cross-model consensus panel with validation-ready format
+
+**Strategy 5: Fixed Panel (CLI: `ced train --fixed-panel panel.csv`)**
 - Bypass all feature selection
 - Train on predetermined panel
 - Requires new split seed for unbiased validation
 
 **Mutually exclusive:** Strategies 1-2 (choose via `feature_selection_strategy` config)
-**Complementary:** Strategies 3-4 (post-training tools)
+**Complementary:** Strategies 3-5 (post-training tools)
 
 **Code pointers:**
 - [features/screening.py](../src/ced_ml/features/screening.py) - Effect size screening
@@ -102,7 +111,9 @@ See [ADR-013: Four-Strategy Feature Selection Framework](adr/ADR-013-four-strate
 - [features/stability.py](../src/ced_ml/features/stability.py) - Stability extraction
 - [features/nested_rfe.py](../src/ced_ml/features/nested_rfe.py) - Nested RFECV
 - [features/rfe.py](../src/ced_ml/features/rfe.py) - Post-hoc RFE
-- [cli/optimize_panel.py](../src/ced_ml/cli/optimize_panel.py) - Post-hoc CLI
+- [features/consensus.py](../src/ced_ml/features/consensus.py) - Cross-model consensus via RRA
+- [cli/optimize_panel.py](../src/ced_ml/cli/optimize_panel.py) - Post-hoc RFE CLI
+- [cli/consensus_panel.py](../src/ced_ml/cli/consensus_panel.py) - Consensus panel CLI
 - [cli/train.py](../src/ced_ml/cli/train.py) - Fixed panel integration
 
 **See ADRs:**
@@ -111,7 +122,7 @@ See [ADR-013: Four-Strategy Feature Selection Framework](adr/ADR-013-four-strate
 - [ADR-005: Stability Panel](adr/ADR-005-stability-panel.md) - Stability extraction
 
 **See detailed guide:**
-- [FEATURE_SELECTION.md](reference/FEATURE_SELECTION.md) - Consolidated guide covering all 4 strategies (hybrid, RFECV, post-hoc RFE, fixed panel)
+- [FEATURE_SELECTION.md](reference/FEATURE_SELECTION.md) - Consolidated guide covering all 5 strategies (hybrid, RFECV, post-hoc RFE, consensus panel, fixed panel)
 
 ### 2.3 Nested Cross-Validation
 
@@ -307,8 +318,9 @@ src/ced_ml/
 - `features/stability.py` - Stability panel extraction (Strategy 1: hybrid_stability)
 - `features/nested_rfe.py` - Nested RFECV implementation (Strategy 2: rfecv)
 - `features/rfe.py` - Post-hoc RFE algorithm (Strategy 3: optimize-panel CLI)
-- `features/corr_prune.py` - Correlation-based pruning (Strategy 1: hybrid_stability)
-- `features/panels.py` - Fixed panel loading (Strategy 4: fixed panel validation)
+- `features/consensus.py` - Cross-model consensus via Robust Rank Aggregation (Strategy 4: consensus-panel CLI)
+- `features/corr_prune.py` - Correlation-based pruning (Strategy 1: hybrid_stability, Strategy 4: consensus)
+- `features/panels.py` - Fixed panel loading (Strategy 5: fixed panel validation)
 
 **Model training:**
 - `models/training.py` - Nested CV orchestration, OOF predictions

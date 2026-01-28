@@ -59,16 +59,28 @@ def aggregate_feature_stability(
                 if pd.isna(proteins_raw):
                     continue
 
-                # Expect native list format (pandas serializes lists automatically)
-                if not isinstance(proteins_raw, list):
+                # Parse JSON-serialized protein list
+                proteins_list = None
+                if isinstance(proteins_raw, str):
+                    try:
+                        proteins_list = json.loads(proteins_raw)
+                    except (json.JSONDecodeError, TypeError):
+                        if logger:
+                            logger.warning(
+                                f"Failed to parse protein JSON in split {seed}: {proteins_raw[:100]}"
+                            )
+                        continue
+                elif isinstance(proteins_raw, list):
+                    # Already a list (backward compatibility)
+                    proteins_list = proteins_raw
+                else:
                     if logger:
                         logger.warning(
-                            f"Unexpected protein format in split {seed}: {type(proteins_raw)}. "
-                            f"Expected list, skipping."
+                            f"Unexpected protein format in split {seed}: {type(proteins_raw)}"
                         )
                     continue
 
-                for protein in proteins_raw:
+                for protein in proteins_list:
                     if protein:
                         all_selections.append(
                             {
