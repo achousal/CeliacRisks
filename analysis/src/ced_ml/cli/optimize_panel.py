@@ -159,7 +159,7 @@ def run_optimize_panel(
     min_size: int = 5,
     min_auroc_frac: float = 0.90,
     cv_folds: int = 5,
-    step_strategy: str = "adaptive",
+    step_strategy: str = "geometric",
     outdir: str | None = None,
     use_stability_panel: bool = True,
     verbose: int = 0,
@@ -197,8 +197,12 @@ def run_optimize_panel(
     elif verbose >= 1:
         log_level = logging.INFO
 
-    logger = logging.getLogger(__name__)
+    # Use unique logger per model to avoid handler accumulation in batch mode
+    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    logger_name = f"{__name__}.{model_path.replace('/', '_')}_{timestamp}"
+    logger = logging.getLogger(logger_name)
     logger.setLevel(log_level)
+    logger.propagate = False  # Prevent propagation to root logger
 
     # Create logs/features directory at root level (parallel to results/)
     # __file__ is: .../analysis/src/ced_ml/cli/optimize_panel.py
@@ -207,7 +211,6 @@ def run_optimize_panel(
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # Timestamped log file
-    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
     log_file = log_dir / f"optimize_panel_{timestamp}.log"
 
     # File handler
@@ -225,10 +228,9 @@ def run_optimize_panel(
     console_formatter = logging.Formatter("%(levelname)s - %(message)s")
     console_handler.setFormatter(console_formatter)
 
-    # Add handlers (avoid duplicates)
-    if not logger.handlers:
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
+    # Always add handlers (unique logger per invocation)
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
 
     logger.info(f"Panel optimization started at {log_file}")
     logger.info(f"Loading model from {model_path}")
@@ -342,11 +344,19 @@ def run_optimize_panel(
         initial_proteins = None
 
         # Priority 1: Load from stable_panel__KBest.csv (authoritative source)
+        # NOTE: When using this file, start_size is IGNORED - all 'kept' proteins are used.
+        # This provides the most robust starting point based on cross-validated stability.
         if stable_panel_path.exists():
             logger.info(f"Loading stable panel from {stable_panel_path}")
             stable_df = pd.read_csv(stable_panel_path)
+            # Ensure kept column is boolean (handle string "True"/"False" if present)
+            if stable_df["kept"].dtype == object:
+                stable_df["kept"] = stable_df["kept"].astype(str).str.lower() == "true"
             initial_proteins = stable_df[stable_df["kept"]]["protein"].tolist()
-            logger.info(f"Loaded {len(initial_proteins)} stable proteins (≥75% threshold)")
+            logger.info(
+                f"Loaded {len(initial_proteins)} stable proteins (≥75% threshold). "
+                f"start_size parameter ignored when using stable_panel__KBest.csv."
+            )
 
             # Validate all proteins exist in data
             missing = [p for p in initial_proteins if p not in X_train.columns]
@@ -491,5 +501,379 @@ def run_optimize_panel(
     print(f"{'='*60}\n")
 
     logger.info("Panel optimization completed successfully")
+
+    return result
+
+
+def discover_models_by_run_id(
+    run_id: str,
+    results_root: Path,
+    model_filter: str | None = None,
+) -> dict[str, Path]:
+    """Discover models with aggregated results for a given run_id.
+
+    Args:
+        run_id: Run ID to search for (e.g., "20260127_115115")
+        results_root: Root results directory (e.g., ../results)
+        model_filter: Optional model name to filter by (e.g., "LR_EN")
+
+    Returns:
+        Dictionary mapping model names to their aggregated results directories.
+        Example: {"LR_EN": Path("../results/LR_EN/run_20260127_115115/aggregated")}
+
+    Raises:
+        FileNotFoundError: If no models found with aggregated results
+    """
+    model_dirs = {}
+
+    for model_dir in sorted(results_root.glob("*/")):
+        model_name = model_dir.name
+
+        # Skip hidden/special directories
+        if model_name.startswith(".") or model_name == "investigations":
+            continue
+
+        # Apply model filter if specified
+        if model_filter and model_name != model_filter:
+            continue
+
+        # Check for run directory
+        run_dir = model_dir / f"run_{run_id}"
+        if not run_dir.exists():
+            continue
+
+        # Check for aggregated results
+        aggregated_dir = run_dir / "aggregated"
+        if not aggregated_dir.exists():
+            continue
+
+        # Check for required aggregated files
+        feature_stability_file = (
+            aggregated_dir / "reports" / "feature_reports" / "feature_stability_summary.csv"
+        )
+        if not feature_stability_file.exists():
+            continue
+
+        model_dirs[model_name] = aggregated_dir
+
+    return model_dirs
+
+
+def run_optimize_panel_aggregated(
+    results_dir: str | Path,
+    infile: str,
+    split_dir: str,
+    model_name: str | None = None,
+    stability_threshold: float = 0.75,
+    min_size: int = 5,
+    min_auroc_frac: float = 0.90,
+    cv_folds: int = 5,
+    step_strategy: str = "geometric",
+    outdir: str | None = None,
+    verbose: int = 0,
+) -> RFEResult:
+    """Run panel optimization using aggregated stability panel.
+
+    This function operates on the aggregated stability panel from cross-validation,
+    providing a more robust feature ranking than single-split optimization.
+
+    Args:
+        results_dir: Path to model's aggregated results directory
+        infile: Path to input data file
+        split_dir: Directory containing split indices
+        model_name: Model name (auto-detected if None)
+        stability_threshold: Minimum selection frequency (default: 0.75)
+        min_size: Minimum panel size
+        min_auroc_frac: Early stop threshold
+        cv_folds: CV folds for RFE
+        step_strategy: Elimination strategy ("geometric", "fine", "linear")
+        outdir: Output directory (default: results_dir/optimize_panel)
+        verbose: Verbosity level
+
+    Returns:
+        RFEResult with optimization curve and recommendations
+
+    Raises:
+        FileNotFoundError: If required files not found
+        ValueError: If stability panel is too small
+    """
+    import logging
+
+    results_path = Path(results_dir)
+
+    # Auto-detect model name from path if not provided
+    if not model_name:
+        # results_dir is typically: ../results/LR_EN/run_20260127_115115/aggregated
+        model_name = results_path.parent.parent.name
+
+    # Setup logging
+    log_level = logging.WARNING
+    if verbose >= 2:
+        log_level = logging.DEBUG
+    elif verbose >= 1:
+        log_level = logging.INFO
+
+    # Use unique logger per model to avoid handler accumulation
+    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    logger_name = f"{__name__}.aggregated.{model_name}_{timestamp}"
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(log_level)
+    logger.propagate = False  # Prevent propagation to root logger
+
+    # Create logs directory
+    log_dir = Path(__file__).parent.parent.parent.parent.parent / "logs" / "features"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    log_file = log_dir / f"optimize_panel_aggregated_{model_name}_{timestamp}.log"
+
+    # File handler
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(log_level)
+    file_formatter = logging.Formatter(
+        "[%(asctime)s] %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    file_handler.setFormatter(file_formatter)
+
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(log_level)
+    console_formatter = logging.Formatter("%(levelname)s - %(message)s")
+    console_handler.setFormatter(console_formatter)
+
+    # Always add handlers (unique logger per invocation)
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    logger.info(f"Aggregated panel optimization started for {model_name}")
+    logger.info(f"Results dir: {results_dir}")
+
+    # Load aggregated stability panel
+    stability_file = results_path / "reports" / "feature_reports" / "feature_stability_summary.csv"
+    if not stability_file.exists():
+        raise FileNotFoundError(
+            f"Feature stability file not found: {stability_file}\n"
+            f"Run 'ced aggregate-splits' first to generate aggregated results."
+        )
+
+    logger.info(f"Loading aggregated stability panel from {stability_file}")
+    stability_df = pd.read_csv(stability_file)
+
+    # Strip extra quotes from protein names (they may be triple-quoted in CSV)
+    stability_df["protein"] = stability_df["protein"].str.strip('"')
+
+    # Filter by stability threshold (column is 'selection_fraction', not 'selection_frequency')
+    stable_proteins = stability_df[stability_df["selection_fraction"] >= stability_threshold][
+        "protein"
+    ].tolist()
+
+    if not stable_proteins:
+        raise ValueError(
+            f"No proteins meet stability threshold {stability_threshold:.2f}. "
+            f"Try lowering --stability-threshold."
+        )
+
+    logger.info(
+        f"Found {len(stable_proteins)} stable proteins (≥{stability_threshold:.2f} threshold)"
+    )
+
+    # Load a representative model to get metadata (auto-discover first available split)
+    # results_dir is: ../results/LR_EN/run_20260127_115115/aggregated
+    run_dir = results_path.parent
+
+    # Discover available split seeds
+    split_dirs = sorted(run_dir.glob("split_seed*"))
+    if not split_dirs:
+        raise FileNotFoundError(
+            f"No split directories found in {run_dir}. "
+            f"Expected at least one split_seed* directory."
+        )
+
+    # Use the first available split for metadata extraction
+    representative_split = split_dirs[0]
+    representative_seed = int(representative_split.name.replace("split_seed", ""))
+    model_path = representative_split / "core" / f"{model_name}__final_model.joblib"
+
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"Representative model not found: {model_path}\n"
+            f"Tried first available split: {representative_split.name}"
+        )
+
+    logger.info(f"Loading metadata from {model_path}")
+    bundle = joblib.load(model_path)
+
+    if not isinstance(bundle, dict):
+        raise ValueError("Model bundle must be a dictionary")
+
+    pipeline = bundle.get("model")
+    resolved_cols = bundle.get("resolved_columns", {})
+    scenario = bundle.get("scenario", "IncidentOnly")
+
+    if pipeline is None:
+        raise ValueError("Model bundle missing 'model' key")
+
+    protein_cols = resolved_cols.get("protein_cols", [])
+    cat_cols = resolved_cols.get("categorical_metadata", [])
+    meta_num_cols = resolved_cols.get("numeric_metadata", [])
+
+    if not protein_cols:
+        raise ValueError("Model bundle missing protein_cols")
+
+    logger.info(f"Model metadata: {len(protein_cols)} total proteins, scenario={scenario}")
+
+    # Load data
+    logger.info(f"Loading data from {infile}")
+    df_raw = read_proteomics_file(infile, validate=True)
+
+    # Apply row filters
+    logger.info("Applying row filters...")
+    df, filter_stats = apply_row_filters(df_raw, meta_num_cols=meta_num_cols)
+    logger.info(f"Filtered: {filter_stats['n_in']:,} → {filter_stats['n_out']:,} rows")
+
+    # Load train/val splits (use representative seed discovered above)
+    split_path = Path(split_dir)
+    train_file = split_path / f"train_idx_{scenario}_seed{representative_seed}.csv"
+    val_file = split_path / f"val_idx_{scenario}_seed{representative_seed}.csv"
+
+    # Fallback to old format (without scenario)
+    if not train_file.exists():
+        train_file = split_path / f"train_idx_seed{representative_seed}.csv"
+        val_file = split_path / f"val_idx_seed{representative_seed}.csv"
+
+    if not train_file.exists() or not val_file.exists():
+        raise FileNotFoundError(f"Split files not found: {train_file}, {val_file}")
+
+    logger.info(f"Loading splits from {split_path}")
+    train_idx = pd.read_csv(train_file).squeeze().values
+    val_idx = pd.read_csv(val_file).squeeze().values
+
+    if len(train_idx) == 0 or len(val_idx) == 0:
+        raise ValueError("Split files contain empty indices")
+
+    logger.info(f"Loaded splits: train={len(train_idx)}, val={len(val_idx)}")
+
+    # Prepare data
+    feature_cols = protein_cols + cat_cols + meta_num_cols
+    missing = [c for c in feature_cols if c not in df.columns]
+    if missing:
+        logger.warning(f"Missing columns: {missing[:10]}...")
+        feature_cols = [c for c in feature_cols if c in df.columns]
+        protein_cols = [c for c in protein_cols if c in df.columns]
+
+    # Create target
+    if TARGET_COL not in df.columns:
+        raise ValueError(f"Target column '{TARGET_COL}' not found")
+
+    positive_label = get_positive_label(scenario)
+    y_all = (df[TARGET_COL] == positive_label).astype(int).values
+
+    # Subset to train/val
+    X_train = df.iloc[train_idx][feature_cols].copy()
+    y_train = y_all[train_idx]
+
+    X_val = df.iloc[val_idx][feature_cols].copy()
+    y_val = y_all[val_idx]
+
+    logger.info(f"Train: {len(X_train)} samples, {y_train.sum()} cases")
+    logger.info(f"Val: {len(X_val)} samples, {y_val.sum()} cases")
+
+    # Filter stable proteins to those available in data
+    initial_proteins = [p for p in stable_proteins if p in X_train.columns]
+
+    if len(initial_proteins) < min_size:
+        raise ValueError(
+            f"Only {len(initial_proteins)} stable proteins available, "
+            f"less than min_size={min_size}"
+        )
+
+    logger.info(f"Starting RFE with {len(initial_proteins)} aggregated stable proteins")
+
+    # Prepare filtered metadata columns
+    filtered_cat_cols = [c for c in cat_cols if c in X_train.columns]
+    filtered_meta_num_cols = [c for c in meta_num_cols if c in X_train.columns]
+    logger.info(
+        f"Categorical cols: {len(filtered_cat_cols)}, Numeric metadata: {len(filtered_meta_num_cols)}"
+    )
+
+    # Run RFE
+    result = recursive_feature_elimination(
+        X_train=X_train,
+        y_train=y_train,
+        X_val=X_val,
+        y_val=y_val,
+        base_pipeline=pipeline,
+        model_name=model_name,
+        initial_proteins=initial_proteins,
+        cat_cols=filtered_cat_cols,
+        meta_num_cols=filtered_meta_num_cols,
+        min_size=min_size,
+        cv_folds=cv_folds,
+        step_strategy=step_strategy,
+        min_auroc_frac=min_auroc_frac,
+        random_state=0,  # Use seed 0 for reproducibility
+    )
+
+    # Save results
+    if outdir is None:
+        outdir = results_path / "optimize_panel"
+    else:
+        outdir = Path(outdir)
+
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    # Use split_seed=-1 as identifier for aggregated results (across all splits)
+    paths = save_rfe_results(result, str(outdir), model_name, split_seed=-1)
+    logger.info(f"Saved RFE results to {outdir}")
+
+    # Generate plots
+    try:
+        plot_path = Path(outdir) / "panel_curve_aggregated.png"
+        plot_pareto_curve(
+            curve=result.curve,
+            recommended=result.recommended_panels,
+            out_path=plot_path,
+            title=f"Panel Size Optimization ({model_name}, Aggregated)",
+            model_name=model_name,
+        )
+        paths["panel_curve_plot"] = str(plot_path)
+        logger.info(f"Saved panel curve plot to {plot_path}")
+
+        ranking_plot_path = Path(outdir) / "feature_ranking_aggregated.png"
+        plot_feature_ranking(
+            feature_ranking=result.feature_ranking,
+            out_path=ranking_plot_path,
+            top_n=30,
+            title=f"Feature Importance Ranking ({model_name}, Aggregated)",
+        )
+        paths["feature_ranking_plot"] = str(ranking_plot_path)
+        logger.info(f"Saved feature ranking plot to {ranking_plot_path}")
+    except Exception as e:
+        logger.warning(f"Could not generate plots: {e}")
+
+    # Print summary
+    print(f"\n{'='*60}")
+    print(f"Aggregated Panel Optimization Complete: {model_name}")
+    print(f"{'='*60}")
+    print(f"Starting panel size: {len(initial_proteins)} (aggregated stable proteins)")
+    print(f"Max AUROC: {result.max_auroc:.4f}")
+
+    if result.curve:
+        best_point = max(result.curve, key=lambda x: x["auroc_val"])
+        print(f"\nBest panel (size={best_point['size']}):")
+        print(f"  AUROC:           {best_point['auroc_val']:.4f}")
+        print(f"  PR-AUC:          {best_point.get('prauc_val', float('nan')):.4f}")
+        print(f"  Brier Score:     {best_point.get('brier_val', float('nan')):.4f}")
+        print(f"  Sens@95%Spec:    {best_point.get('sens_at_95spec_val', float('nan')):.4f}")
+
+    print("\nRecommended panel sizes:")
+    for key, size in result.recommended_panels.items():
+        print(f"  {key}: {size} proteins")
+
+    print(f"\nResults saved to: {outdir}")
+    print(f"Log file: {log_file}")
+    print(f"{'='*60}\n")
+
+    logger.info("Aggregated panel optimization completed successfully")
 
     return result

@@ -422,50 +422,44 @@ def train_ensemble(ctx, config, base_models, **kwargs):
     "--config",
     "-c",
     type=click.Path(exists=True),
-    default=None,
-    help="Path to YAML configuration file (auto-detects optimize_panel.yaml if not specified)",
+    help="Path to YAML configuration file",
+)
+@click.option(
+    "--results-dir",
+    "-d",
+    type=click.Path(exists=True),
+    required=False,
+    help="Path to model results directory (e.g., results/LR_EN/run_20260127_115115/). Mutually exclusive with --run-id.",
 )
 @click.option(
     "--run-id",
     type=str,
-    default=None,
-    help="Run ID to auto-detect model path (e.g., 20260127_104409); auto-detects latest if not provided",
+    required=False,
+    help="Run ID to auto-discover all models (e.g., 20260127_115115). Mutually exclusive with --results-dir.",
+)
+@click.option(
+    "--infile",
+    type=click.Path(exists=True),
+    required=False,
+    help="Input data file (Parquet/CSV). Auto-detected from run metadata if using --run-id.",
+)
+@click.option(
+    "--split-dir",
+    type=click.Path(exists=True),
+    required=False,
+    help="Directory containing split indices. Auto-detected from run metadata if using --run-id.",
 )
 @click.option(
     "--model",
     type=str,
     default=None,
-    help="Model name (required with --run-id)",
+    help="Model name (auto-detected from results directory if not provided, or filter when using --run-id)",
 )
 @click.option(
-    "--model-path",
-    type=click.Path(exists=True),
+    "--stability-threshold",
+    type=float,
     default=None,
-    help="Path to trained model bundle (.joblib) - overrides config file",
-)
-@click.option(
-    "--infile",
-    type=click.Path(exists=True),
-    default=None,
-    help="Input data file (Parquet/CSV) - overrides config file",
-)
-@click.option(
-    "--split-dir",
-    type=click.Path(exists=True),
-    default=None,
-    help="Directory containing split indices - overrides config file",
-)
-@click.option(
-    "--split-seed",
-    type=int,
-    default=None,
-    help="Split seed to use (default: 0)",
-)
-@click.option(
-    "--start-size",
-    type=int,
-    default=None,
-    help="Starting panel size from stability ranking (default: 100)",
+    help="Minimum selection fraction for stable proteins (default: 0.75)",
 )
 @click.option(
     "--min-size",
@@ -489,173 +483,396 @@ def train_ensemble(ctx, config, base_models, **kwargs):
     "--step-strategy",
     type=click.Choice(["geometric", "fine", "linear"]),
     default=None,
-    help="Feature elimination strategy (default: geometric, fine=more granular)",
+    help="Feature elimination strategy (default: geometric)",
 )
 @click.option(
     "--outdir",
     type=click.Path(),
     default=None,
-    help="Output directory (default: alongside model in optimize_panel/)",
+    help="Output directory (default: results_dir/aggregated/optimize_panel/)",
 )
 @click.option(
-    "--use-stability-panel/--use-all-features",
+    "--verbose",
+    type=int,
     default=None,
-    help="Use stable panel (≥75% threshold) from training. "
-    "Loads from reports/stable_panel/stable_panel__KBest.csv. "
-    "If False, uses all proteins from model. Default: True",
+    help="Verbosity level (0=warnings, 1=info, 2=debug)",
 )
 @click.pass_context
-def optimize_panel(ctx, **kwargs):
-    """Find minimum viable protein panel via Recursive Feature Elimination.
+def optimize_panel(ctx, config, **kwargs):
+    """Find minimum viable panel from aggregated cross-split results.
 
-    Performs RFE starting from the stability panel (or top-N features) to find
-    the Pareto frontier between panel size and AUROC. Use this after training
-    to identify cost-effective panels for clinical deployment.
+    This command runs RFE on consensus stable proteins derived from ALL splits,
+    providing a single authoritative panel size recommendation. Benefits:
 
-    Automatically detects optimize_panel.yaml if present in configs/.
+    1. Uses consensus stable proteins from all splits (eliminates variability)
+    2. Pools train/val data for maximum robustness
+    3. Generates a single authoritative feature ranking
+    4. Matches the aggregated analysis philosophy
 
-    Outputs:
-        - panel_curve.csv: AUROC vs panel size at each evaluation point
-        - panel_curve.png: Pareto curve visualization
-        - recommended_panels.json: Minimum sizes at 95%/90%/85% of max AUROC
-        - feature_ranking.csv: Proteins ranked by elimination order
+    Requires prior aggregation:
+        ced aggregate-splits --results-dir results/LR_EN/run_X
 
-    Example:
-        ced optimize-panel
-        ced optimize-panel --run-id 20260127_104409 --model LinSVM_cal
+    Examples:
+
+        # Use config file
         ced optimize-panel --config configs/optimize_panel.yaml
-        ced optimize-panel --model-path results/LR_EN/... --infile data/input.parquet
+
+        # Optimize ALL models with aggregated results under a run-id (recommended)
+        ced optimize-panel --run-id 20260127_115115
+
+        # Optimize single model (explicit path)
+        ced optimize-panel \\
+          --results-dir results/LR_EN/run_20260127_115115 \\
+          --infile data/Celiac_dataset_proteomics_w_demo.parquet \\
+          --split-dir splits/
+
+        # Optimize specific model(s) by run-id
+        ced optimize-panel --run-id 20260127_115115 --model LR_EN
+
+        # Override config values with CLI args
+        ced optimize-panel --config configs/optimize_panel.yaml --cv-folds 10
+
+    Outputs (in results_dir/aggregated/optimize_panel/)
+        - panel_curve_aggregated.csv: AUROC vs panel size
+        - feature_ranking_aggregated.csv: Protein elimination order
+        - recommended_panels_aggregated.json: Minimum sizes at thresholds
+        - panel_curve_aggregated.png: Pareto curve visualization
+    """
+    import json
+    from pathlib import Path
+
+    from ced_ml.cli.optimize_panel import discover_models_by_run_id, run_optimize_panel_aggregated
+
+    # Load config file: use provided path, or auto-detect default if it exists
+    config_params = {}
+    default_config = Path(__file__).parent.parent.parent.parent / "configs" / "optimize_panel.yaml"
+    config_path = config or (default_config if default_config.exists() else None)
+
+    if config_path:
+        import yaml
+
+        with open(config_path) as f:
+            config_params = yaml.safe_load(f) or {}
+        if config:
+            click.echo(f"Loaded config from {config_path}")
+        else:
+            click.echo(f"Loaded default config from {config_path}")
+
+    # Merge config with CLI args (CLI takes precedence)
+    # Only use config values if CLI arg is None (not provided)
+    for key in [
+        "results_dir",
+        "run_id",
+        "infile",
+        "split_dir",
+        "model",
+        "stability_threshold",
+        "min_size",
+        "min_auroc_frac",
+        "cv_folds",
+        "step_strategy",
+        "outdir",
+        "verbose",
+    ]:
+        if kwargs.get(key) is None and key in config_params:
+            kwargs[key] = config_params[key]
+            click.echo(f"Using config value for {key}: {config_params[key]}")
+
+    # Validate mutually exclusive options
+    if kwargs.get("results_dir") and kwargs.get("run_id"):
+        raise click.UsageError(
+            "--results-dir and --run-id are mutually exclusive. Use one or the other."
+        )
+
+    if not kwargs.get("results_dir") and not kwargs.get("run_id"):
+        raise click.UsageError("Either --results-dir or --run-id is required.")
+
+    # Auto-discover models if using --run-id
+    if kwargs.get("run_id"):
+        run_id = kwargs["run_id"]
+        results_root = Path(__file__).parent.parent.parent.parent.parent / "results"
+
+        click.echo(f"Auto-discovering models for run_id={run_id} in {results_root}")
+
+        model_dirs = discover_models_by_run_id(
+            run_id=run_id,
+            results_root=results_root,
+            model_filter=kwargs.get("model"),
+        )
+
+        if not model_dirs:
+            if kwargs.get("model"):
+                raise click.ClickException(
+                    f"No models matching '{kwargs['model']}' found with run_id={run_id} "
+                    f"and aggregated results in {results_root}"
+                )
+            else:
+                raise click.ClickException(
+                    f"No models found with run_id={run_id} and aggregated results in {results_root}"
+                )
+
+        click.echo(f"Found {len(model_dirs)} model(s) with aggregated results:")
+        for model_name, results_dir in model_dirs.items():
+            click.echo(f"  - {model_name}: {results_dir}")
+
+        # Auto-detect infile and split_dir from first model's run metadata
+        # (they should be the same across all models in the same run)
+        first_model_dir = next(iter(model_dirs.values()))
+        # model_dirs values are aggregated directories, go up one level for run_metadata.json
+        metadata_file = first_model_dir.parent / "run_metadata.json"
+
+        if not metadata_file.exists():
+            # Fallback: require manual specification
+            if not kwargs.get("infile") or not kwargs.get("split_dir"):
+                raise click.ClickException(
+                    f"Could not find run_metadata.json in {first_model_dir}. "
+                    f"Please specify --infile and --split-dir manually."
+                )
+            infile = kwargs["infile"]
+            split_dir = kwargs["split_dir"]
+        else:
+            with open(metadata_file) as f:
+                metadata = json.load(f)
+
+            # Use metadata values, but allow CLI overrides
+            infile = kwargs.get("infile") or metadata.get("infile")
+            split_dir = kwargs.get("split_dir") or metadata.get("splits_dir")
+
+            if not infile or not split_dir:
+                raise click.ClickException(
+                    "Could not auto-detect infile and split_dir from run metadata. "
+                    "Please specify --infile and --split-dir manually."
+                )
+
+            click.echo("\nAuto-detected from run metadata:")
+            click.echo(f"  Input file: {infile}")
+            click.echo(f"  Split dir:  {split_dir}")
+
+        click.echo("")
+
+        # Determine verbosity (config/CLI, with CLI taking precedence via ctx.obj)
+        verbose_level = (
+            kwargs.get("verbose")
+            if kwargs.get("verbose") is not None
+            else ctx.obj.get("verbose", 0)
+        )
+
+        # Run optimization for each discovered model
+        for model_name, results_dir in model_dirs.items():
+            click.echo(f"\n{'='*70}")
+            click.echo(f"Optimizing panel for: {model_name}")
+            click.echo(f"{'='*70}\n")
+
+            run_optimize_panel_aggregated(
+                results_dir=results_dir,
+                infile=infile,
+                split_dir=split_dir,
+                model_name=model_name,
+                stability_threshold=kwargs.get("stability_threshold") or 0.75,
+                min_size=kwargs.get("min_size") or 5,
+                min_auroc_frac=kwargs.get("min_auroc_frac") or 0.90,
+                cv_folds=kwargs.get("cv_folds") or 5,
+                step_strategy=kwargs.get("step_strategy") or "geometric",
+                outdir=kwargs.get("outdir"),
+                verbose=verbose_level,
+            )
+
+        click.echo(f"\n{'='*70}")
+        click.echo(f"Panel optimization complete for all {len(model_dirs)} model(s)")
+        click.echo(f"{'='*70}\n")
+
+    else:
+        # Single model path provided explicitly
+        # Require infile and split_dir for explicit path mode
+        if not kwargs.get("infile") or not kwargs.get("split_dir"):
+            raise click.UsageError(
+                "When using --results-dir, both --infile and --split-dir are required."
+            )
+
+        # Determine verbosity (config/CLI, with CLI taking precedence via ctx.obj)
+        verbose_level = (
+            kwargs.get("verbose")
+            if kwargs.get("verbose") is not None
+            else ctx.obj.get("verbose", 0)
+        )
+
+        run_optimize_panel_aggregated(
+            results_dir=kwargs["results_dir"],
+            infile=kwargs["infile"],
+            split_dir=kwargs["split_dir"],
+            model_name=kwargs.get("model"),
+            stability_threshold=kwargs.get("stability_threshold") or 0.75,
+            min_size=kwargs.get("min_size") or 5,
+            min_auroc_frac=kwargs.get("min_auroc_frac") or 0.90,
+            cv_folds=kwargs.get("cv_folds") or 5,
+            step_strategy=kwargs.get("step_strategy") or "geometric",
+            outdir=kwargs.get("outdir"),
+            verbose=verbose_level,
+        )
+
+
+@cli.command("consensus-panel")
+@click.option(
+    "--config",
+    "-c",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to YAML configuration file (auto-detects consensus_panel.yaml if exists)",
+)
+@click.option(
+    "--run-id",
+    type=str,
+    required=True,
+    help="Run ID to process (e.g., 20260127_115115). Auto-discovers all models.",
+)
+@click.option(
+    "--infile",
+    type=click.Path(exists=True),
+    default=None,
+    help="Input data file (auto-detected from run metadata if not provided)",
+)
+@click.option(
+    "--split-dir",
+    type=click.Path(exists=True),
+    default=None,
+    help="Directory containing split indices (auto-detected if not provided)",
+)
+@click.option(
+    "--stability-threshold",
+    type=float,
+    default=None,
+    help="Minimum selection fraction for stable proteins (default: 0.75)",
+)
+@click.option(
+    "--corr-threshold",
+    type=float,
+    default=None,
+    help="Correlation threshold for clustering (default: 0.85)",
+)
+@click.option(
+    "--target-size",
+    type=int,
+    default=None,
+    help="Target panel size (default: 25)",
+)
+@click.option(
+    "--rfe-weight",
+    type=float,
+    default=None,
+    help="Weight for RFE rank vs stability (0-1, default: 0.5)",
+)
+@click.option(
+    "--rra-method",
+    type=click.Choice(["geometric_mean", "borda", "median"]),
+    default=None,
+    help="RRA aggregation method (default: geometric_mean)",
+)
+@click.option(
+    "--outdir",
+    type=click.Path(),
+    default=None,
+    help="Output directory (default: results/consensus_panel/run_<RUN_ID>)",
+)
+@click.option(
+    "--verbose",
+    type=int,
+    default=None,
+    help="Verbosity level (0=warnings, 1=info, 2=debug)",
+)
+@click.pass_context
+def consensus_panel(ctx, config, **kwargs):
+    """Generate consensus protein panel from multiple models via RRA.
+
+    Aggregates protein rankings from all base models (LR_EN, RF, XGBoost, etc.)
+    to create a single consensus panel for clinical deployment. The workflow:
+
+    1. Loads stability rankings from each model's aggregated results
+    2. (Optional) Incorporates RFE rankings if available
+    3. Aggregates via Robust Rank Aggregation (geometric mean)
+    4. Clusters correlated proteins and selects representatives
+    5. Outputs final panel for fixed-panel validation
+
+    Requires prior aggregation:
+        ced aggregate-splits --results-dir results/*/run_<RUN_ID>
+
+    Examples:
+
+        # Basic usage (auto-discovers all models)
+        ced consensus-panel --run-id 20260127_115115
+
+        # Custom parameters
+        ced consensus-panel --run-id 20260127_115115 \\
+            --target-size 30 \\
+            --corr-threshold 0.90 \\
+            --rfe-weight 0.3
+
+        # Validate the resulting panel
+        ced train --model LR_EN \\
+            --fixed-panel results/consensus_panel/run_20260127_115115/final_panel.txt \\
+            --split-seed 10
+
+    Outputs (in results/consensus_panel/run_<RUN_ID>/):
+        - final_panel.txt: One protein per line (for --fixed-panel)
+        - final_panel.csv: With consensus scores
+        - consensus_ranking.csv: All proteins with RRA scores
+        - per_model_rankings.csv: Per-model composite rankings
+        - correlation_clusters.csv: Cluster assignments
+        - consensus_metadata.json: Run parameters and statistics
     """
     from pathlib import Path
 
-    from ced_ml.cli.optimize_panel import run_optimize_panel
-    from ced_ml.config.loader import load_panel_optimize_config
+    from ced_ml.cli.consensus_panel import run_consensus_panel
 
-    # Extract config file and run_id from kwargs
-    config_file = kwargs.pop("config", None)
-    run_id = kwargs.pop("run_id", None)
-    model_name = kwargs.pop("model", None)
+    # Load config file if provided or auto-detect
+    config_params = {}
+    default_config = Path(__file__).parent.parent.parent.parent / "configs" / "consensus_panel.yaml"
+    config_path = config or (default_config if default_config.exists() else None)
 
-    # Handle run_id-based model detection
-    if run_id or model_name:
-        from ced_ml.cli.optimize_panel import find_model_paths_for_run
+    if config_path:
+        import yaml
 
-        split_seed = kwargs.pop("split_seed", None) or 0
+        with open(config_path) as f:
+            config_params = yaml.safe_load(f) or {}
+        if config:
+            click.echo(f"Loaded config from {config_path}")
+        else:
+            click.echo(f"Loaded default config from {config_path}")
 
-        try:
-            detected_paths = find_model_paths_for_run(
-                run_id=run_id, model=model_name, split_seed=split_seed, skip_ensemble=True
-            )
+    # Merge config with CLI args (CLI takes precedence)
+    param_keys = [
+        "run_id",
+        "infile",
+        "split_dir",
+        "stability_threshold",
+        "corr_threshold",
+        "target_size",
+        "rfe_weight",
+        "rra_method",
+        "outdir",
+        "verbose",
+    ]
+    for key in param_keys:
+        if kwargs.get(key) is None and key in config_params:
+            kwargs[key] = config_params[key]
 
-            if len(detected_paths) == 1:
-                # Single model mode
-                kwargs["model_path"] = detected_paths[0]
-                click.echo(f"Auto-detected model: {detected_paths[0]}")
-            elif len(detected_paths) > 1:
-                # Multi-model mode
-                click.echo(f"Auto-detected {len(detected_paths)} base models:")
-                for path in detected_paths:
-                    model_name_from_path = Path(path).parent.parent.name
-                    click.echo(f"  - {model_name_from_path}")
+    # Determine verbosity
+    verbose_level = kwargs.get("verbose")
+    if verbose_level is None:
+        verbose_level = ctx.obj.get("verbose", 0)
 
-                # Store all paths for multi-model processing
-                kwargs["model_paths"] = detected_paths
-                kwargs["model_path"] = None  # Clear single path
-
-            # Auto-detect infile and split_dir from project structure if not provided
-            if kwargs.get("infile") is None:
-                project_root = Path(detected_paths[0]).parent.parent.parent.parent.parent.parent
-                data_file = project_root / "data" / "Celiac_dataset_proteomics_w_demo.parquet"
-                if not data_file.exists():
-                    # Try CSV version
-                    data_file = project_root / "data" / "Celiac_dataset_proteomics_w_demo.csv"
-                if data_file.exists():
-                    kwargs["infile"] = str(data_file)
-
-            if kwargs.get("split_dir") is None:
-                project_root = Path(detected_paths[0]).parent.parent.parent.parent.parent.parent
-                split_dir = project_root / "splits"
-                if split_dir.exists():
-                    kwargs["split_dir"] = str(split_dir)
-
-        except Exception as e:
-            raise click.ClickException(f"Error detecting model path: {e}") from e
-
-    # Collect CLI args (filter None values to allow config file to provide them)
-    cli_args = {k: v for k, v in kwargs.items() if v is not None}
-
-    # Load configuration (with auto-detection)
-    try:
-        config = load_panel_optimize_config(config_file=config_file, cli_args=cli_args)
-    except Exception as e:
-        raise click.ClickException(f"Configuration error: {e}") from e
-
-    # Check if we have multiple models to process
-    model_paths = kwargs.get("model_paths", [])
-
-    if model_paths:
-        # Multi-model mode
-        click.echo(f"\nRunning panel optimization on {len(model_paths)} models...\n")
-
-        for i, model_path in enumerate(model_paths, 1):
-            model_name_from_path = Path(model_path).parent.parent.name
-            click.echo(f"{'='*60}")
-            click.echo(f"[{i}/{len(model_paths)}] Processing: {model_name_from_path}")
-            click.echo(f"{'='*60}\n")
-
-            # Update config with current model path
-            cli_args["model_path"] = model_path
-            config = load_panel_optimize_config(config_file=config_file, cli_args=cli_args)
-
-            try:
-                run_optimize_panel(
-                    model_path=str(config.model_path),
-                    infile=str(config.infile),
-                    split_dir=str(config.split_dir),
-                    split_seed=config.split_seed,
-                    start_size=config.start_size,
-                    min_size=config.min_size,
-                    min_auroc_frac=config.min_auroc_frac,
-                    cv_folds=config.cv_folds,
-                    step_strategy=config.step_strategy,
-                    outdir=str(config.outdir) if config.outdir else None,
-                    use_stability_panel=config.use_stability_panel,
-                    verbose=config.verbose or ctx.obj.get("verbose", 0),
-                )
-            except Exception as e:
-                click.echo(f"ERROR: Failed to optimize {model_name_from_path}: {e}\n", err=True)
-                continue
-
-        click.echo(f"\n{'='*60}")
-        click.echo(f"Completed panel optimization for {len(model_paths)} models")
-        click.echo(f"{'='*60}\n")
-
-    else:
-        # Single model mode
-        # Validate that required fields are present
-        required_fields = ["model_path", "infile", "split_dir"]
-        missing = [f for f in required_fields if not getattr(config, f, None)]
-        if missing:
-            raise click.ClickException(
-                f"Missing required configuration: {', '.join(missing)}. "
-                f"Provide via config file or CLI arguments."
-            )
-
-        # Run optimization
-        run_optimize_panel(
-            model_path=str(config.model_path),
-            infile=str(config.infile),
-            split_dir=str(config.split_dir),
-            split_seed=config.split_seed,
-            start_size=config.start_size,
-            min_size=config.min_size,
-            min_auroc_frac=config.min_auroc_frac,
-            cv_folds=config.cv_folds,
-            step_strategy=config.step_strategy,
-            outdir=str(config.outdir) if config.outdir else None,
-            use_stability_panel=config.use_stability_panel,
-            verbose=config.verbose or ctx.obj.get("verbose", 0),
-        )
+    # Run consensus panel generation
+    run_consensus_panel(
+        run_id=kwargs["run_id"],
+        infile=kwargs.get("infile"),
+        split_dir=kwargs.get("split_dir"),
+        stability_threshold=kwargs.get("stability_threshold") or 0.75,
+        corr_threshold=kwargs.get("corr_threshold") or 0.85,
+        target_size=kwargs.get("target_size") or 25,
+        rfe_weight=kwargs.get("rfe_weight") or 0.5,
+        rra_method=kwargs.get("rra_method") or "geometric_mean",
+        outdir=kwargs.get("outdir"),
+        verbose=verbose_level,
+    )
 
 
 @cli.group("config")

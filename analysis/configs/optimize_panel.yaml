@@ -1,35 +1,59 @@
-# Panel Optimization Configuration (Optional)
+# Panel Optimization Configuration
 #
-# Post-hoc RFE to find optimal panel size trade-offs for clinical deployment.
-# This file is optional. CLI args override config values.
+# Aggregated RFE to find optimal panel size trade-offs for clinical deployment.
+# CLI args always override config values.
 #
-# Quick start (no config needed):
-#   ced optimize-panel --run-id 20260127_104409 --model LinSVM_cal
-#   ced optimize-panel --run-id 20260127_104409              # auto-detects first model
+# USAGE:
 #
-# Reference: docs/reference/FEATURE_SELECTION.md#strategy-3-post-hoc-rfe
+# Recommended workflow (with run-id - auto-detects paths):
+#   ced optimize-panel --config configs/optimize_panel.yaml
+#   ced optimize-panel --config configs/optimize_panel.yaml --run-id 20260128_120000  # Override run-id
+#   ced optimize-panel --config configs/optimize_panel.yaml --model LR_EN            # Filter single model
+#
+# Alternative workflow (explicit paths):
+#   ced optimize-panel --config configs/optimize_panel.yaml --results-dir ../results/LR_EN/run_X
+#
+# Without config file:
+#   ced optimize-panel --run-id 20260127_104409  # Auto-detects infile and split-dir
+#
+# Reference: docs/reference/FEATURE_SELECTION.md#aggregated-rfe-deployment-optimization
 
-# Model Selection (choose ONE)
-# Option A: Direct path (auto-detects data paths from directory structure)
-# model_path: ../results/LinSVM_cal/run_20260127_104409/split_seed0/core/LinSVM_cal__final_model.joblib
+# ==============================================================================
+# Model Selection (choose ONE - REQUIRED)
+# ==============================================================================
 
-# Option B: Run ID (auto-detects data paths)
-# run_id: 20260127_104409
-# model: LinSVM_cal
-# split_seed: 0
+# Option A: Batch optimize all models with a run-id (RECOMMENDED)
+# When using run-id, infile and split-dir are auto-detected from run metadata.
+# You can optionally filter to a specific model.
+run_id: 20260127_104409
+# model: LR_EN  # Optional: filter to single model (omit to process all models)
 
-# Data Paths (auto-detected if omitted)
+# Option B: Single model by explicit results directory path
+# When using results-dir, you MUST also specify infile and split-dir below.
+# results_dir: ../results/LR_EN/run_20260127_104409
+
+# ==============================================================================
+# Data Paths (OPTIONAL with run-id, REQUIRED with results-dir)
+# ==============================================================================
+
+# Auto-detected from run metadata when using run-id.
+# Specify here as fallback if metadata is missing, or when using results-dir.
 # infile: ../data/Celiac_dataset_proteomics_w_demo.parquet
 # split_dir: ../splits
 
-# RFE Parameters
-start_size: 100                   # Starting panel size (default: 100)
-min_size: 5                       # Minimum panel size (default: 5)
-min_auroc_frac: 0.90              # Early stop if AUROC < this fraction of max (default: 0.90)
-cv_folds: 5                       # CV folds for AUROC estimation (default: 5)
-step_strategy: adaptive            # Feature elimination: adaptive or linear (default: adaptive)
-use_stability_panel: true          # Use stability ranking from training (default: true)
+# ==============================================================================
+# RFE Algorithm Parameters
+# ==============================================================================
 
-# Output
-# outdir: results/custom_output    # Default: alongside model in optimize_panel/ subdirectory
-verbose: 2                         # Verbosity: 0=warnings, 1=info, 2=debug
+stability_threshold: 0.75    # Minimum selection fraction for stable proteins (default: 0.75)
+min_size: 5                  # Minimum panel size to evaluate (default: 5)
+min_auroc_frac: 0.5         # Early stop if AUROC < this fraction of max (default: 0.90)
+cv_folds: 5                  # CV folds for OOF AUROC estimation (default: 5)
+step_strategy: fine          # Feature elimination: geometric, linear, fine (default: geometric)
+
+# ==============================================================================
+# Output Settings
+# ==============================================================================
+
+# outdir: ../results/custom_output  # Default: {results_dir}/aggregated/optimize_panel/
+verbose: 2                           # Verbosity: 0=warnings, 1=info, 2=debug (default: 0)

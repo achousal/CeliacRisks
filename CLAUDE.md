@@ -43,8 +43,8 @@ ced --help
 ced save-splits --config configs/splits_config.yaml --infile ../data/input.parquet
 ced train --config configs/training_config.yaml --model LR_EN --infile ../data/input.parquet --split-seed 0
 ced train-ensemble --base-models LR_EN,RF,XGBoost --split-seed 0
-ced optimize-panel --model-path results/LR_EN/split_seed0/core/LR_EN__final_model.joblib --infile ../data/input.parquet --split-dir splits/
 ced aggregate-splits --config configs/aggregate_config.yaml
+ced optimize-panel --results-dir results/LR_EN/run_X --infile ../data/input.parquet --split-dir splits/
 ```
 
 ---
@@ -151,22 +151,22 @@ Output: `../results/{model}/split_seed{N}/`
 
 ### 3. Feature Selection
 
-The pipeline provides **four** distinct feature selection methods, each optimized for different use cases:
+The pipeline provides **three** distinct feature selection methods, each optimized for different use cases:
 
 | Method | Type | Use Case | Speed |
 |--------|------|----------|-------|
 | **Hybrid Stability** | During training | Production models (default) | Fast (~30 min) |
 | **Nested RFECV** | During training | Scientific discovery | Slow (~22 hours) |
-| **Post-hoc RFE** | After training | Deployment optimization | Very fast (~5 min) |
+| **Aggregated RFE** | After aggregation | **Deployment optimization** | Fast (~10 min) |
 | **Fixed Panel** | During training | Panel validation | Fast (~30 min) |
 
 **Quick Start:**
 - Default: `feature_selection_strategy: hybrid_stability` (recommended)
 - For feature stability analysis: `feature_selection_strategy: rfecv`
-- For deployment trade-offs: `ced optimize-panel` (post-training)
+- **For deployment panel sizing: `ced optimize-panel` (uses consensus across all splits)**
 - For panel validation: `ced train --fixed-panel panel.csv --split-seed 10`
 
-**IMPORTANT:** Methods 1-2 are mutually exclusive (choose during training). Methods 3-4 are post-training tools.
+**IMPORTANT:** Methods 1-2 are mutually exclusive (choose during training). Methods 3-5 are post-training tools.
 
 **For detailed documentation, see [docs/reference/FEATURE_SELECTION.md](analysis/docs/reference/FEATURE_SELECTION.md)**
 
@@ -325,7 +325,8 @@ For complete CLI documentation, see [analysis/docs/reference/CLI_REFERENCE.md](a
 | `ced save-splits` | `cli/save_splits.py` | Split generation |
 | `ced train` | `cli/train.py` | Model training |
 | `ced train-ensemble` | `cli/train_ensemble.py` | Ensemble meta-learner training |
-| `ced optimize-panel` | `cli/optimize_panel.py` | Panel size optimization via RFE |
+| `ced optimize-panel` | `cli/optimize_panel.py` | **Panel optimization (aggregated RFE)** |
+| `ced consensus-panel` | `cli/consensus_panel.py` | **Cross-model consensus panel (RRA)** |
 | `ced aggregate-splits` | `cli/aggregate_splits.py` | Results aggregation |
 | `ced eval-holdout` | `cli/eval_holdout.py` | Holdout evaluation |
 | `ced config` | `cli/config_tools.py` | Config validation and diff |
@@ -478,18 +479,27 @@ ced train-ensemble --base-models LR_EN,RF,XGBoost --split-seed 0
 
 ### Optimize panel size for clinical deployment
 
-Run post-hoc RFE to explore panel size trade-offs (AFTER training):
+**Aggregated RFE** (run AFTER aggregation, pools all splits):
 ```bash
+# Method 1: Optimize ALL models under a run-id (RECOMMENDED - auto-detects paths)
+ced optimize-panel --run-id 20260127_115115
+
+# Method 2: Optimize specific model(s) by run-id
+ced optimize-panel --run-id 20260127_115115 --model LR_EN
+
+# Method 3: Optimize single model with explicit path (legacy)
 ced optimize-panel \
-  --model-path results/LR_EN/split_seed0/core/LR_EN__final_model.joblib \
+  --results-dir results/LR_EN/run_20260127_115115 \
   --infile ../data/Celiac_dataset_proteomics_w_demo.parquet \
-  --split-dir ../splits/ \
-  --start-size 100 --min-size 5
+  --split-dir ../splits/
 ```
+**Advantages:**
+- Uses consensus stable proteins from ALL splits (eliminates variability)
+- Pools train/val data for maximum robustness
+- Generates single authoritative panel size recommendation
+- Matches aggregated analysis philosophy
 
-**Use when:** Stakeholder decisions (cost vs. AUROC), rapid iteration, deployment sizing
-
-See [docs/reference/FEATURE_SELECTION.md](analysis/docs/reference/FEATURE_SELECTION.md) for comparison with in-training methods.
+See [docs/reference/FEATURE_SELECTION.md](analysis/docs/reference/FEATURE_SELECTION.md) for detailed comparison.
 
 ### Validate a deployment panel (fixed-panel training)
 
@@ -580,9 +590,11 @@ ls results/{MODEL}/run_{RUN_ID}/split_seed*/preds/train_oof/
 **Core modules**:
 - [analysis/src/ced_ml/cli/main.py](analysis/src/ced_ml/cli/main.py) - CLI entrypoint
 - [analysis/src/ced_ml/cli/train_ensemble.py](analysis/src/ced_ml/cli/train_ensemble.py) - Ensemble training
-- [analysis/src/ced_ml/cli/optimize_panel.py](analysis/src/ced_ml/cli/optimize_panel.py) - Panel optimization (NEW)
+- [analysis/src/ced_ml/cli/optimize_panel.py](analysis/src/ced_ml/cli/optimize_panel.py) - Panel optimization
+- [analysis/src/ced_ml/cli/consensus_panel.py](analysis/src/ced_ml/cli/consensus_panel.py) - Cross-model consensus panel
 - [analysis/src/ced_ml/data/splits.py](analysis/src/ced_ml/data/splits.py) - Splitting with temporal support
-- [analysis/src/ced_ml/features/rfe.py](analysis/src/ced_ml/features/rfe.py) - RFE algorithm (NEW)
+- [analysis/src/ced_ml/features/rfe.py](analysis/src/ced_ml/features/rfe.py) - RFE algorithm
+- [analysis/src/ced_ml/features/consensus.py](analysis/src/ced_ml/features/consensus.py) - RRA consensus aggregation
 - [analysis/src/ced_ml/models/stacking.py](analysis/src/ced_ml/models/stacking.py) - Stacking meta-learner
 - [analysis/src/ced_ml/models/calibration.py](analysis/src/ced_ml/models/calibration.py) - OOF calibration
 
@@ -592,9 +604,14 @@ ls results/{MODEL}/run_{RUN_ID}/split_seed*/preds/train_oof/
 
 ---
 
-## Recent Major Changes (2026-01-26)
+## Recent Major Changes
 
-1. **Panel Size Optimization (NEW)** - `ced optimize-panel` command for minimum viable panels via RFE
+**2026-01-27:**
+1. **Panel Optimization Command Simplification** - `ced optimize-panel` now runs aggregated RFE exclusively (deprecated per-split RFE)
+2. **Cross-Model Consensus Panel** - `ced consensus-panel` generates consensus protein panel via RRA across multiple models
+
+**2026-01-26:**
+1. **Aggregated Panel Optimization** - Panel sizing via RFE on consensus stable proteins across all splits
 2. **Model Stacking Ensemble** - L2 meta-learner, +2-5% AUROC expected
 3. **OOF-Posthoc Calibration** - Eliminates ~0.5-1% optimistic bias
 4. **Expanded Optuna Ranges** - Wider hyperparameter search space
@@ -603,5 +620,5 @@ ls results/{MODEL}/run_{RUN_ID}/split_seed*/preds/train_oof/
 
 ---
 
-**Last Updated**: 2026-01-26
-**Status**: Fully integrated with panel optimization for clinical deployment
+**Last Updated**: 2026-01-27
+**Status**: Fully integrated with panel optimization and cross-model consensus for clinical deployment

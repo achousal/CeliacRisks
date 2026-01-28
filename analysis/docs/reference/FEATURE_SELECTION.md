@@ -71,9 +71,9 @@ What do you need?
 │     Runtime: ~22 hours (or ~5 hours with k-best pre-filter)
 │
 ├─ DEPLOYMENT PANEL SIZING (cost vs. performance)
-│  └─ Strategy 3: Post-hoc RFE
-│     Command: ced optimize-panel --model-path ... --start-size 100
-│     Runtime: ~5 minutes (run after training)
+│  └─ Strategy 3: Aggregated RFE
+│     Command: ced optimize-panel --results-dir results/MODEL/run_X --infile data.parquet --split-dir splits/
+│     Runtime: ~10 minutes (run after aggregation)
 │
 └─ UNBIASED VALIDATION (regulatory, literature comparison)
    └─ Strategy 4: Fixed Panel
@@ -83,15 +83,15 @@ What do you need?
 
 ### Strategy Comparison
 
-| Attribute | Hybrid Stability | Nested RFECV | Post-hoc RFE | Fixed Panel |
+| Attribute | Hybrid Stability | Nested RFECV | Aggregated RFE | Fixed Panel |
 |-----------|------------------|--------------|--------------|-------------|
-| **When** | During training | During training | After training | During training |
-| **Speed** | Fast (~30 min) | Slow (~22 hrs) | Very fast (~5 min) | Fast (~30 min) |
+| **When** | During training | During training | After aggregation | During training |
+| **Speed** | Fast (~30 min) | Slow (~22 hrs) | Fast (~10 min) | Fast (~30 min) |
 | **Use for** | Production | Discovery | **Deployment sizing** | Validation |
 | **Panel size** | Tuned (k_grid) | Automatic (max AUROC) | **User-optimized** | Fixed (input) |
 | **Cost consideration** | Partial (k_grid) | ❌ None (always max) | ✅ **Full visibility** | N/A |
 | **Trade-off curve** | No | No | ✅ **Yes (Pareto)** | No |
-| **Leakage** | None | None | Low (~0.5%) | None |
+| **Leakage** | None | None | None (consensus) | None |
 | **Output** | Stable k-panels | Consensus panels | **AUROC vs k curve** | Unbiased AUROC |
 | **Best for** | Fast baseline | Feature stability | **Clinical deployment** | Regulatory filing |
 
@@ -274,41 +274,39 @@ results/{MODEL}/split_seed{N}/cv/rfecv/
 ### Quick Start
 
 ```bash
-# Run AFTER training
+# Run AFTER aggregation
 ced optimize-panel \
-  --model-path results/LR_EN/split_seed0/core/LR_EN__final_model.joblib \
+  --results-dir results/LR_EN/run_20260127_115115 \
   --infile ../data/input.parquet \
   --split-dir ../splits/ \
-  --split-seed 0 \
-  --start-size 100 \
+  --stability-threshold 0.75 \
   --min-size 5 \
   --min-auroc-frac 0.90
 ```
 
 ### How It Works
 
-1. **Load trained model**: Uses pre-trained model bundle (.joblib)
-2. **Extract stability panel**: Start from top N proteins from stability ranking
+1. **Load consensus stable proteins**: Extract proteins stable across all splits (≥75% selection frequency)
+2. **Pool data**: Combine train/val data from all splits for maximum robustness
 3. **Recursive elimination**: Iteratively remove least important features
    - Compute feature importance (coefficients or permutation)
    - Remove bottom ~10% per iteration (adaptive)
-   - Re-evaluate AUROC on validation set (using CV)
-   - Stop at min_size or AUROC drop
+   - Re-evaluate AUROC using cross-validation on pooled data
+   - Stop at min_size or AUROC drop threshold
 4. **Generate recommendations**: Find knee points and Pareto frontier
 
 ### Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--model-path` | Required | Path to trained model bundle (.joblib) |
+| `--results-dir` | Required | Path to aggregated results directory |
 | `--infile` | Required | Input data file (Parquet/CSV) |
 | `--split-dir` | Required | Directory with split indices |
-| `--split-seed` | 0 | Split seed to use |
-| `--start-size` | 100 | Starting panel size (top N from stability) |
+| `--stability-threshold` | 0.75 | Minimum selection fraction for stable proteins |
 | `--min-size` | 5 | Minimum panel size to evaluate |
 | `--min-auroc-frac` | 0.90 | Early stop if AUROC < frac × max_auroc |
 | `--cv-folds` | 5 | CV folds for OOF AUROC estimation |
-| `--step-strategy` | geometric | Elimination strategy (geometric/fine/linear) |
+| `--step-strategy` | adaptive | Elimination strategy (adaptive/geometric/fine/linear) |
 
 **Step Strategy Comparison:**
 
@@ -532,22 +530,23 @@ ced train --model LR_EN --split-seed 0  # config: rfecv
 # STAGE 1: DISCOVERY (Explore panel sizes)
 # ═══════════════════════════════════════════════════════════════
 
-# Step 1: Train with hybrid_stability (fast baseline)
-ced train --model LR_EN --split-seed 0  # ~30 min
+# Step 1: Train across all splits with hybrid_stability
+ced train --model LR_EN --all-splits  # ~30 min per split
 
-# Step 2: Run post-hoc RFE to explore panel size trade-offs
+# Step 2: Aggregate results
+ced aggregate-splits --results-dir results/LR_EN/run_XXXXXX  # ~5 min
+
+# Step 3: Run aggregated RFE to explore panel size trade-offs
 ced optimize-panel \
-  --model-path results/LR_EN/split_seed0/core/LR_EN__final_model.joblib \
+  --results-dir results/LR_EN/run_XXXXXX \
   --infile ../data/input.parquet \
   --split-dir ../splits/ \
-  --split-seed 0 \
-  --start-size 100 \
-  --min-size 5  # ~5 min
+  --stability-threshold 0.75 \
+  --min-size 5  # ~10 min
 
-# Step 3: Review trade-off curve
-cat results/LR_EN/split_seed0/panel_optimization/panel_curve.csv
-cat results/LR_EN/split_seed0/panel_optimization/metrics_summary.csv
-cat results/LR_EN/split_seed0/panel_optimization/recommended_panels.json
+# Step 4: Review trade-off curve
+cat results/LR_EN/run_XXXXXX/aggregated/optimize_panel/panel_curve_aggregated.csv
+cat results/LR_EN/run_XXXXXX/aggregated/optimize_panel/recommended_panels_aggregated.json
 
 # Example output:
 # n_features,mean_auroc,std_auroc
@@ -561,7 +560,7 @@ cat results/LR_EN/split_seed0/panel_optimization/recommended_panels.json
 # - min_size_90pct: 25 (AUROC 0.930)
 # - knee_point: 30 (diminishing returns)
 
-# Step 4: Stakeholder decision
+# Step 5: Stakeholder decision
 # Clinical team: "We can afford 25 proteins max"
 # You: "AUROC drops 0.950 → 0.930 (2%), acceptable?"
 # Clinical team: "Yes, deploy k=25"
@@ -570,11 +569,11 @@ cat results/LR_EN/split_seed0/panel_optimization/recommended_panels.json
 # STAGE 2: VALIDATION (Unbiased estimate on NEW data)
 # ═══════════════════════════════════════════════════════════════
 
-# Step 5: Extract chosen panel (e.g., top 25 proteins)
-head -n 26 results/LR_EN/split_seed0/panel_optimization/rfe_ranking_full.csv \
+# Step 6: Extract chosen panel (e.g., top 25 proteins)
+head -n 26 results/LR_EN/run_XXXXXX/aggregated/optimize_panel/feature_ranking_aggregated.csv \
   | awk -F',' 'NR==1 || NR<=26 {print $1}' > deployment_panel_k25.csv
 
-# Step 6: CRITICAL - Validate on NEW split seed (prevents data leakage)
+# Step 7: CRITICAL - Validate on NEW split seed (prevents data leakage)
 ced train \
   --model LR_EN \
   --fixed-panel deployment_panel_k25.csv \
@@ -715,25 +714,24 @@ ced train --model XGBoost --split-seed 0
 # Step 1b: Aggregate to get consensus panel
 ced aggregate-splits --config configs/aggregate_config.yaml
 
-# Step 1c: Run RFE on best single model (using consensus panel)
+# Step 1c: Run aggregated RFE on best single model (using consensus panel)
 # Uses the model with highest AUROC (typically LR_EN or XGBoost)
 ced optimize-panel \
-  --model-path results/LR_EN/run_*/split_seed0/core/LR_EN__final_model.joblib \
+  --results-dir results/LR_EN/run_XXXXXX \
   --infile ../data/Celiac_dataset_proteomics_w_demo.parquet \
   --split-dir ../splits/ \
-  --split-seed 0 \
-  --start-size 150 \
+  --stability-threshold 0.75 \
   --min-size 10
 
 # Output: Pareto curve showing AUROC vs panel size
-# Expected runtime: ~5 minutes
+# Expected runtime: ~10 minutes
 
 
 # PASS 2: Retrain ensemble on optimized panel
 # ============================================
 
 # Step 2a: View RFE results to choose panel size
-cat results/LR_EN/run_*/split_seed0/optimize_panel/panel_curve.csv
+cat results/LR_EN/run_XXXXXX/aggregated/optimize_panel/panel_curve_aggregated.csv
 
 # Example output:
 # size,auroc_cv,auroc_val,prauc_val

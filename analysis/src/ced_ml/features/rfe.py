@@ -7,7 +7,7 @@ decision-making.
 
 Design:
 - Uses validation set AUROC for elimination decisions (test reserved for final eval)
-- Supports adaptive (geometric) step strategy for efficiency (~45× faster than nested RFECV)
+- Supports geometric step strategy for efficiency (~45× faster than nested RFECV)
 - Model-specific importance: coefficients for linear, permutation for trees
 - Outputs: curve CSV, recommendations JSON, feature ranking, Pareto plots
 
@@ -91,12 +91,22 @@ def compute_eval_sizes(
     Returns:
         List of panel sizes to evaluate, sorted descending.
 
+    Raises:
+        ValueError: If strategy is not one of the valid options.
+
     Example:
         >>> compute_eval_sizes(100, 5, "geometric")
         [100, 50, 25, 12, 6, 5]
         >>> compute_eval_sizes(100, 5, "fine")
         [100, 75, 50, 37, 25, 18, 12, 9, 6, 5]
     """
+    # Validate strategy
+    valid_strategies = {"geometric", "fine", "linear"}
+    if strategy not in valid_strategies:
+        raise ValueError(
+            f"Invalid step_strategy: '{strategy}'. " f"Must be one of {sorted(valid_strategies)}."
+        )
+
     if max_size <= min_size:
         return [max_size]
 
@@ -482,7 +492,7 @@ def recursive_feature_elimination(
     meta_num_cols: list[str],
     min_size: int = 5,
     cv_folds: int = 5,
-    step_strategy: str = "adaptive",
+    step_strategy: str = "geometric",
     min_auroc_frac: float = 0.90,
     random_state: int = 42,
     n_perm_repeats: int = 5,
@@ -727,8 +737,11 @@ def save_rfe_results(
     os.makedirs(output_dir, exist_ok=True)
     paths: dict[str, str] = {}
 
+    # Determine suffix for aggregated results (split_seed=-1 indicates aggregated)
+    suffix = "_aggregated" if split_seed == -1 else ""
+
     # 1. Panel curve CSV
-    curve_path = os.path.join(output_dir, "panel_curve.csv")
+    curve_path = os.path.join(output_dir, f"panel_curve{suffix}.csv")
     curve_df = pd.DataFrame(
         [
             {
@@ -751,7 +764,7 @@ def save_rfe_results(
     paths["panel_curve"] = curve_path
 
     # 2. Feature ranking CSV
-    ranking_path = os.path.join(output_dir, "feature_ranking.csv")
+    ranking_path = os.path.join(output_dir, f"feature_ranking{suffix}.csv")
     ranking_df = pd.DataFrame(
         [
             {"protein": p, "elimination_order": order}
@@ -762,7 +775,7 @@ def save_rfe_results(
     paths["feature_ranking"] = ranking_path
 
     # 3. Recommended panels JSON
-    rec_path = os.path.join(output_dir, "recommended_panels.json")
+    rec_path = os.path.join(output_dir, f"recommended_panels{suffix}.json")
     rec_data = {
         "model": model_name,
         "split_seed": split_seed,
@@ -778,7 +791,7 @@ def save_rfe_results(
     paths["recommended_panels"] = rec_path
 
     # 4. Pareto frontier CSV
-    pareto_path = os.path.join(output_dir, "pareto_frontier.csv")
+    pareto_path = os.path.join(output_dir, f"pareto_frontier{suffix}.csv")
     pareto_df = pd.DataFrame(
         [{"size": p["size"], "auroc_val": p["auroc_val"]} for p in result.pareto_points]
     )
@@ -786,7 +799,7 @@ def save_rfe_results(
     paths["pareto_frontier"] = pareto_path
 
     # 5. Metrics summary CSV (panel size vs all metrics)
-    metrics_summary_path = os.path.join(output_dir, "metrics_summary.csv")
+    metrics_summary_path = os.path.join(output_dir, f"metrics_summary{suffix}.csv")
     metrics_df = pd.DataFrame(
         [
             {

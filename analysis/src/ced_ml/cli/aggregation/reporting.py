@@ -55,22 +55,27 @@ def aggregate_feature_stability(
                 continue
 
             for _, row in df.iterrows():
-                proteins_str = row[proteins_col]
-                if pd.isna(proteins_str) or not proteins_str:
+                proteins_raw = row[proteins_col]
+                if pd.isna(proteins_raw):
                     continue
 
-                if isinstance(proteins_str, str):
-                    proteins = [p.strip() for p in proteins_str.split(",") if p.strip()]
-                else:
-                    proteins = []
+                # Expect native list format (pandas serializes lists automatically)
+                if not isinstance(proteins_raw, list):
+                    if logger:
+                        logger.warning(
+                            f"Unexpected protein format in split {seed}: {type(proteins_raw)}. "
+                            f"Expected list, skipping."
+                        )
+                    continue
 
-                for protein in proteins:
-                    all_selections.append(
-                        {
-                            "split_seed": seed,
-                            "protein": protein,
-                        }
-                    )
+                for protein in proteins_raw:
+                    if protein:
+                        all_selections.append(
+                            {
+                                "split_seed": seed,
+                                "protein": protein,
+                            }
+                        )
         except Exception as e:
             if logger:
                 logger.warning(f"Failed to read {cv_path}: {e}")

@@ -206,8 +206,8 @@ if [ "$SKIP_SPLITS" = false ]; then
             CONFIG_SPLITS_DIR="$SPLITS_BASE_DIR/${pf}_${ccr}"
             mkdir -p "$CONFIG_SPLITS_DIR"
 
-            # Create temporary config file
-            TEMP_CONFIG="$ANALYSIS_DIR/configs/splits_config_experiment_${pf}_${ccr}.yaml"
+            # Create config file in docs/investigations
+            TEMP_CONFIG="$SCRIPT_DIR/splits_config_experiment_${pf}_${ccr}.yaml"
 
             cat > "$TEMP_CONFIG" << EOF
 mode: development
@@ -232,7 +232,7 @@ EOF
 
             if [ "$DRY_RUN" = false ]; then
                 if (cd "$ANALYSIS_DIR" && ced save-splits \
-                    --config "configs/splits_config_experiment_${pf}_${ccr}.yaml" \
+                    --config "docs/investigations/splits_config_experiment_${pf}_${ccr}.yaml" \
                     --infile ../data/Celiac_dataset_proteomics_w_demo.parquet \
                     --outdir "$CONFIG_SPLITS_DIR" \
                     --overwrite) >> "$LOG_DIR/splits_generation.log" 2>&1; then
@@ -282,6 +282,7 @@ if [ "$SKIP_TRAINING" = false ]; then
                         --split-seed 0 \
                         --split-dir "$CONFIG_SPLITS_DIR" \
                         --scenario IncidentPlusPrevalent \
+                        --infile ../data/Celiac_dataset_proteomics_w_demo.parquet \
                         --config configs/training_config.yaml) \
                         >> "$LOG_DIR/training_${pf}_${ccr}.log" 2>&1; then
                         print_success "$PROGRESS$MODEL_PROGRESS $MODEL trained"
@@ -330,6 +331,9 @@ for pf in "${PREVALENT_FRACS[@]}"; do
                 print_status "$PROGRESS$MODEL_PROGRESS Investigating $MODEL..."
 
                 if [ "$DRY_RUN" = false ]; then
+                    # Note: Using investigate.py (original) for compatibility
+                    # To use investigate_v2.py with improved features, change to:
+                    # python docs/investigations/investigate_v2.py --run-id <run_id> --model "$MODEL"
                     if (cd "$ANALYSIS_DIR" && python docs/investigations/investigate.py \
                         --mode oof \
                         --model "$MODEL" \

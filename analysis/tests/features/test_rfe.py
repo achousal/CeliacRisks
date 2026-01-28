@@ -90,6 +90,17 @@ class TestComputeEvalSizes:
         # Fine should have at least 1.5x as many points
         assert len(fine) >= len(geometric) * 1.5
 
+    def test_invalid_strategy_raises(self):
+        """Invalid strategy raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid step_strategy"):
+            compute_eval_sizes(100, 5, "adaptive")
+
+        with pytest.raises(ValueError, match="Invalid step_strategy"):
+            compute_eval_sizes(100, 5, "invalid")
+
+        with pytest.raises(ValueError, match="Must be one of"):
+            compute_eval_sizes(100, 5, "foobar")
+
 
 class TestFindRecommendedPanels:
     """Tests for find_recommended_panels function."""

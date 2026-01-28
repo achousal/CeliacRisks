@@ -13,15 +13,16 @@ High-level command-line interface reference for the Celiac Disease risk predicti
 
 ## Available Commands
 
-The CLI provides seven main commands accessed via `ced <command>`:
+The CLI provides eight main commands accessed via `ced <command>`:
 
 1. `save-splits` - Generate stratified train/val/test splits
 2. `train` - Train single model on one split (supports fixed-panel validation)
 3. `train-ensemble` - Train stacking meta-learner on base model predictions
 4. `optimize-panel` - Post-hoc RFE panel size optimization (deployment trade-offs)
-5. `aggregate-splits` - Aggregate results across multiple splits with bootstrap CIs
-6. `eval-holdout` - Evaluate trained model on external holdout data
-7. `config` - Validate and compare configuration files
+5. `consensus-panel` - Cross-model consensus panel via Robust Rank Aggregation
+6. `aggregate-splits` - Aggregate results across multiple splits with bootstrap CIs
+7. `eval-holdout` - Evaluate trained model on external holdout data
+8. `config` - Validate and compare configuration files
 
 Run `ced --help` or `ced <command> --help` for detailed usage.
 
@@ -122,37 +123,100 @@ Run `ced --help` or `ced <command> --help` for detailed usage.
 
 ### `ced optimize-panel`
 
-**Purpose:** Post-training panel size optimization via Recursive Feature Elimination.
+**Purpose:** Post-aggregation panel size optimization via RFE on consensus stable proteins.
 
 **Key Capabilities:**
-- Iterative feature elimination with validation set AUROC tracking
+- Uses consensus stable proteins from ALL splits (eliminates split variability)
+- Pools train/val data for maximum robustness
+- Iterative feature elimination with cross-validation AUROC tracking
 - Pareto frontier analysis (panel size vs. performance)
 - Stakeholder-friendly cost-benefit recommendations
 - Adaptive, linear, or geometric elimination strategies
-- Very fast (~5 minutes for LR_EN, ~15-25 minutes for RF/XGBoost)
+- Fast (~10 minutes on pooled data)
 
 **Required Inputs:**
-- Trained model bundle (.joblib file from `ced train`)
+- Aggregated results directory (must run `ced aggregate-splits` first)
 - Input data file (same as training)
-- Split directory and seed
+- Split directory
 
-**Outputs:**
-- `panel_curve.csv` - Full RFE curve with all metrics and protein lists
-- `metrics_summary.csv` - Panel size vs. performance metrics
-- `feature_ranking.csv` - Protein elimination order with importance scores
-- `recommended_panels.json` - Knee points and minimum viable panel sizes
-- `pareto_frontier.csv` - Pareto-optimal points (size vs. AUROC)
-- `panel_curve.png` - Visualization of size vs. AUROC trade-off
+**Outputs (saved in `results_dir/aggregated/optimize_panel/`):**
+- `panel_curve_aggregated.csv` - Full RFE curve with all metrics
+- `feature_ranking_aggregated.csv` - Protein elimination order with importance scores
+- `recommended_panels_aggregated.json` - Minimum viable panel sizes at 95%/90%/85% thresholds
+- `panel_curve_aggregated.png` - Visualization of size vs. AUROC trade-off
 
 **When to use:**
 - Clinical deployment: "What's the smallest panel maintaining 0.90 AUROC?"
 - Stakeholder decisions: Cost per protein vs. performance trade-offs
-- Rapid iteration: Test 10/20/50 protein panels in minutes
-- Complements both hybrid_stability and rfecv strategies (Strategy 3 in four-strategy framework)
+- Authoritative panel sizing (uses consensus across all splits)
+- Post-aggregation analysis (complements hybrid_stability and rfecv strategies)
+
+**Examples:**
+```bash
+# Optimize ALL models under a run-id (RECOMMENDED - auto-detects paths)
+ced optimize-panel --run-id 20260127_115115
+
+# Optimize specific model by run-id
+ced optimize-panel --run-id 20260127_115115 --model LR_EN
+
+# Optimize single model with explicit path (legacy)
+ced optimize-panel \
+  --results-dir results/LR_EN/run_20260127_115115 \
+  --infile data/Celiac_dataset_proteomics_w_demo.parquet \
+  --split-dir splits/
+```
 
 **Related documentation:**
-- Detailed guide: [FEATURE_SELECTION.md](FEATURE_SELECTION.md) (see Strategy 3: Post-hoc RFE)
+- Detailed guide: [FEATURE_SELECTION.md](FEATURE_SELECTION.md) (see Aggregated RFE section)
 - Architecture decision: [ADR-013](../adr/ADR-013-four-strategy-feature-selection.md)
+
+### `ced consensus-panel`
+
+**Purpose:** Generate cross-model consensus protein panel via Robust Rank Aggregation (RRA).
+
+**Key Capabilities:**
+- Aggregates rankings from multiple base models (LR_EN, RF, XGBoost, etc.)
+- Combines stability frequency + RFE importance into per-model composite scores
+- Cross-model aggregation via geometric mean of reciprocal ranks
+- Correlation clustering to remove redundant proteins
+- Produces final panel compatible with `--fixed-panel` validation
+
+**Required Inputs:**
+- Aggregated results from multiple models (must run `ced aggregate-splits` first)
+- Run ID to auto-discover all models with stability results
+
+**Outputs (saved in `results/consensus_panel/run_<RUN_ID>/`):**
+- `final_panel.txt` - One protein per line (for `--fixed-panel` training)
+- `final_panel.csv` - Panel with consensus scores
+- `consensus_ranking.csv` - All proteins with RRA scores
+- `per_model_rankings.csv` - Per-model composite rankings
+- `correlation_clusters.csv` - Cluster assignments and pruning info
+- `consensus_metadata.json` - Run parameters and statistics
+
+**When to use:**
+- Final panel selection using consensus across multiple model types
+- More robust than single-model panel (reduces model-specific bias)
+- Before fixed-panel validation training
+
+**Examples:**
+```bash
+# Generate consensus panel from all models
+ced consensus-panel --run-id 20260127_115115
+
+# Custom parameters
+ced consensus-panel --run-id 20260127_115115 \
+  --target-size 30 \
+  --corr-threshold 0.90 \
+  --rfe-weight 0.3
+
+# Validate the resulting panel (use NEW split seed)
+ced train --model LR_EN \
+  --fixed-panel results/consensus_panel/run_20260127_115115/final_panel.txt \
+  --split-seed 10
+```
+
+**Related documentation:**
+- Configuration: `configs/consensus_panel.yaml`
 
 ### `ced aggregate-splits`
 
