@@ -19,14 +19,14 @@ cv:
 # Optuna hyperparameter optimization - PRODUCTION SETTINGS
 optuna:
   enabled: true
-  n_trials: 150  # UP from 20 (thorough search for XGBoost regularization)
+  n_trials: 600  # UP from 20 (thorough search for XGBoost regularization)
   timeout: null
   sampler: tpe
   sampler_seed: 42
   pruner: median  # CHANGED from hyperband (less aggressive, protects conservative trials)
   pruner_n_startup_trials: 20  # UP from 5 (don't prune early regularized XGBoost trials)
   pruner_percentile: 25.0  # UP from 20.0 (more lenient)
-  n_jobs: -1
+  n_jobs: 4
   save_study: true
   save_trials_csv: true
 
