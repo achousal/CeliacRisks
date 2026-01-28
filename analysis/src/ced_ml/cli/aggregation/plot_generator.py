@@ -314,8 +314,6 @@ def generate_aggregated_plots(
                                     oof_preds=oof_preds,
                                     out_dir=model_plots_dir,
                                     model_name=model_name,
-                                    scenario="pooled",
-                                    seed=None,
                                     plot_format=fmt,
                                     calib_bins=10,
                                     meta_lines=model_meta_lines,

@@ -281,14 +281,19 @@ results/{MODEL}/split_seed{N}/cv/rfecv/
 ### Quick Start
 
 ```bash
-# Run AFTER aggregation
+# Run AFTER aggregation (auto-detection, RECOMMENDED)
 ced optimize-panel \
-  --results-dir results/LR_EN/run_20260127_115115 \
-  --infile ../data/input.parquet \
-  --split-dir ../splits/ \
+  --run-id 20260127_115115 \
+  --model LR_EN \
   --stability-threshold 0.75 \
   --min-size 5 \
   --min-auroc-frac 0.90
+
+# Alternative: Explicit paths (legacy)
+ced optimize-panel \
+  --results-dir results/LR_EN/run_20260127_115115 \
+  --infile ../data/input.parquet \
+  --split-dir ../splits/
 ```
 
 ### How It Works
@@ -611,20 +616,19 @@ ced train --model LR_EN --split-seed 0  # config: rfecv
 # Step 1: Train across all splits with hybrid_stability
 ced train --model LR_EN --all-splits  # ~30 min per split
 
-# Step 2: Aggregate results
-ced aggregate-splits --results-dir results/LR_EN/run_XXXXXX  # ~5 min
+# Step 2: Aggregate results (auto-detection)
+ced aggregate-splits --run-id 20260127_115115 --model LR_EN  # ~5 min
 
-# Step 3: Run aggregated RFE to explore panel size trade-offs
+# Step 3: Run aggregated RFE to explore panel size trade-offs (auto-detection)
 ced optimize-panel \
-  --results-dir results/LR_EN/run_XXXXXX \
-  --infile ../data/input.parquet \
-  --split-dir ../splits/ \
+  --run-id 20260127_115115 \
+  --model LR_EN \
   --stability-threshold 0.75 \
   --min-size 5  # ~10 min
 
 # Step 4: Review trade-off curve
-cat results/LR_EN/run_XXXXXX/aggregated/optimize_panel/panel_curve_aggregated.csv
-cat results/LR_EN/run_XXXXXX/aggregated/optimize_panel/recommended_panels_aggregated.json
+cat results/LR_EN/run_20260127_115115/aggregated/optimize_panel/panel_curve_aggregated.csv
+cat results/LR_EN/run_20260127_115115/aggregated/optimize_panel/recommended_panels_aggregated.json
 
 # Example output:
 # n_features,mean_auroc,std_auroc
@@ -789,15 +793,14 @@ ced train --model LR_EN --split-seed 0
 ced train --model RF --split-seed 0
 ced train --model XGBoost --split-seed 0
 
-# Step 1b: Aggregate to get consensus panel
-ced aggregate-splits --config configs/aggregate_config.yaml
+# Step 1b: Aggregate to get consensus panel (auto-detection)
+ced aggregate-splits --run-id 20260127_115115 --model LR_EN
 
 # Step 1c: Run aggregated RFE on best single model (using consensus panel)
 # Uses the model with highest AUROC (typically LR_EN or XGBoost)
 ced optimize-panel \
-  --results-dir results/LR_EN/run_XXXXXX \
-  --infile ../data/Celiac_dataset_proteomics_w_demo.parquet \
-  --split-dir ../splits/ \
+  --run-id 20260127_115115 \
+  --model LR_EN \
   --stability-threshold 0.75 \
   --min-size 10
 
@@ -981,10 +984,13 @@ The two-pass approach is necessary because the ensemble meta-learner operates on
 
 1. **Always train ensemble AFTER base models**:
    ```bash
-   # Correct order
-   ced train --model LR_EN,RF,XGBoost --split-seed 0  # Base models first
-   ced train-ensemble --base-models LR_EN,RF,XGBoost  # Ensemble second
-   ced optimize-panel --model-path results/ENSEMBLE/...  # Optimize third
+   # Correct order (auto-detection)
+   ced train --model LR_EN --split-seed 0  # Base models first
+   ced train --model RF --split-seed 0
+   ced train --model XGBoost --split-seed 0
+   ced train-ensemble --run-id 20260127_115115 --split-seed 0  # Ensemble second (auto-detects base models)
+   ced aggregate-splits --run-id 20260127_115115 --model ENSEMBLE
+   ced optimize-panel --run-id 20260127_115115 --model ENSEMBLE  # Optimize third
    ```
 
 2. **Use geometric step strategy** (default for RFE):
@@ -994,11 +1000,11 @@ The two-pass approach is necessary because the ensemble meta-learner operates on
 
 3. **Validate with new split seed** (regulatory/publication):
    ```bash
-   # Discovery: Split seed 0
-   ced optimize-panel --split-seed 0 --model-path results/ENSEMBLE/.../ENSEMBLE__final_model.joblib
+   # Discovery: Split seed 0 (auto-detection)
+   ced optimize-panel --run-id 20260127_115115 --model ENSEMBLE
 
    # Extract chosen panel (e.g., k=25)
-   head -26 results/ENSEMBLE/.../optimize_panel/feature_ranking.csv | \
+   head -26 results/ENSEMBLE/run_20260127_115115/aggregated/optimize_panel/feature_ranking_aggregated.csv | \
      tail -25 > deployment_panel_k25.csv
 
    # Validation: Split seed 10 (NEW data, no peeking)

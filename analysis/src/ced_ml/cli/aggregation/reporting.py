@@ -59,19 +59,29 @@ def aggregate_feature_stability(
                 if pd.isna(proteins_raw):
                     continue
 
-                # Parse JSON-serialized protein list
+                # Parse protein list (handle JSON strings from pd.read_csv)
+                # TODO: Remove comma-separated fallback once all legacy data is regenerated.
+                # Standard format from training.py (line 399) uses json.dumps().
                 proteins_list = None
                 if isinstance(proteins_raw, str):
+                    # Try parsing as JSON first (standard format from training.py)
                     try:
                         proteins_list = json.loads(proteins_raw)
                     except (json.JSONDecodeError, TypeError):
-                        if logger:
-                            logger.warning(
-                                f"Failed to parse protein JSON in split {seed}: {proteins_raw[:100]}"
-                            )
-                        continue
+                        # Fallback: try comma-separated (legacy format)
+                        try:
+                            proteins_list = [
+                                p.strip() for p in proteins_raw.split(",") if p.strip()
+                            ]
+                        except Exception:
+                            if logger:
+                                logger.warning(
+                                    f"Failed to parse protein list in split {seed}: "
+                                    f"{proteins_raw[:100]}"
+                                )
+                            continue
                 elif isinstance(proteins_raw, list):
-                    # Already a list (backward compatibility)
+                    # Already a list (backward compatibility for in-memory DataFrames)
                     proteins_list = proteins_raw
                 else:
                     if logger:

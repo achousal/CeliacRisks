@@ -112,9 +112,10 @@ Run `ced --help` or `ced <command> --help` for detailed usage.
 - Trains on OOF predictions to avoid overfitting
 - Expected +2-5% AUROC improvement over best single model
 - Supports same calibration and threshold strategies as base models
+- **Auto-detects** results directory and base models from `--run-id`
 
 **Required Inputs:**
-- Base model names (comma-separated)
+- Base model names (auto-detected from run-id) OR explicit list
 - Split seed
 - Base model outputs (OOF predictions must exist)
 
@@ -122,6 +123,18 @@ Run `ced --help` or `ced <command> --help` for detailed usage.
 - Ensemble model artifacts
 - Ensemble OOF predictions
 - Ensemble metrics and plots
+
+**Usage Examples:**
+```bash
+# Auto-detection (RECOMMENDED) - discovers all base models automatically
+ced train-ensemble --run-id 20260127_115115 --split-seed 0
+
+# Manual specification (legacy)
+ced train-ensemble \
+  --results-dir results/ \
+  --base-models LR_EN,RF,XGBoost \
+  --split-seed 0
+```
 
 ### `ced optimize-panel`
 
@@ -232,15 +245,37 @@ ced train --model LR_EN \
 - Feature stability analysis (selection frequency across splits)
 - Consensus feature panels (proteins selected in ≥75% of splits)
 - Multi-model comparison plots
+- **Auto-detects** results directory from `--run-id`
 
 **Required Inputs:**
-- Configuration specifying models, number of splits, bootstrap iterations
+- Configuration specifying models, number of splits, bootstrap iterations (config-based mode)
+- OR run-id + model name for auto-detection mode
 - Completed model outputs for each split
 
 **Outputs:**
 - Aggregated metrics with bootstrap CIs (JSON + CSV)
 - Consensus feature panels
 - Comparison plots (ROC, calibration, risk distributions)
+
+**Usage Examples:**
+```bash
+# Auto-detection with run-id (RECOMMENDED) - specific model
+ced aggregate-splits --run-id 20260127_115115 --model LR_EN
+
+# Auto-detection - latest run for model
+ced aggregate-splits --model LR_EN
+
+# Config-based (legacy)
+ced aggregate-splits --config configs/aggregate_config.yaml
+
+# Explicit path (alternative)
+ced aggregate-splits --results-dir results/LR_EN/run_20260127_115115/
+```
+
+**Notes:**
+- `--results-dir` and `--run-id` are mutually exclusive
+- If multiple models exist for a run-id, use `--model` to specify which one
+- Run this AFTER completing training on all desired splits
 
 ### `ced eval-holdout`
 
@@ -367,13 +402,24 @@ bash scripts/post_training_pipeline.sh --run-id <RUN_ID>
 
 ### Ensemble Example
 ```bash
+# Train base models
 ced train --model LR_EN --split-seed 0
 ced train --model RF --split-seed 0
 ced train --model XGBoost --split-seed 0
-ced train-ensemble --base-models LR_EN,RF,XGBoost --split-seed 0
+
+# Train ensemble (auto-detects base models from run-id)
+ced train-ensemble --run-id 20260127_115115 --split-seed 0
+
+# Aggregate results
+ced aggregate-splits --run-id 20260127_115115 --model LR_EN
+ced aggregate-splits --run-id 20260127_115115 --model ENSEMBLE
+
+# Optimize panels
+ced optimize-panel --run-id 20260127_115115 --model LR_EN
+ced consensus-panel --run-id 20260127_115115
 ```
 
 ---
 
-**Last Updated:** 2026-01-25
-**Pipeline Version:** ced_ml v1.1.0
+**Last Updated:** 2026-01-28
+**Pipeline Version:** ced_ml v1.3.0 (complete `--run-id` auto-detection)

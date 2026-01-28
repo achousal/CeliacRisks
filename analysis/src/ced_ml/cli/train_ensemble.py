@@ -796,8 +796,6 @@ def run_train_ensemble(
                     oof_preds=oof_preds_ensemble,
                     out_dir=diag_plots_dir,
                     model_name="ENSEMBLE",
-                    scenario="ensemble",
-                    seed=split_seed,
                     plot_format=plot_format,
                     calib_bins=10,
                     meta_lines=oof_meta_lines,

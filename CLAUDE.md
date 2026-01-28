@@ -42,8 +42,8 @@ bash scripts/hpc_setup.sh
 ced --help
 ced save-splits --config configs/splits_config.yaml --infile ../data/input.parquet
 ced train --config configs/training_config.yaml --model LR_EN --infile ../data/input.parquet --split-seed 0
-ced train-ensemble --base-models LR_EN,RF,XGBoost --split-seed 0
-ced aggregate-splits --config configs/aggregate_config.yaml
+ced train-ensemble --run-id 20260127_115115 --split-seed 0
+ced aggregate-splits --run-id 20260127_115115 --model LR_EN
 ced optimize-panel --run-id 20260127_115115 --model LR_EN
 ced consensus-panel --run-id 20260127_115115
 ```
@@ -231,7 +231,14 @@ Output: `../results/{MODEL}/run_{RUN_ID}/aggregated/`
 
 **Local alternative** (manual aggregation):
 ```bash
+# NEW: Auto-detection with run-id (RECOMMENDED)
+ced aggregate-splits --run-id 20260127_115115 --model LR_EN
+
+# Legacy: Config-based (explicit path)
 ced aggregate-splits --config configs/aggregate_config.yaml
+
+# Alternative: Explicit path
+ced aggregate-splits --results-dir results/LR_EN/run_20260127_115115/
 ```
 
 ### 6. Visualize (Optional)
@@ -626,7 +633,12 @@ ls results/{MODEL}/run_{RUN_ID}/split_seed*/preds/train_oof/
 ## Recent Major Changes
 
 **2026-01-28:**
-1. **Ensemble Training Auto-Detection** - `ced train-ensemble` now supports `--run-id` for automatic base model discovery (no config coordination needed)
+1. **Complete `--run-id` Auto-Detection** - All CLI commands now support `--run-id` for zero-config path resolution:
+   - `ced train` creates `run_metadata.json` with paths and settings
+   - `ced aggregate-splits --run-id <RUN_ID> --model <MODEL>` auto-detects results directory
+   - `ced optimize-panel --run-id <RUN_ID>` auto-detects infile, split-dir, and results paths
+   - `ced consensus-panel --run-id <RUN_ID>` auto-detects all required paths
+   - `ced train-ensemble --run-id <RUN_ID>` auto-detects base models and paths
 2. **Post-Training Pipeline Auto-Detection** - `post_training_pipeline.sh` now auto-detects models and splits from run-id (no config coordination needed)
 3. **Conda Environment Support** - HPC post-training pipeline now supports both venv and conda environments
 
@@ -648,4 +660,4 @@ ls results/{MODEL}/run_{RUN_ID}/split_seed*/preds/train_oof/
 ---
 
 **Last Updated**: 2026-01-28
-**Status**: Fully integrated with panel optimization, cross-model consensus, and investigation framework for clinical deployment
+**Status**: Production-ready with complete `--run-id` auto-detection, panel optimization, cross-model consensus, and investigation framework for clinical deployment

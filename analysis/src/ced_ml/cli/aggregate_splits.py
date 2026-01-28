@@ -57,6 +57,94 @@ from ced_ml.utils.logging import log_section, setup_logger
 from ced_ml.utils.metadata import build_aggregated_metadata
 
 
+def resolve_results_dir_from_run_id(
+    run_id: str | None = None,
+    model: str | None = None,
+) -> str:
+    """Auto-detect results directory from run_id.
+
+    Args:
+        run_id: Run ID (e.g., "20260127_115115"). If None, auto-detects latest.
+        model: Model name (e.g., "LR_EN"). Required if run_id is provided.
+
+    Returns:
+        Path to results directory (e.g., "results/LR_EN/run_20260127_115115/")
+
+    Raises:
+        FileNotFoundError: If no matching results found
+        ValueError: If configuration is invalid
+    """
+    from pathlib import Path
+
+    # Determine results directory (project root / results)
+    results_dir = Path(__file__).parent.parent.parent.parent.parent / "results"
+
+    if not results_dir.exists():
+        raise FileNotFoundError(f"Results directory not found: {results_dir}")
+
+    # Auto-detect run_id if not provided
+    if not run_id:
+        run_ids = []
+        for model_dir in results_dir.glob("*/"):
+            if model_dir.name.startswith(".") or model_dir.name == "investigations":
+                continue
+            for run_dir in model_dir.glob("run_*"):
+                if run_dir.is_dir():
+                    rid = run_dir.name.replace("run_", "")
+                    run_ids.append(rid)
+
+        if not run_ids:
+            raise FileNotFoundError("No runs found in results directory")
+
+        # Sort by timestamp (format: YYYYMMDD_HHMMSS)
+        run_ids.sort(reverse=True)
+        run_id = run_ids[0]
+
+    # If model is specified, look for that specific model
+    if model:
+        model_path = results_dir / model / f"run_{run_id}"
+        if not model_path.exists():
+            raise FileNotFoundError(
+                f"Results directory not found for model {model}, run {run_id}.\n"
+                f"Expected: {model_path}"
+            )
+        return str(model_path)
+
+    # If model is not specified, find any model with this run_id
+    matching_models = []
+    for model_dir in sorted(results_dir.glob("*/")):
+        if model_dir.name.startswith(".") or model_dir.name == "investigations":
+            continue
+
+        run_path = model_dir / f"run_{run_id}"
+        if run_path.exists():
+            matching_models.append((model_dir.name, str(run_path)))
+
+    if not matching_models:
+        raise FileNotFoundError(
+            f"No models found for run {run_id}.\n"
+            f"Searched in: {results_dir}\n"
+            f"Tip: Specify --model to target a specific model."
+        )
+
+    if len(matching_models) > 1:
+        model_names = ", ".join([m[0] for m in matching_models])
+        raise ValueError(
+            f"Multiple models found for run {run_id}: {model_names}\n"
+            f"Please specify --model to choose one:\n"
+            + "\n".join(
+                [
+                    f"  ced aggregate-splits --run-id {run_id} --model {m[0]}"
+                    for m in matching_models
+                ]
+            )
+        )
+
+    # Single model found
+    model_name, model_path = matching_models[0]
+    return model_path
+
+
 def run_aggregate_splits_with_config(
     config_file: str | None = None,
     overrides: list[str] | None = None,

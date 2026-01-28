@@ -1284,6 +1284,21 @@ def run_train(
         json.dump(config_metadata, f, indent=2, sort_keys=True)
     logger.info(f"Config metadata saved: {config_metadata_path}")
 
+    # Save run_metadata.json (for CLI auto-detection)
+    run_metadata = {
+        "run_id": run_id,
+        "model": config.model,
+        "scenario": config.scenario,
+        "infile": str(config.infile),
+        "split_dir": str(config.split_dir),
+        "split_seed": seed,
+        "timestamp": datetime.now().isoformat(),
+    }
+    run_metadata_path = Path(outdirs.root) / "run_metadata.json"
+    with open(run_metadata_path, "w") as f:
+        json.dump(run_metadata, f, indent=2)
+    logger.info(f"Run metadata saved: {run_metadata_path}")
+
     # Save predictions
     test_probs_raw = final_pipeline.predict_proba(X_test)[:, 1]
     test_probs_adj = adjust_probabilities_for_prevalence(
