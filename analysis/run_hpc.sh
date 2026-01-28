@@ -90,10 +90,6 @@ SPLITS_DIR="${BASE_DIR}/${SPLITS_DIR}"
 RESULTS_DIR="${BASE_DIR}/${RESULTS_DIR}"
 LOGS_DIR="${BASE_DIR}/${LOGS_DIR}"
 
-# Create training logs subdirectory
-RUN_LOGS_DIR="${LOGS_DIR}/training/run_${RUN_ID}"
-mkdir -p "${RUN_LOGS_DIR}"
-
 # Read configs
 SPLITS_CONFIG=$(get_yaml "${PIPELINE_CONFIG}" "splits")
 TRAINING_CONFIG=$(get_yaml "${PIPELINE_CONFIG}" "training")
@@ -150,6 +146,10 @@ ENSEMBLE_BASE_MODELS=$(get_yaml_nested_list "${TRAINING_CONFIG}" "ensemble" "bas
 
 # Generate run ID (timestamp-based)
 RUN_ID=$(date +"%Y%m%d_%H%M%S")
+
+# Create training logs subdirectory
+RUN_LOGS_DIR="${LOGS_DIR}/training/run_${RUN_ID}"
+mkdir -p "${RUN_LOGS_DIR}"
 
 log "============================================"
 log "CeD-ML Pipeline (HPC, Config-Driven)"
