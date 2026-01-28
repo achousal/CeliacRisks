@@ -246,8 +246,20 @@ def train(ctx, config, **kwargs):
 @click.option(
     "--results-dir",
     type=click.Path(exists=True),
-    required=True,
-    help="Directory containing split_seedX subdirectories",
+    required=False,
+    help="Directory containing split_seedX subdirectories (mutually exclusive with --run-id)",
+)
+@click.option(
+    "--run-id",
+    type=str,
+    required=False,
+    help="Run ID for auto-detection (e.g., 20260127_115115, mutually exclusive with --results-dir)",
+)
+@click.option(
+    "--model",
+    type=str,
+    required=False,
+    help="Model name for --run-id mode (e.g., LR_EN). If not specified, uses all models for run.",
 )
 @click.option(
     "--stability-threshold",
@@ -290,15 +302,53 @@ def aggregate_splits(ctx, **kwargs):
           reports/              # Feature stability and consensus panels
           diagnostics/plots/    # Aggregated ROC, PR, calibration, DCA plots
 
+    Usage:
+        # Explicit path (original)
+        ced aggregate-splits --results-dir results/LR_EN/run_20260127_115115/
+
+        # Auto-detection (new)
+        ced aggregate-splits --run-id 20260127_115115 --model LR_EN
+        ced aggregate-splits --run-id 20260127_115115  # All models for run
+
     Example:
         ced aggregate-splits --results-dir results_local/
         ced aggregate-splits --results-dir results_local/ --stability-threshold 0.80
         ced aggregate-splits --results-dir results_local/ --plot-formats png --plot-formats pdf
+        ced aggregate-splits --run-id 20260127_115115 --model LR_EN
     """
-    from ced_ml.cli.aggregate_splits import run_aggregate_splits
+    from ced_ml.cli.aggregate_splits import resolve_results_dir_from_run_id, run_aggregate_splits
+
+    # Validate mutually exclusive options
+    results_dir = kwargs.get("results_dir")
+    run_id = kwargs.get("run_id")
+    model = kwargs.get("model")
+
+    if not results_dir and not run_id:
+        raise click.UsageError(
+            "Either --results-dir or --run-id must be provided.\n"
+            "Examples:\n"
+            "  ced aggregate-splits --results-dir results/LR_EN/run_20260127_115115/\n"
+            "  ced aggregate-splits --run-id 20260127_115115 --model LR_EN"
+        )
+
+    if results_dir and run_id:
+        raise click.UsageError(
+            "--results-dir and --run-id are mutually exclusive.\n"
+            "Use --results-dir for explicit path OR --run-id for auto-detection."
+        )
+
+    # Auto-detect results_dir from run_id
+    if run_id:
+        results_dir = resolve_results_dir_from_run_id(run_id=run_id, model=model)
+        kwargs["results_dir"] = results_dir
+        click.echo(f"Auto-detected results directory: {results_dir}")
 
     # Convert tuple to list for plot_formats
     kwargs["plot_formats"] = list(kwargs["plot_formats"]) if kwargs["plot_formats"] else ["png"]
+
+    # Remove run_id and model from kwargs (not needed by run_aggregate_splits)
+    kwargs.pop("run_id", None)
+    kwargs.pop("model", None)
 
     run_aggregate_splits(
         **kwargs, verbose=ctx.obj.get("verbose", 0), log_level=ctx.obj.get("log_level")
@@ -641,11 +691,19 @@ def optimize_panel(ctx, config, **kwargs):
         # model_dirs values are aggregated directories, go up one level for run_metadata.json
         metadata_file = first_model_dir.parent / "run_metadata.json"
 
+        # If not found at run level, search in split directories
+        if not metadata_file.exists():
+            run_dir = first_model_dir.parent
+            split_dirs = list(run_dir.glob("split_seed*"))
+            if split_dirs:
+                # Check for run_metadata.json in the first split directory
+                metadata_file = split_dirs[0] / "run_metadata.json"
+
         if not metadata_file.exists():
             # Fallback: require manual specification
             if not kwargs.get("infile") or not kwargs.get("split_dir"):
                 raise click.ClickException(
-                    f"Could not find run_metadata.json in {first_model_dir}. "
+                    f"Could not find run_metadata.json in {first_model_dir} or split directories. "
                     f"Please specify --infile and --split-dir manually."
                 )
             infile = kwargs["infile"]
@@ -656,7 +714,10 @@ def optimize_panel(ctx, config, **kwargs):
 
             # Use metadata values, but allow CLI overrides
             infile = kwargs.get("infile") or metadata.get("infile")
-            split_dir = kwargs.get("split_dir") or metadata.get("splits_dir")
+            # Handle both "split_dir" (per-split metadata) and "splits_dir" (run-level metadata)
+            split_dir = (
+                kwargs.get("split_dir") or metadata.get("split_dir") or metadata.get("splits_dir")
+            )
 
             if not infile or not split_dir:
                 raise click.ClickException(

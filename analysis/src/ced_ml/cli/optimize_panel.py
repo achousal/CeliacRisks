@@ -659,8 +659,16 @@ def run_optimize_panel_aggregated(
     logger.info(f"Loading aggregated stability panel from {stability_file}")
     stability_df = pd.read_csv(stability_file)
 
-    # Strip extra quotes from protein names (they may be triple-quoted in CSV)
-    stability_df["protein"] = stability_df["protein"].str.strip('"')
+    # DEBUG: Show raw protein names
+    if not stability_df.empty:
+        logger.info(f"Raw protein names (first 3): {stability_df['protein'].head(3).tolist()}")
+
+    # Strip extra quotes AND whitespace from protein names (legacy CSV compatibility)
+    stability_df["protein"] = stability_df["protein"].str.strip().str.strip('"').str.strip("'")
+
+    # DEBUG: Show after stripping
+    if not stability_df.empty:
+        logger.info(f"After strip (first 3): {stability_df['protein'].head(3).tolist()}")
 
     # Filter by stability threshold (column is 'selection_fraction', not 'selection_frequency')
     stable_proteins = stability_df[stability_df["selection_fraction"] >= stability_threshold][
@@ -722,6 +730,10 @@ def run_optimize_panel_aggregated(
 
     logger.info(f"Model metadata: {len(protein_cols)} total proteins, scenario={scenario}")
 
+    # DEBUG: Show sample protein columns from model
+    if protein_cols:
+        logger.info(f"Sample protein_cols from model (first 3): {protein_cols[:3]}")
+
     # Load data
     logger.info(f"Loading data from {infile}")
     df_raw = read_proteomics_file(infile, validate=True)
@@ -780,6 +792,49 @@ def run_optimize_panel_aggregated(
 
     # Filter stable proteins to those available in data
     initial_proteins = [p for p in stable_proteins if p in X_train.columns]
+
+    # Fallback: If no matches, try adding/removing _resid suffix (legacy data compatibility)
+    if len(initial_proteins) == 0:
+        logger.warning("No direct protein matches found - trying suffix variants...")
+        protein_cols_in_data = [c for c in X_train.columns if c.endswith("_resid")]
+
+        # Try matching with _resid suffix added
+        for p in stable_proteins:
+            if not p.endswith("_resid"):
+                p_with_suffix = f"{p}_resid"
+                if p_with_suffix in protein_cols_in_data:
+                    initial_proteins.append(p_with_suffix)
+
+        # Try matching with _resid suffix removed
+        if len(initial_proteins) == 0:
+            for p in stable_proteins:
+                if p.endswith("_resid"):
+                    p_without_suffix = p.replace("_resid", "")
+                    if p_without_suffix in X_train.columns:
+                        initial_proteins.append(p_without_suffix)
+
+        if len(initial_proteins) > 0:
+            logger.info(f"Suffix matching recovered {len(initial_proteins)} proteins")
+
+    # DEBUG: Print diagnostic info if filtering fails
+    if len(initial_proteins) < min_size:
+        logger.error("Protein name mismatch detected!")
+        logger.error(f"Sample stable_proteins (first 5): {stable_proteins[:5]}")
+
+        # Get protein columns from X_train
+        protein_cols_in_data = [c for c in X_train.columns if c.endswith("_resid")]
+        logger.error(f"Sample protein columns in data (first 5): {protein_cols_in_data[:5]}")
+        logger.error(f"Total protein columns in X_train: {len(protein_cols_in_data)}")
+
+        # Check if any stable protein is a substring match
+        sample_stable = stable_proteins[0] if stable_proteins else "N/A"
+        sample_data_col = protein_cols_in_data[0] if protein_cols_in_data else "N/A"
+        logger.error(
+            f"First stable protein: repr={repr(sample_stable)}, len={len(sample_stable) if stable_proteins else 0}"
+        )
+        logger.error(
+            f"First data column: repr={repr(sample_data_col)}, len={len(sample_data_col) if protein_cols_in_data else 0}"
+        )
 
     if len(initial_proteins) < min_size:
         raise ValueError(
