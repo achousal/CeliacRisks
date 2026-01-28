@@ -99,7 +99,7 @@ calibration:
 
 ## Example Results: Celiac Disease
 
-**Dataset:** 43,960 subjects, 148 incident cases, 2,920 proteins
+**Dataset:** 43,960 subjects (148 incident cases, 150 prevalent cases), 2,920 proteins, plus demographics (age, BMI, sex, genetic ancestry)
 
 **Top Features:** TGM2, CXCL9, ITGB7, MUC2 (known CeD biomarkers)
 
