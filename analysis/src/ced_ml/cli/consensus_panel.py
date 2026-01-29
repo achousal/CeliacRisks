@@ -202,6 +202,10 @@ def auto_detect_data_paths(
     Returns:
         Tuple of (infile, split_dir) or (None, None) if not found.
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     # Find any model's run_metadata.json (at run level, not split level)
     for model_dir in results_root.glob("*/"):
         if model_dir.name.startswith(".") or model_dir.name in ("investigations", "ENSEMBLE"):
@@ -213,19 +217,26 @@ def auto_detect_data_paths(
 
         # Look for run_metadata.json at the run level
         metadata_file = run_dir / "run_metadata.json"
+        logger.debug(f"Checking for metadata: {metadata_file}")
+
         if metadata_file.exists():
+            logger.debug(f"Found metadata file: {metadata_file}")
             try:
                 with open(metadata_file) as f:
                     metadata = json.load(f)
 
                 infile = metadata.get("infile")
-                split_dir_path = metadata.get("splits_dir")
+                split_dir_path = metadata.get("split_dir")  # Fixed: was "splits_dir"
+
+                logger.debug(f"Metadata infile: {infile}, split_dir: {split_dir_path}")
 
                 if infile and split_dir_path:
                     return infile, split_dir_path
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Error reading metadata: {e}")
                 continue
 
+    logger.debug("No run_metadata.json found, returning None")
     return None, None
 
 
@@ -330,10 +341,18 @@ def run_consensus_panel(
             split_dir = auto_split_dir
 
     if not infile:
-        raise ValueError("Could not auto-detect input file. Please provide --infile explicitly.")
+        raise ValueError(
+            f"Could not auto-detect input file for run_id={run_id}.\n"
+            f"Searched in: {results_root}\n"
+            f"Found models: {list(model_dirs.keys())}\n"
+            f"Please provide --infile explicitly."
+        )
     if not split_dir:
         raise ValueError(
-            "Could not auto-detect split directory. Please provide --split-dir explicitly."
+            f"Could not auto-detect split directory for run_id={run_id}.\n"
+            f"Searched in: {results_root}\n"
+            f"Found models: {list(model_dirs.keys())}\n"
+            f"Please provide --split-dir explicitly."
         )
 
     logger.info(f"Input file: {infile}")
