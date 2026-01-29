@@ -451,10 +451,10 @@ if [ "$SKIP_TRAINING" = false ]; then
             CONFIG_SPLITS_DIR="$SPLITS_BASE_DIR/${pf}_${ccr}"
 
             for seed in "${SPLIT_SEEDS[@]}"; do
-                SPLIT_FILE="$CONFIG_SPLITS_DIR/splits_${seed}.pkl"
-
-                if [ ! -f "$SPLIT_FILE" ]; then
-                    print_error "Split file not found: $SPLIT_FILE"
+                # Check if split files exist (CSV format)
+                TRAIN_IDX_FILE="$CONFIG_SPLITS_DIR/train_idx_IncidentPlusPrevalent_seed${seed}.csv"
+                if [ ! -f "$TRAIN_IDX_FILE" ]; then
+                    print_error "Split files not found for seed $seed in: $CONFIG_SPLITS_DIR"
                     TRAINING_FAILURES=$((TRAINING_FAILURES + 1))
                     continue
                 fi
@@ -475,7 +475,8 @@ if [ "$SKIP_TRAINING" = false ]; then
                             --config "$FROZEN_CONFIG" \
                             --model "$model" \
                             --infile "$DATA_FILE" \
-                            --split-file "$SPLIT_FILE" \
+                            --split-dir "$CONFIG_SPLITS_DIR" \
+                            --split-seed "$seed" \
                             --outdir "$RESULTS_SUBDIR" \
                             --fixed-panel docs/investigations/top100_panel.csv \
                             --metadata experiment_id="$EXPERIMENT_ID" \
