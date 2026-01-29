@@ -115,7 +115,7 @@ def generate_aggregated_plots(
             logger.info(f"Generating plots for model: {model_name}")
 
         # Create output directories (model name not needed since parent folder already specifies it)
-        model_plots_dir = out_dir / "diagnostics" / "plots"
+        model_plots_dir = out_dir / "plots"
         model_plots_dir.mkdir(parents=True, exist_ok=True)
 
         # Filter data for this model
@@ -389,11 +389,11 @@ def generate_model_comparison_report(
     if "test_AUROC" in df.columns:
         df = df.sort_values("test_AUROC", ascending=False)
 
-    # Save to reports directory
-    reports_dir = out_dir / "reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
+    # Save to metrics directory
+    comparison_dir = out_dir / "metrics"
+    comparison_dir.mkdir(parents=True, exist_ok=True)
 
-    report_path = reports_dir / "model_comparison.csv"
+    report_path = comparison_dir / "model_comparison.csv"
     df.to_csv(report_path, index=False)
 
     if logger:

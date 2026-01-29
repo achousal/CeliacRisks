@@ -334,13 +334,28 @@ ced optimize-panel \
 
 ```
 results/{MODEL}/split_seed{N}/optimize_panel/
-├── panel_curve.png              # Pareto curve: AUROC vs panel size
-├── panel_curve.csv              # Panel size, AUROC, features per iteration
+├── panel_curve.png              # Pareto curve with 95% CI and statistical comparisons
+├── panel_curve.csv              # Panel size, AUROC (val + CV with SD), features
 ├── recommended_panels.json      # Knee points, min sizes for 95%/90%/85%
 ├── feature_ranking.csv          # Protein, elimination order
 ├── feature_ranking.png          # Importance visualization
 └── pareto_frontier.csv          # Non-dominated solutions
 ```
+
+**Key visualization: panel_curve.png** (enhanced in v1.3.0+)
+
+The Pareto curve plot includes confidence intervals and statistical comparisons:
+- **Shaded 95% CI region** around CV AUROC (bootstrap-based uncertainty quantification)
+- **Error bars** with 1 SD for each panel size evaluation point
+- **Statistical comparisons** between recommended panel sizes:
+  - Green "NS" = Not significantly different (overlapping CIs)
+  - Red "p<0.05" = Significantly different (non-overlapping CIs, Z-test)
+- **CI-annotated markers** on recommended sizes (e.g., "n=25, AUROC: 0.930 ± 0.035")
+
+This enables stakeholders to:
+1. **Quantify uncertainty**: Assess variability in AUROC estimates across CV folds
+2. **Compare statistically**: Determine if panel size reductions are significant
+3. **Make informed trade-offs**: Balance cost vs. performance with statistical rigor
 
 **Key file: recommended_panels.json**
 ```json

@@ -94,6 +94,10 @@ def run_save_splits(
                 # Skip overwrite and train_controls_incident_only - not part of SplitsConfig
                 if key in ("overwrite", "train_controls_incident_only"):
                     continue
+                # Map temporal_column CLI flag to temporal_col config field
+                if key == "temporal_column":
+                    all_overrides.append(f"temporal_col={value}")
+                    continue
                 all_overrides.append(f"{key}={value}")
 
         # Handle scenarios specially (convert tuple to comma-separated string for parsing)

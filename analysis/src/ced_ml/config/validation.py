@@ -217,18 +217,25 @@ def validate_config(config):
     errors = []
     warnings_list = []
 
-    try:
-        if isinstance(config, SplitsConfig):
-            # Use warn mode to capture issues
-            validate_splits_config(config, strictness="warn")
-        elif isinstance(config, TrainingConfig):
-            validate_training_config(config)
-        else:
-            errors.append(f"Unknown config type: {type(config)}")
-    except ConfigValidationError as e:
-        errors.append(str(e))
-    except ConfigValidationWarning as w:
-        warnings_list.append(str(w))
+    # Capture warnings emitted during validation
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always", ConfigValidationWarning)
+
+        try:
+            if isinstance(config, SplitsConfig):
+                # Use warn mode to capture issues
+                validate_splits_config(config, strictness="warn")
+            elif isinstance(config, TrainingConfig):
+                validate_training_config(config)
+            else:
+                errors.append(f"Unknown config type: {type(config)}")
+        except ConfigValidationError as e:
+            errors.append(str(e))
+
+    # Extract warning messages
+    for w in caught_warnings:
+        if issubclass(w.category, ConfigValidationWarning):
+            warnings_list.append(str(w.message))
 
     return errors, warnings_list
 

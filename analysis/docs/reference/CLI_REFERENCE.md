@@ -312,6 +312,41 @@ ced aggregate-splits --results-dir results/LR_EN/run_20260127_115115/
 **Outputs:**
 - Validation status or diff output
 
+### `ced convert-to-parquet`
+
+**Purpose:** Convert proteomics CSV files to Parquet format with compression.
+
+**Key Capabilities:**
+- Efficient binary storage with compression (snappy/gzip/brotli/zstd)
+- Faster I/O for large datasets
+- Type-safe column storage
+- Includes only modeling-relevant columns (matches training pipeline filter)
+
+**Required Inputs:**
+- CSV file path
+
+**Outputs:**
+- Parquet file (default: same name with .parquet extension)
+
+**Usage Examples:**
+```bash
+# Basic conversion (uses snappy compression by default)
+ced convert-to-parquet data/celiac_proteomics.csv
+
+# Custom output path and compression
+ced convert-to-parquet data/celiac_proteomics.csv \
+  -o data/celiac.parquet \
+  --compression gzip
+
+# Available compression algorithms: snappy, gzip, brotli, zstd, none
+ced convert-to-parquet data/celiac.csv --compression zstd
+```
+
+**When to use:**
+- Large CSV files (>100 MB) for faster loading
+- Repeated training runs (I/O speedup)
+- Storage optimization (compression reduces file size)
+
 ---
 
 ## Configuration System

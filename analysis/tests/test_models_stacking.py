@@ -603,7 +603,7 @@ def test_collect_oof_predictions_from_files():
 
         # Create mock directory structure and files
         for model in ["LR_EN", "RF"]:
-            model_dir = results_dir / model / "split_0" / "preds" / "train_oof"
+            model_dir = results_dir / model / "split_0" / "preds"
             model_dir.mkdir(parents=True)
 
             # Create mock OOF CSV
@@ -639,7 +639,7 @@ def test_collect_oof_predictions_index_length_mismatch():
         results_dir = Path(tmpdir)
 
         # Create LR_EN with 100 samples
-        lr_dir = results_dir / "LR_EN" / "split_0" / "preds" / "train_oof"
+        lr_dir = results_dir / "LR_EN" / "split_0" / "preds"
         lr_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -650,7 +650,7 @@ def test_collect_oof_predictions_index_length_mismatch():
         ).to_csv(lr_dir / "train_oof__LR_EN.csv", index=False)
 
         # Create RF with 80 samples (mismatch)
-        rf_dir = results_dir / "RF" / "split_0" / "preds" / "train_oof"
+        rf_dir = results_dir / "RF" / "split_0" / "preds"
         rf_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -675,7 +675,7 @@ def test_collect_oof_predictions_index_value_mismatch():
         results_dir = Path(tmpdir)
 
         # Create LR_EN with indices 0-99
-        lr_dir = results_dir / "LR_EN" / "split_0" / "preds" / "train_oof"
+        lr_dir = results_dir / "LR_EN" / "split_0" / "preds"
         lr_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -686,7 +686,7 @@ def test_collect_oof_predictions_index_value_mismatch():
         ).to_csv(lr_dir / "train_oof__LR_EN.csv", index=False)
 
         # Create RF with different indices (100-199 instead of 0-99)
-        rf_dir = results_dir / "RF" / "split_0" / "preds" / "train_oof"
+        rf_dir = results_dir / "RF" / "split_0" / "preds"
         rf_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -711,7 +711,7 @@ def test_collect_split_predictions_index_length_mismatch():
         results_dir = Path(tmpdir)
 
         # Create LR_EN with 50 test samples
-        lr_dir = results_dir / "LR_EN" / "split_0" / "preds" / "test_preds"
+        lr_dir = results_dir / "LR_EN" / "split_0" / "preds"
         lr_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -722,7 +722,7 @@ def test_collect_split_predictions_index_length_mismatch():
         ).to_csv(lr_dir / "test_preds__LR_EN.csv", index=False)
 
         # Create RF with 40 test samples (mismatch)
-        rf_dir = results_dir / "RF" / "split_0" / "preds" / "test_preds"
+        rf_dir = results_dir / "RF" / "split_0" / "preds"
         rf_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -748,7 +748,7 @@ def test_collect_split_predictions_index_value_mismatch():
         results_dir = Path(tmpdir)
 
         # Create LR_EN with indices 0-49
-        lr_dir = results_dir / "LR_EN" / "split_0" / "preds" / "test_preds"
+        lr_dir = results_dir / "LR_EN" / "split_0" / "preds"
         lr_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -759,7 +759,7 @@ def test_collect_split_predictions_index_value_mismatch():
         ).to_csv(lr_dir / "test_preds__LR_EN.csv", index=False)
 
         # Create RF with different indices
-        rf_dir = results_dir / "RF" / "split_0" / "preds" / "test_preds"
+        rf_dir = results_dir / "RF" / "split_0" / "preds"
         rf_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -785,7 +785,7 @@ def test_collect_split_predictions_val_index_mismatch():
         results_dir = Path(tmpdir)
 
         # Create LR_EN with indices 0-29
-        lr_dir = results_dir / "LR_EN" / "split_0" / "preds" / "val_preds"
+        lr_dir = results_dir / "LR_EN" / "split_0" / "preds"
         lr_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -796,7 +796,7 @@ def test_collect_split_predictions_val_index_mismatch():
         ).to_csv(lr_dir / "val_preds__LR_EN.csv", index=False)
 
         # Create RF with different indices
-        rf_dir = results_dir / "RF" / "split_0" / "preds" / "val_preds"
+        rf_dir = results_dir / "RF" / "split_0" / "preds"
         rf_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -825,7 +825,7 @@ def test_collect_oof_predictions_matching_indices_succeeds():
         shared_indices = np.arange(100)
 
         for model in ["LR_EN", "RF", "XGBoost"]:
-            model_dir = results_dir / model / "split_0" / "preds" / "train_oof"
+            model_dir = results_dir / model / "split_0" / "preds"
             model_dir.mkdir(parents=True)
             pd.DataFrame(
                 {
@@ -857,12 +857,12 @@ def test_ensemble_predictions_directory_structure():
         results_dir = Path(tmpdir) / "results"
         results_dir.mkdir(parents=True)
 
-        # Create mock base model results
+        # Create mock base model results (flat preds directory)
         for model in ["LR_EN", "RF"]:
-            model_dir = results_dir / model / "split_0" / "preds" / "train_oof"
-            model_dir.mkdir(parents=True)
+            preds_dir = results_dir / model / "split_0" / "preds"
+            preds_dir.mkdir(parents=True)
 
-            # Mock OOF predictions
+            # Mock OOF predictions (flat structure)
             oof_df = pd.DataFrame(
                 {
                     "idx": np.arange(100),
@@ -871,11 +871,9 @@ def test_ensemble_predictions_directory_structure():
                     "y_prob_repeat1": rng.uniform(0, 1, 100),
                 }
             )
-            oof_df.to_csv(model_dir / f"train_oof__{model}.csv", index=False)
+            oof_df.to_csv(preds_dir / f"train_oof__{model}.csv", index=False)
 
-            # Mock val predictions
-            val_dir = results_dir / model / "split_0" / "preds" / "val_preds"
-            val_dir.mkdir(parents=True)
+            # Mock val predictions (flat structure)
             val_df = pd.DataFrame(
                 {
                     "idx": np.arange(50),
@@ -883,11 +881,9 @@ def test_ensemble_predictions_directory_structure():
                     "y_prob": rng.uniform(0, 1, 50),
                 }
             )
-            val_df.to_csv(val_dir / f"val_preds__{model}.csv", index=False)
+            val_df.to_csv(preds_dir / f"val_preds__{model}.csv", index=False)
 
-            # Mock test predictions
-            test_dir = results_dir / model / "split_0" / "preds" / "test_preds"
-            test_dir.mkdir(parents=True)
+            # Mock test predictions (flat structure)
             test_df = pd.DataFrame(
                 {
                     "idx": np.arange(50, 100),
@@ -895,7 +891,7 @@ def test_ensemble_predictions_directory_structure():
                     "y_prob": rng.uniform(0, 1, 50),
                 }
             )
-            test_df.to_csv(test_dir / f"test_preds__{model}.csv", index=False)
+            test_df.to_csv(preds_dir / f"test_preds__{model}.csv", index=False)
 
         # Run ensemble training
         result = run_train_ensemble(
@@ -907,19 +903,19 @@ def test_ensemble_predictions_directory_structure():
 
         assert result is not None
 
-        # Check that ENSEMBLE predictions are in the correct subdirectories
+        # Check that ENSEMBLE predictions are in the flat preds directory
         ensemble_dir = results_dir / "ENSEMBLE" / "split_0"
 
-        # Val predictions should be in preds/val_preds/
-        val_preds_path = ensemble_dir / "preds" / "val_preds" / "val_preds__ENSEMBLE.csv"
+        # Val predictions should be in flat preds/ directory
+        val_preds_path = ensemble_dir / "preds" / "val_preds__ENSEMBLE.csv"
         assert val_preds_path.exists(), f"Val predictions not found at {val_preds_path}"
 
-        # Test predictions should be in preds/test_preds/
-        test_preds_path = ensemble_dir / "preds" / "test_preds" / "test_preds__ENSEMBLE.csv"
+        # Test predictions should be in flat preds/ directory
+        test_preds_path = ensemble_dir / "preds" / "test_preds__ENSEMBLE.csv"
         assert test_preds_path.exists(), f"Test predictions not found at {test_preds_path}"
 
-        # OOF predictions should be in preds/train_oof/
-        oof_preds_path = ensemble_dir / "preds" / "train_oof" / "train_oof__ENSEMBLE.csv"
+        # OOF predictions should be in flat preds/ directory
+        oof_preds_path = ensemble_dir / "preds" / "train_oof__ENSEMBLE.csv"
         assert oof_preds_path.exists(), f"OOF predictions not found at {oof_preds_path}"
 
         # Verify that predictions can be loaded and have correct structure
@@ -1022,15 +1018,15 @@ class TestEnsembleAggregationSupport:
             discover_ensemble_dirs,
         )
 
-        # Setup directory structure
+        # Setup directory structure (flat preds)
         ensemble_dir = tmp_path / "ENSEMBLE"
         ensemble_dir.mkdir()
         split_dir = ensemble_dir / "split_0"
         split_dir.mkdir()
-        preds_dir = split_dir / "preds" / "test_preds"
+        preds_dir = split_dir / "preds"
         preds_dir.mkdir(parents=True)
 
-        # Create test predictions
+        # Create test predictions (flat structure)
         pd.DataFrame(
             {
                 "idx": [0, 1, 2],
@@ -1062,7 +1058,7 @@ class TestEnsembleAggregationSupport:
         for seed in [0, 1]:
             split_dir = ensemble_dir / f"split_{seed}"
             split_dir.mkdir()
-            preds_dir = split_dir / "preds" / "test_preds"
+            preds_dir = split_dir / "preds"
             preds_dir.mkdir(parents=True)
 
             pd.DataFrame(
@@ -1149,7 +1145,7 @@ class TestEnsembleAggregationSupport:
         assert lr_row["is_ensemble"].iloc[0] == False  # noqa: E712
 
         # Check report was saved
-        report_path = tmp_path / "reports" / "model_comparison.csv"
+        report_path = tmp_path / "metrics" / "model_comparison.csv"
         assert report_path.exists()
 
     def test_generate_model_comparison_report_sorted_by_auroc(self, tmp_path):

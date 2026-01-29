@@ -149,6 +149,18 @@ def cli(ctx, verbose, log_level):
     help="Overwrite existing split files",
 )
 @click.option(
+    "--temporal-split",
+    is_flag=True,
+    default=None,
+    help="Enable temporal (chronological) validation splits",
+)
+@click.option(
+    "--temporal-column",
+    type=str,
+    default=None,
+    help="Column name for temporal ordering (e.g., 'CeD_date')",
+)
+@click.option(
     "--override",
     multiple=True,
     help="Override config values (format: key=value or nested.key=value)",
@@ -217,6 +229,12 @@ def save_splits(ctx, config, **kwargs):
     type=click.Path(exists=True),
     default=None,
     help="Path to CSV with fixed feature panel (bypasses feature selection)",
+)
+@click.option(
+    "--run-id",
+    type=str,
+    default=None,
+    help="Shared run ID (default: auto-generated timestamp). Use to group multiple splits/models under one run.",
 )
 @click.option(
     "--override",
@@ -300,7 +318,8 @@ def aggregate_splits(ctx, **kwargs):
           cv/                   # CV metrics summary
           preds/                # Pooled predictions
           reports/              # Feature stability and consensus panels
-          diagnostics/plots/    # Aggregated ROC, PR, calibration, DCA plots
+          plots/                # Aggregated ROC, PR, calibration, DCA plots
+          diagnostics/          # Diagnostic CSV files (calibration, DCA, screening, learning curves)
 
     Usage:
         # Explicit path (original)
@@ -339,9 +358,16 @@ def aggregate_splits(ctx, **kwargs):
 
     # Auto-detect results_dir from run_id
     if run_id:
-        results_dir = resolve_results_dir_from_run_id(run_id=run_id, model=model)
-        kwargs["results_dir"] = results_dir
-        click.echo(f"Auto-detected results directory: {results_dir}")
+        try:
+            results_dir = resolve_results_dir_from_run_id(run_id=run_id, model=model)
+            kwargs["results_dir"] = results_dir
+            click.echo(f"Auto-detected results directory: {results_dir}")
+        except FileNotFoundError as e:
+            click.echo(f"Error: {e}", err=True)
+            ctx.exit(1)
+        except ValueError as e:
+            click.echo(f"Error: {e}", err=True)
+            ctx.exit(1)
 
     # Convert tuple to list for plot_formats
     kwargs["plot_formats"] = list(kwargs["plot_formats"]) if kwargs["plot_formats"] else ["png"]
@@ -390,7 +416,7 @@ def eval_holdout(ctx, **kwargs):
     """Evaluate trained model on holdout set (run ONCE only)."""
     from ced_ml.cli.eval_holdout import run_eval_holdout
 
-    run_eval_holdout(**kwargs, verbose=ctx.obj.get("verbose", 0))
+    run_eval_holdout(**kwargs)
 
 
 @cli.command("train-ensemble")
@@ -459,7 +485,7 @@ def train_ensemble(ctx, config, base_models, **kwargs):
 
     Requirements:
         - Base models must be trained first using 'ced train'
-        - OOF predictions must exist in results_dir/{model}/split_{seed}/preds/train_oof/
+        - OOF predictions must exist in results_dir/{model}/split_{seed}/preds/
 
     Examples:
         # Auto-detect from run-id (simplest)
@@ -478,13 +504,20 @@ def train_ensemble(ctx, config, base_models, **kwargs):
     if base_models:
         base_model_list = [m.strip() for m in base_models.split(",")]
 
-    run_train_ensemble(
-        config_file=config,
-        base_models=base_model_list,
-        **kwargs,
-        verbose=ctx.obj.get("verbose", 0),
-        log_level=ctx.obj.get("log_level"),
-    )
+    try:
+        run_train_ensemble(
+            config_file=config,
+            base_models=base_model_list,
+            **kwargs,
+            verbose=ctx.obj.get("verbose", 0),
+            log_level=ctx.obj.get("log_level"),
+        )
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
 
 
 @cli.command("optimize-panel")
@@ -660,7 +693,15 @@ def optimize_panel(ctx, config, **kwargs):
     # Auto-discover models if using --run-id
     if kwargs.get("run_id"):
         run_id = kwargs["run_id"]
-        results_root = Path(__file__).parent.parent.parent.parent.parent / "results"
+
+        # Support CED_RESULTS_DIR environment variable for testing
+        import os
+
+        results_root_env = os.environ.get("CED_RESULTS_DIR")
+        if results_root_env:
+            results_root = Path(results_root_env)
+        else:
+            results_root = Path(__file__).parent.parent.parent.parent.parent / "results"
 
         click.echo(f"Auto-discovering models for run_id={run_id} in {results_root}")
 
@@ -694,7 +735,9 @@ def optimize_panel(ctx, config, **kwargs):
         # If not found at run level, search in split directories
         if not metadata_file.exists():
             run_dir = first_model_dir.parent
-            split_dirs = list(run_dir.glob("split_seed*"))
+            split_dirs = list(run_dir.glob("splits/split_seed*"))
+            if not split_dirs:
+                split_dirs = list(run_dir.glob("split_seed*"))
             if split_dirs:
                 # Check for run_metadata.json in the first split directory
                 metadata_file = split_dirs[0] / "run_metadata.json"

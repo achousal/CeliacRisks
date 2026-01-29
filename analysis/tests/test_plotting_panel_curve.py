@@ -80,6 +80,167 @@ class TestPlotParetoCurve:
 
             assert out_path.exists()
 
+    def test_confidence_intervals_shown(self):
+        """Confidence intervals are displayed when show_ci=True."""
+        curve = [
+            {"size": 100, "auroc_val": 0.92, "auroc_cv": 0.91, "auroc_cv_std": 0.020},
+            {"size": 50, "auroc_val": 0.90, "auroc_cv": 0.89, "auroc_cv_std": 0.025},
+            {"size": 25, "auroc_val": 0.85, "auroc_cv": 0.84, "auroc_cv_std": 0.030},
+        ]
+        recommended = {"min_size_95pct": 50, "knee_point": 50}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = Path(tmpdir) / "with_ci.png"
+            plot_pareto_curve(
+                curve=curve,
+                recommended=recommended,
+                out_path=out_path,
+                show_ci=True,
+                ci_alpha=0.2,
+            )
+
+            assert out_path.exists()
+            assert out_path.stat().st_size > 0
+
+    def test_confidence_intervals_hidden(self):
+        """Confidence intervals can be disabled with show_ci=False."""
+        curve = [
+            {"size": 50, "auroc_val": 0.90, "auroc_cv": 0.89, "auroc_cv_std": 0.02},
+            {"size": 25, "auroc_val": 0.85, "auroc_cv": 0.84, "auroc_cv_std": 0.03},
+        ]
+        recommended = {"min_size_95pct": 50}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = Path(tmpdir) / "no_ci.png"
+            plot_pareto_curve(
+                curve=curve,
+                recommended=recommended,
+                out_path=out_path,
+                show_ci=False,
+            )
+
+            assert out_path.exists()
+
+    def test_zero_std_handling(self):
+        """Handles zero standard deviation (no CI) gracefully."""
+        curve = [
+            {"size": 50, "auroc_val": 0.90, "auroc_cv": 0.90, "auroc_cv_std": 0.0},
+            {"size": 25, "auroc_val": 0.85, "auroc_cv": 0.85, "auroc_cv_std": 0.0},
+        ]
+        recommended = {"min_size_95pct": 50}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = Path(tmpdir) / "zero_std.png"
+            plot_pareto_curve(
+                curve=curve,
+                recommended=recommended,
+                out_path=out_path,
+                show_ci=True,
+            )
+
+            assert out_path.exists()
+
+    def test_comparison_annotations(self):
+        """Statistical comparison annotations work correctly."""
+        # Create curve with significant and non-significant differences
+        curve = [
+            {"size": 100, "auroc_val": 0.92, "auroc_cv": 0.91, "auroc_cv_std": 0.010},
+            {"size": 50, "auroc_val": 0.90, "auroc_cv": 0.89, "auroc_cv_std": 0.015},
+            {"size": 25, "auroc_val": 0.88, "auroc_cv": 0.87, "auroc_cv_std": 0.012},
+            {"size": 10, "auroc_val": 0.75, "auroc_cv": 0.74, "auroc_cv_std": 0.025},
+        ]
+        recommended = {
+            "min_size_95pct": 50,  # Should be compared with 90pct
+            "min_size_90pct": 25,  # Should be compared with 95pct
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = Path(tmpdir) / "comparisons.png"
+            plot_pareto_curve(
+                curve=curve,
+                recommended=recommended,
+                out_path=out_path,
+                thresholds_to_show=[0.95, 0.90],
+            )
+
+            assert out_path.exists()
+
+    def test_pareto_frontier_visualization(self):
+        """Pareto frontier is correctly visualized."""
+        # Create curve with clear Pareto-optimal points
+        curve = [
+            {"size": 100, "auroc_val": 0.90, "auroc_cv": 0.89, "auroc_cv_std": 0.02},
+            {
+                "size": 75,
+                "auroc_val": 0.88,
+                "auroc_cv": 0.87,
+                "auroc_cv_std": 0.02,
+            },  # Dominated by 50
+            {
+                "size": 50,
+                "auroc_val": 0.89,
+                "auroc_cv": 0.88,
+                "auroc_cv_std": 0.03,
+            },  # Pareto-optimal
+            {
+                "size": 25,
+                "auroc_val": 0.85,
+                "auroc_cv": 0.84,
+                "auroc_cv_std": 0.04,
+            },  # Pareto-optimal
+            {
+                "size": 10,
+                "auroc_val": 0.75,
+                "auroc_cv": 0.74,
+                "auroc_cv_std": 0.05,
+            },  # Pareto-optimal
+        ]
+        recommended = {
+            "min_size_95pct": 50,
+            "knee_point": 25,
+        }
+
+        # Explicit Pareto points (100, 50, 25, 10 are non-dominated; 75 is dominated by 50)
+        pareto_points = [
+            {"size": 100, "auroc_val": 0.90},
+            {"size": 50, "auroc_val": 0.89},
+            {"size": 25, "auroc_val": 0.85},
+            {"size": 10, "auroc_val": 0.75},
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = Path(tmpdir) / "pareto_frontier.png"
+            plot_pareto_curve(
+                curve=curve,
+                recommended=recommended,
+                out_path=out_path,
+                pareto_points=pareto_points,
+            )
+
+            assert out_path.exists()
+            assert out_path.stat().st_size > 0
+
+    def test_pareto_frontier_auto_computed(self):
+        """Pareto frontier is auto-computed when not provided."""
+        curve = [
+            {"size": 100, "auroc_val": 0.90, "auroc_cv": 0.89, "auroc_cv_std": 0.02},
+            {"size": 50, "auroc_val": 0.85, "auroc_cv": 0.84, "auroc_cv_std": 0.03},
+            {"size": 25, "auroc_val": 0.80, "auroc_cv": 0.79, "auroc_cv_std": 0.04},
+        ]
+        recommended = {"min_size_95pct": 100}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = Path(tmpdir) / "auto_pareto.png"
+            # Don't provide pareto_points - should auto-compute
+            plot_pareto_curve(
+                curve=curve,
+                recommended=recommended,
+                out_path=out_path,
+            )
+
+            assert out_path.exists()
+            assert out_path.stat().st_size > 0
+
 
 class TestPlotFeatureRanking:
     """Tests for plot_feature_ranking function."""

@@ -43,6 +43,7 @@ from ced_ml.metrics.dca import save_dca_results, threshold_dca_zero_crossing
 # Feature selection modules
 # Metrics modules
 from ced_ml.metrics.discrimination import (
+    compute_brier_score,
     compute_discrimination_metrics,
 )
 from ced_ml.metrics.thresholds import (
@@ -51,7 +52,11 @@ from ced_ml.metrics.thresholds import (
     compute_multi_target_specificity_metrics,
     compute_threshold_bundle,
 )
-from ced_ml.models.calibration import OOFCalibratedModel
+from ced_ml.models.calibration import (
+    OOFCalibratedModel,
+    calibration_intercept_slope,
+    expected_calibration_error,
+)
 from ced_ml.models.prevalence import adjust_probabilities_for_prevalence
 
 # Model modules
@@ -406,6 +411,20 @@ def evaluate_on_split(
     )
 
     metrics = compute_discrimination_metrics(y, y_probs_adj)
+
+    # Add calibration metrics
+    brier = compute_brier_score(y, y_probs_adj)
+    cal_intercept, cal_slope = calibration_intercept_slope(y, y_probs_adj)
+    ece = expected_calibration_error(y, y_probs_adj)
+
+    metrics.update(
+        {
+            "Brier": brier,
+            "calibration_intercept": cal_intercept,
+            "calibration_slope": cal_slope,
+            "ECE": ece,
+        }
+    )
 
     # Use precomputed threshold if provided (e.g., from validation set)
     # Otherwise compute threshold on this split
@@ -869,31 +888,39 @@ def run_train(
     # Step 11: Evaluate on validation set (threshold selection)
     log_section(logger, "Validation Set Evaluation")
 
-    # Determine target prevalence for validation based on config
-    if config.thresholds.target_prevalence_source == "fixed":
-        val_target_prev = config.thresholds.target_prevalence_fixed
-    elif config.thresholds.target_prevalence_source == "train":
-        val_target_prev = train_prev
-    elif config.thresholds.target_prevalence_source == "val":
-        val_target_prev = float(np.asarray(y_val).mean())
-    elif config.thresholds.target_prevalence_source == "test":
-        # Using test prevalence for val is unusual but supported
-        val_target_prev = float(np.asarray(y_test).mean())
+    # Check if validation set exists
+    if len(val_idx) == 0:
+        logger.warning("No validation set available (val_size=0). Skipping validation evaluation.")
+        logger.warning("Threshold will be computed on test set (not recommended for production).")
+        val_metrics = None
+        val_threshold = None
+        val_target_prev = train_prev  # Default for metadata logging
     else:
-        val_target_prev = train_prev
+        # Determine target prevalence for validation based on config
+        if config.thresholds.target_prevalence_source == "fixed":
+            val_target_prev = config.thresholds.target_prevalence_fixed
+        elif config.thresholds.target_prevalence_source == "train":
+            val_target_prev = train_prev
+        elif config.thresholds.target_prevalence_source == "val":
+            val_target_prev = float(np.asarray(y_val).mean())
+        elif config.thresholds.target_prevalence_source == "test":
+            # Using test prevalence for val is unusual but supported
+            val_target_prev = float(np.asarray(y_test).mean())
+        else:
+            val_target_prev = train_prev
 
-    val_metrics = evaluate_on_split(
-        final_pipeline, X_val, y_val, train_prev, val_target_prev, config
-    )
+        val_metrics = evaluate_on_split(
+            final_pipeline, X_val, y_val, train_prev, val_target_prev, config
+        )
 
-    logger.info(f"Val AUROC: {val_metrics['AUROC']:.3f}")
-    logger.info(f"Val PRAUC: {val_metrics['PR_AUC']:.3f}")
-    logger.info(f"Selected threshold: {val_metrics['threshold']:.3f}")
-    if final_selected_proteins:
-        logger.info(f"Val evaluation using {len(final_selected_proteins)} selected proteins")
+        logger.info(f"Val AUROC: {val_metrics['AUROC']:.3f}")
+        logger.info(f"Val PRAUC: {val_metrics['PR_AUC']:.3f}")
+        logger.info(f"Selected threshold: {val_metrics['threshold']:.3f}")
+        if final_selected_proteins:
+            logger.info(f"Val evaluation using {len(final_selected_proteins)} selected proteins")
 
-    # Store validation threshold for reuse on test set (prevents leakage)
-    val_threshold = val_metrics["threshold"]
+        # Store validation threshold for reuse on test set (prevents leakage)
+        val_threshold = val_metrics["threshold"]
 
     # Step 12: Evaluate on test set
     log_section(logger, "Test Set Evaluation")
@@ -911,6 +938,7 @@ def run_train(
         test_target_prev = train_prev
 
     # Reuse validation threshold on test set (standard practice, prevents leakage)
+    # If no validation threshold (val_size=0), compute threshold on test set
     test_metrics = evaluate_on_split(
         final_pipeline,
         X_test,
@@ -923,7 +951,10 @@ def run_train(
 
     logger.info(f"Test AUROC: {test_metrics['AUROC']:.3f}")
     logger.info(f"Test PRAUC: {test_metrics['PR_AUC']:.3f}")
-    logger.info(f"Test threshold (from val): {test_metrics['threshold']:.3f}")
+    if val_threshold is not None:
+        logger.info(f"Test threshold (from val): {test_metrics['threshold']:.3f}")
+    else:
+        logger.info(f"Test threshold (computed on test): {test_metrics['threshold']:.3f}")
     if final_selected_proteins:
         logger.info(f"Test evaluation using {len(final_selected_proteins)} selected proteins")
 
@@ -999,7 +1030,8 @@ def run_train(
     logger.info(f"Model bundle saved: {model_path}")
 
     # Save metrics (using ResultsWriter with append mode)
-    writer.save_val_metrics(val_metrics, config.scenario, config.model)
+    if val_metrics is not None:
+        writer.save_val_metrics(val_metrics, config.scenario, config.model)
     writer.save_test_metrics(test_metrics, config.scenario, config.model)
 
     # Save CV artifacts
@@ -1285,6 +1317,10 @@ def run_train(
     logger.info(f"Config metadata saved: {config_metadata_path}")
 
     # Save run_metadata.json (for CLI auto-detection)
+    # Save at run level (not split level) for consistent discovery across splits
+    # With new structure: root = .../run_{id}/splits/split_seed{N}/
+    # Go up 2 levels (past splits/) to reach run-level dir
+    run_level_dir = Path(outdirs.root).parent.parent if seed is not None else Path(outdirs.root)
     run_metadata = {
         "run_id": run_id,
         "model": config.model,
@@ -1294,7 +1330,8 @@ def run_train(
         "split_seed": seed,
         "timestamp": datetime.now().isoformat(),
     }
-    run_metadata_path = Path(outdirs.root) / "run_metadata.json"
+    run_metadata_path = run_level_dir / "run_metadata.json"
+    run_metadata_path.parent.mkdir(parents=True, exist_ok=True)
     with open(run_metadata_path, "w") as f:
         json.dump(run_metadata, f, indent=2)
     logger.info(f"Run metadata saved: {run_metadata_path}")
@@ -1327,32 +1364,39 @@ def run_train(
     test_preds_df.to_csv(test_preds_path, index=False)
     logger.info(f"Test predictions saved: {test_preds_path}")
 
-    val_probs_raw = final_pipeline.predict_proba(X_val)[:, 1]
-    val_probs_adj = adjust_probabilities_for_prevalence(
-        val_probs_raw, sample_prev=train_prev, target_prev=val_target_prev
-    )
-    val_preds_df = pd.DataFrame(
-        {
-            "idx": val_idx,
-            "y_true": y_val,
-            "y_prob": val_probs_raw,
-            "y_prob_adjusted": val_probs_adj,
-            "category": cat_val,
-        }
-    )
-    # H4: Validate val predictions (NaN, Inf, bounds)
-    val_probs = val_preds_df["y_prob"].values
-    if np.isnan(val_probs).any():
-        raise ValueError("Val predictions contain NaN values")
-    if np.isinf(val_probs).any():
-        raise ValueError("Val predictions contain Inf values")
-    if (val_probs < 0).any() or (val_probs > 1).any():
-        raise ValueError(
-            f"Val predictions out of [0,1] bounds: min={val_probs.min():.4f}, max={val_probs.max():.4f}"
+    # Only generate validation predictions if validation set exists
+    if len(val_idx) > 0:
+        val_probs_raw = final_pipeline.predict_proba(X_val)[:, 1]
+        val_probs_adj = adjust_probabilities_for_prevalence(
+            val_probs_raw, sample_prev=train_prev, target_prev=val_target_prev
         )
-    val_preds_path = Path(outdirs.preds_val) / f"val_preds__{config.model}.csv"
-    val_preds_df.to_csv(val_preds_path, index=False)
-    logger.info(f"Val predictions saved: {val_preds_path}")
+        val_preds_df = pd.DataFrame(
+            {
+                "idx": val_idx,
+                "y_true": y_val,
+                "y_prob": val_probs_raw,
+                "y_prob_adjusted": val_probs_adj,
+                "category": cat_val,
+            }
+        )
+        # H4: Validate val predictions (NaN, Inf, bounds)
+        val_probs = val_preds_df["y_prob"].values
+        if np.isnan(val_probs).any():
+            raise ValueError("Val predictions contain NaN values")
+        if np.isinf(val_probs).any():
+            raise ValueError("Val predictions contain Inf values")
+        if (val_probs < 0).any() or (val_probs > 1).any():
+            raise ValueError(
+                f"Val predictions out of [0,1] bounds: min={val_probs.min():.4f}, max={val_probs.max():.4f}"
+            )
+        val_preds_path = Path(outdirs.preds_val) / f"val_preds__{config.model}.csv"
+        val_preds_df.to_csv(val_preds_path, index=False)
+        logger.info(f"Val predictions saved: {val_preds_path}")
+    else:
+        logger.warning("Skipping validation predictions (no validation set)")
+        val_preds_df = pd.DataFrame(
+            columns=["idx", "y_true", "y_prob", "y_prob_adjusted", "category"]
+        )
 
     # Save OOF predictions
     oof_preds_df = pd.DataFrame(
@@ -1398,7 +1442,7 @@ def run_train(
     # Step 15: Generate plots (if enabled)
     if config.output.save_plots:
         log_section(logger, "Generating Plots")
-        plots_dir = Path(outdirs.diag_plots)
+        plots_dir = Path(outdirs.plots)
         plots_dir.mkdir(parents=True, exist_ok=True)
 
         # Extract category breakdowns from splits
@@ -1445,50 +1489,58 @@ def run_train(
             prevalence_adjusted=True,
         )
 
-        # Validation set plots
-        val_y_prob = val_preds_df["y_prob"].values
-        val_title = f"{config.model} - Validation Set"
+        # Validation set plots (only if validation set exists)
+        if len(val_idx) > 0:
+            val_y_prob = val_preds_df["y_prob"].values
+            val_title = f"{config.model} - Validation Set"
 
-        # Compute validation threshold bundle (standardized interface)
-        val_dca_thr = threshold_dca_zero_crossing(y_val, val_y_prob)
-        val_bundle = compute_threshold_bundle(
-            y_val, val_y_prob, target_spec=config.thresholds.fixed_spec, dca_threshold=val_dca_thr
-        )
-
-        if config.output.plot_roc:
-            plot_roc_curve(
-                y_true=y_val,
-                y_pred=val_y_prob,
-                out_path=plots_dir / f"{config.model}__val_roc.{config.output.plot_format}",
-                title=val_title,
-                subtitle="ROC Curve",
-                meta_lines=meta_lines,
-                threshold_bundle=val_bundle,
+            # Compute validation threshold bundle (standardized interface)
+            val_dca_thr = threshold_dca_zero_crossing(y_val, val_y_prob)
+            val_bundle = compute_threshold_bundle(
+                y_val,
+                val_y_prob,
+                target_spec=config.thresholds.fixed_spec,
+                dca_threshold=val_dca_thr,
             )
-            logger.info("Val ROC curve saved")
 
-        if config.output.plot_pr:
-            plot_pr_curve(
-                y_true=y_val,
-                y_pred=val_y_prob,
-                out_path=plots_dir / f"{config.model}__val_pr.{config.output.plot_format}",
-                title=val_title,
-                subtitle="Precision-Recall Curve",
-                meta_lines=meta_lines,
-            )
-            logger.info("Val PR curve saved")
+            if config.output.plot_roc:
+                plot_roc_curve(
+                    y_true=y_val,
+                    y_pred=val_y_prob,
+                    out_path=plots_dir / f"{config.model}__val_roc.{config.output.plot_format}",
+                    title=val_title,
+                    subtitle="ROC Curve",
+                    meta_lines=meta_lines,
+                    threshold_bundle=val_bundle,
+                )
+                logger.info("Val ROC curve saved")
 
-        if config.output.plot_calibration:
-            plot_calibration_curve(
-                y_true=y_val,
-                y_pred=val_y_prob,
-                out_path=plots_dir / f"{config.model}__val_calibration.{config.output.plot_format}",
-                title=val_title,
-                subtitle="Calibration",
-                n_bins=config.output.calib_bins,
-                meta_lines=meta_lines,
-            )
-            logger.info("Val calibration plot saved")
+            if config.output.plot_pr:
+                plot_pr_curve(
+                    y_true=y_val,
+                    y_pred=val_y_prob,
+                    out_path=plots_dir / f"{config.model}__val_pr.{config.output.plot_format}",
+                    title=val_title,
+                    subtitle="Precision-Recall Curve",
+                    meta_lines=meta_lines,
+                )
+                logger.info("Val PR curve saved")
+
+            if config.output.plot_calibration:
+                plot_calibration_curve(
+                    y_true=y_val,
+                    y_pred=val_y_prob,
+                    out_path=plots_dir
+                    / f"{config.model}__val_calibration.{config.output.plot_format}",
+                    title=val_title,
+                    subtitle="Calibration",
+                    n_bins=config.output.calib_bins,
+                    meta_lines=meta_lines,
+                )
+                logger.info("Val calibration plot saved")
+        else:
+            logger.info("Skipping validation plots (no validation set)")
+            val_bundle = None
 
         # Test set plots
         test_y_prob = test_preds_df["y_prob"].values
@@ -1555,8 +1607,8 @@ def run_train(
             )
             logger.info("Test DCA plot saved")
 
-        # DCA plots for validation set
-        if config.output.plot_dca:
+        # DCA plots for validation set (only if validation set exists)
+        if config.output.plot_dca and len(val_idx) > 0:
             plot_dca_curve(
                 y_true=y_val,
                 y_pred=val_preds_df["y_prob"].values,
@@ -1612,8 +1664,8 @@ def run_train(
             )
             logger.info("Test risk distribution plot saved")
 
-        # Val set risk distribution (use VAL bundle)
-        if config.output.plot_risk_distribution:
+        # Val set risk distribution (use VAL bundle) - only if validation set exists
+        if config.output.plot_risk_distribution and len(val_idx) > 0:
             plot_risk_distribution(
                 y_true=y_val,
                 scores=val_preds_df["y_prob"].values,
@@ -1711,17 +1763,18 @@ def run_train(
         )
         logger.info(f"DCA results saved: {dca_summary.get('dca_csv_path', 'N/A')}")
 
-        # Also compute DCA for validation set
-        dca_summary_val = save_dca_results(
-            y_true=y_val,
-            y_pred_prob=val_preds_df["y_prob"].values,
-            out_dir=str(outdirs.diag_dca),
-            prefix=f"{config.model}__val__",
-            thresholds=None,
-            report_points=None,
-            prevalence_adjustment=target_prev,
-        )
-        logger.info(f"DCA (val) results saved: {dca_summary_val.get('dca_csv_path', 'N/A')}")
+        # Also compute DCA for validation set (only if validation set exists)
+        if len(val_idx) > 0:
+            dca_summary_val = save_dca_results(
+                y_true=y_val,
+                y_pred_prob=val_preds_df["y_prob"].values,
+                out_dir=str(outdirs.diag_dca),
+                prefix=f"{config.model}__val__",
+                thresholds=None,
+                report_points=None,
+                prevalence_adjustment=target_prev,
+            )
+            logger.info(f"DCA (val) results saved: {dca_summary_val.get('dca_csv_path', 'N/A')}")
     except Exception as e:
         logger.warning(f"Failed to save DCA results: {e}")
 
@@ -1730,11 +1783,10 @@ def run_train(
         lc_enabled = getattr(config.evaluation, "learning_curve", False)
         plot_lc = getattr(config.output, "plot_learning_curve", True)
         if lc_enabled and plot_lc:
-            # CSV goes to diagnostics/learning_curves/, plots go to diagnostics/plots/
+            # CSV goes to diagnostics/, plots go to plots/
             lc_csv_path = Path(outdirs.diag_learning) / f"{config.model}__learning_curve.csv"
             lc_plot_path = (
-                Path(outdirs.diag_plots)
-                / f"{config.model}__learning_curve.{config.output.plot_format}"
+                Path(outdirs.plots) / f"{config.model}__learning_curve.{config.output.plot_format}"
             )
             lc_meta = build_plot_metadata(
                 model=config.model,

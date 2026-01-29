@@ -25,27 +25,32 @@ def setup_aggregation_directories(results_path: Path) -> dict[str, Path]:
     """
     Create output directory structure for aggregation results.
 
+    Uses the new AggregatedOutputDirectories structure:
+    - aggregated/metrics/ (CSVs, JSONs)
+    - aggregated/panels/ (consensus panels, feature stability)
+    - aggregated/plots/ (all visualizations)
+
     Args:
-        results_path: Root results directory
+        results_path: Root results directory (e.g., results/{model}/run_{id}/)
 
     Returns:
         Dictionary mapping directory names to Path objects
     """
-    agg_dir = results_path / "aggregated"
-    agg_dir.mkdir(parents=True, exist_ok=True)
+    from ced_ml.evaluation.reports import AggregatedOutputDirectories
 
-    dirs = {
-        "agg": agg_dir,
-        "core": agg_dir / "core",
-        "cv": agg_dir / "cv",
-        "preds": agg_dir / "preds",
-        "reports": agg_dir / "reports",
+    # Create aggregated output structure
+    agg_outdirs = AggregatedOutputDirectories.create(root=str(results_path), exist_ok=True)
+
+    # Return dict for backward compatibility with existing code
+    return {
+        "agg": Path(agg_outdirs.root),
+        "metrics": Path(agg_outdirs.metrics),
+        "panels": Path(agg_outdirs.panels),
+        "plots": Path(agg_outdirs.plots),
+        "cv": Path(agg_outdirs.cv),
+        "preds": Path(agg_outdirs.preds),
+        "diagnostics": Path(agg_outdirs.diagnostics),
     }
-
-    for dir_path in dirs.values():
-        dir_path.mkdir(parents=True, exist_ok=True)
-
-    return dirs
 
 
 def save_pooled_predictions(
@@ -67,17 +72,13 @@ def save_pooled_predictions(
         preds_dir: Directory to save predictions
         logger: Logger instance
     """
-    # Test predictions
+    # Test predictions (flattened to preds/)
     if not pooled_test_df.empty:
-        test_preds_dir = preds_dir / "test_preds"
-        test_preds_dir.mkdir(parents=True, exist_ok=True)
-        pooled_test_df.to_csv(test_preds_dir / "pooled_test_preds.csv", index=False)
+        pooled_test_df.to_csv(preds_dir / "pooled_test_preds.csv", index=False)
 
         if "model" in pooled_test_df.columns:
             for model_name, model_df in pooled_test_df.groupby("model"):
-                model_df.to_csv(
-                    test_preds_dir / f"pooled_test_preds__{model_name}.csv", index=False
-                )
+                model_df.to_csv(preds_dir / f"pooled_test_preds__{model_name}.csv", index=False)
 
         logger.info(
             f"Pooled test predictions: {len(pooled_test_df)} samples from "
@@ -85,15 +86,13 @@ def save_pooled_predictions(
             f"{pooled_test_df['model'].nunique() if 'model' in pooled_test_df.columns else 1} model(s)"
         )
 
-    # Validation predictions
+    # Validation predictions (flattened to preds/)
     if not pooled_val_df.empty:
-        val_preds_dir = preds_dir / "val_preds"
-        val_preds_dir.mkdir(parents=True, exist_ok=True)
-        pooled_val_df.to_csv(val_preds_dir / "pooled_val_preds.csv", index=False)
+        pooled_val_df.to_csv(preds_dir / "pooled_val_preds.csv", index=False)
 
         if "model" in pooled_val_df.columns:
             for model_name, model_df in pooled_val_df.groupby("model"):
-                model_df.to_csv(val_preds_dir / f"pooled_val_preds__{model_name}.csv", index=False)
+                model_df.to_csv(preds_dir / f"pooled_val_preds__{model_name}.csv", index=False)
 
         logger.info(
             f"Pooled val predictions: {len(pooled_val_df)} samples from "
@@ -101,21 +100,27 @@ def save_pooled_predictions(
             f"{pooled_val_df['model'].nunique() if 'model' in pooled_val_df.columns else 1} model(s)"
         )
 
-    # Train OOF predictions
+    # Train OOF predictions (flattened to preds/)
     if not pooled_train_oof_df.empty:
-        train_oof_dir = preds_dir / "train_oof"
-        train_oof_dir.mkdir(parents=True, exist_ok=True)
-
         # Compute mean across CV repeats for each split
+        # Only overwrite y_prob if it doesn't exist (ENSEMBLE models already have y_prob)
         repeat_cols = [c for c in pooled_train_oof_df.columns if c.startswith("y_prob_repeat")]
         if repeat_cols:
-            pooled_train_oof_df["y_prob"] = pooled_train_oof_df[repeat_cols].mean(axis=1)
+            # For rows with repeat columns, compute mean; for rows without (e.g., ENSEMBLE), preserve existing y_prob
+            if "y_prob" not in pooled_train_oof_df.columns:
+                pooled_train_oof_df["y_prob"] = pooled_train_oof_df[repeat_cols].mean(axis=1)
+            else:
+                # Compute mean only for rows where y_prob is NaN (base models)
+                mask = pooled_train_oof_df["y_prob"].isna()
+                pooled_train_oof_df.loc[mask, "y_prob"] = pooled_train_oof_df.loc[
+                    mask, repeat_cols
+                ].mean(axis=1)
 
-        pooled_train_oof_df.to_csv(train_oof_dir / "pooled_train_oof.csv", index=False)
+        pooled_train_oof_df.to_csv(preds_dir / "pooled_train_oof.csv", index=False)
 
         if "model" in pooled_train_oof_df.columns:
             for model_name, model_df in pooled_train_oof_df.groupby("model"):
-                model_df.to_csv(train_oof_dir / f"pooled_train_oof__{model_name}.csv", index=False)
+                model_df.to_csv(preds_dir / f"pooled_train_oof__{model_name}.csv", index=False)
 
         logger.info(
             f"Pooled train OOF predictions: {len(pooled_train_oof_df)} samples from "
@@ -129,7 +134,7 @@ def compute_and_save_pooled_metrics(
     pooled_val_df: pd.DataFrame,
     target_specificity: float,
     control_spec_targets: list[float],
-    core_dir: Path,
+    metrics_dir: Path,
     agg_dir: Path,
     logger: Logger,
 ) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, float]], dict[str, Any]]:
@@ -141,7 +146,7 @@ def compute_and_save_pooled_metrics(
         pooled_val_df: Pooled validation predictions
         target_specificity: Target specificity for threshold
         control_spec_targets: List of specificity targets for metrics
-        core_dir: Directory for core metrics
+        metrics_dir: Directory for aggregated metrics
         agg_dir: Aggregation root directory
         logger: Logger instance
 
@@ -185,7 +190,7 @@ def compute_and_save_pooled_metrics(
 
         if pooled_test_metrics:
             metrics_rows = list(pooled_test_metrics.values())
-            pd.DataFrame(metrics_rows).to_csv(core_dir / "pooled_test_metrics.csv", index=False)
+            pd.DataFrame(metrics_rows).to_csv(metrics_dir / "pooled_test_metrics.csv", index=False)
 
             for model_name, metrics in pooled_test_metrics.items():
                 logger.info(f"Pooled test [{model_name}] AUROC: {metrics.get('AUROC', 'N/A'):.4f}")
@@ -205,7 +210,7 @@ def compute_and_save_pooled_metrics(
                         )
                     ]
                 )
-                selection_df.to_csv(core_dir / "selection_scores.csv", index=False)
+                selection_df.to_csv(metrics_dir / "selection_scores.csv", index=False)
                 logger.info("Selection scores computed and saved")
                 for model_name, score in selection_scores.items():
                     logger.info(f"Selection score [{model_name}]: {score:.4f}")
@@ -236,7 +241,7 @@ def compute_and_save_pooled_metrics(
         )
         if pooled_val_metrics:
             metrics_rows = list(pooled_val_metrics.values())
-            pd.DataFrame(metrics_rows).to_csv(core_dir / "pooled_val_metrics.csv", index=False)
+            pd.DataFrame(metrics_rows).to_csv(metrics_dir / "pooled_val_metrics.csv", index=False)
             for model_name, metrics in pooled_val_metrics.items():
                 logger.info(f"Pooled val [{model_name}] AUROC: {metrics.get('AUROC', 'N/A'):.4f}")
 

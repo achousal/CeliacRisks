@@ -28,7 +28,7 @@ def generate_calibration_csv(
     try:
         from sklearn.calibration import calibration_curve
 
-        diag_calibration_dir = out_dir / "diagnostics" / "calibration"
+        diag_calibration_dir = out_dir / "diagnostics"
         diag_calibration_dir.mkdir(parents=True, exist_ok=True)
 
         calib_bins = 10  # Match train.py default
@@ -100,7 +100,7 @@ def generate_dca_csv(
     try:
         from ced_ml.metrics.dca import save_dca_results
 
-        diag_dca_dir = out_dir / "diagnostics" / "dca"
+        diag_dca_dir = out_dir / "diagnostics"
         diag_dca_dir.mkdir(parents=True, exist_ok=True)
 
         for split_name, df in [("test", pooled_test_df), ("val", pooled_val_df)]:
@@ -155,14 +155,14 @@ def aggregate_screening_results(
         logger: Optional logger instance
     """
     try:
-        diag_screening_dir = out_dir / "diagnostics" / "screening"
+        diag_screening_dir = out_dir / "diagnostics"
         diag_screening_dir.mkdir(parents=True, exist_ok=True)
 
         # Concat-as-you-go to avoid accumulating all DataFrames in memory (saves ~500MB)
         combined_screening = None
         for split_dir in split_dirs:
             seed = int(split_dir.name.replace("split_seed", ""))
-            screening_path = split_dir / "diagnostics" / "screening"
+            screening_path = split_dir / "diagnostics"
 
             if not screening_path.exists():
                 continue
@@ -231,10 +231,10 @@ def aggregate_learning_curves(
         logger: Optional logger instance
     """
     try:
-        # CSVs go to diagnostics/learning_curve/, plots go to diagnostics/plots/
-        diag_learning_dir = out_dir / "diagnostics" / "learning_curve"
+        # CSVs go to diagnostics/, plots go to plots/
+        diag_learning_dir = out_dir / "diagnostics"
         diag_learning_dir.mkdir(parents=True, exist_ok=True)
-        diag_plots_dir = out_dir / "diagnostics" / "plots"
+        diag_plots_dir = out_dir / "plots"
         diag_plots_dir.mkdir(parents=True, exist_ok=True)
 
         # Note: Keep list for aggregate_learning_curve_runs (needs individual DFs)
@@ -242,8 +242,8 @@ def aggregate_learning_curves(
         all_learning_curves = []
         for split_dir in split_dirs:
             seed = int(split_dir.name.replace("split_seed", ""))
-            # Individual splits store CSVs in diagnostics/learning_curve/ (singular)
-            lc_path = split_dir / "diagnostics" / "learning_curve"
+            # Individual splits store CSVs in diagnostics/ (flattened)
+            lc_path = split_dir / "diagnostics"
 
             if not lc_path.exists():
                 continue

@@ -772,9 +772,19 @@ def _apply_per_fold_calibration(
     if isinstance(estimator, CalibratedClassifierCV):
         return estimator
 
+    # Determine appropriate number of CV folds based on class sizes
+    # Need at least 2 samples per class per fold
+    unique_classes, class_counts = np.unique(y_train, return_counts=True)
+    min_class_count = int(np.min(class_counts))
+
+    # Use min(configured_cv, min_class_count) to ensure we have enough samples
+    # Need at least 2 samples per fold for the minority class
+    max_safe_cv = max(2, min_class_count)
+    effective_cv = min(config.calibration.cv, max_safe_cv)
+
     # Wrap with calibration
     calibrated = CalibratedClassifierCV(
-        estimator=estimator, method=config.calibration.method, cv=config.calibration.cv
+        estimator=estimator, method=config.calibration.method, cv=effective_cv
     )
 
     # Fit on training fold
@@ -904,6 +914,13 @@ def _extract_selected_proteins_from_fold(
             kbest_proteins = _extract_from_kbest_transformed(pipeline, protein_cols)
             if kbest_proteins:
                 selected_proteins.update(kbest_proteins)
+
+    # For RFECV strategy: if no k-best proteins extracted, use screening output
+    # This ensures RFECV has proteins to work with when there's no "sel" step
+    if strategy == "rfecv" and not selected_proteins and "screen" in pipeline.named_steps:
+        screen_proteins = getattr(pipeline.named_steps["screen"], "selected_features_", [])
+        if screen_proteins:
+            selected_proteins.update(screen_proteins)
 
     # Strategy 2: Extract from model coefficients (linear models)
     # Only relevant for hybrid_stability strategy

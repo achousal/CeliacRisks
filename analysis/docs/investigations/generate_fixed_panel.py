@@ -10,11 +10,26 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
+from sklearn.metrics import roc_auc_score
 
-from ced_ml.data.io import load_data
-from ced_ml.data.schema import CeliacDataSchema
-from ced_ml.features.screening import screen_features
-from ced_ml.features.kbest import select_k_best
+from ced_ml.data.schema import TARGET_COL, CASE_LABELS
+
+
+def compute_univariate_auc(X, y):
+    """Compute univariate AUROC for each protein."""
+    y_binary = np.isin(y, CASE_LABELS).astype(int)
+    aucs = {}
+
+    for col in X.columns:
+        try:
+            auc = roc_auc_score(y_binary, X[col])
+            # Store absolute distance from 0.5 (discriminative power)
+            aucs[col] = abs(auc - 0.5)
+        except:
+            aucs[col] = 0.0
+
+    return aucs
 
 
 def main():
@@ -34,18 +49,6 @@ def main():
         help='Output panel file (default: top100_panel.csv)'
     )
     parser.add_argument(
-        '--screen-method',
-        default='mannwhitney',
-        choices=['mannwhitney', 'ttest'],
-        help='Screening method (default: mannwhitney)'
-    )
-    parser.add_argument(
-        '--screen-top-n',
-        type=int,
-        default=1000,
-        help='Number of features after screening (default: 1000)'
-    )
-    parser.add_argument(
         '--final-k',
         type=int,
         default=100,
@@ -54,36 +57,32 @@ def main():
     args = parser.parse_args()
 
     print(f"Loading data from {args.infile}...")
-    df = load_data(args.infile)
+    df = pd.read_parquet(args.infile)
 
-    # Initialize schema
-    schema = CeliacDataSchema()
-    X = df[schema.protein_cols]
-    y = df[schema.target_col]
+    # Get protein columns (all columns ending with _resid)
+    protein_cols = [col for col in df.columns if col.endswith('_resid')]
+    X = df[protein_cols]
+    y = df[TARGET_COL]
 
     print(f"Data loaded: {X.shape[0]} samples, {X.shape[1]} proteins")
     print(f"Target distribution: {y.value_counts().to_dict()}")
 
-    # Screen to top N
-    print(f"\nScreening to top {args.screen_top_n} using {args.screen_method}...")
-    screened_features = screen_features(
-        X, y,
-        method=args.screen_method,
-        top_n=args.screen_top_n
-    )
-    print(f"Screened features: {len(screened_features)}")
+    # Compute univariate AUCs
+    print(f"\nComputing univariate AUROC for all proteins...")
+    aucs = compute_univariate_auc(X, y)
 
-    # Select top K
-    print(f"\nSelecting top {args.final_k} by univariate AUC...")
-    X_screened = X[screened_features]
-    top_features = select_k_best(X_screened, y, k=args.final_k)
-    print(f"Final panel: {len(top_features)} proteins")
+    # Sort by discriminative power
+    sorted_proteins = sorted(aucs.items(), key=lambda x: x[1], reverse=True)
+    top_features = [p[0] for p in sorted_proteins[:args.final_k]]
 
-    # Save panel
-    panel_df = pd.DataFrame({'protein': top_features})
-    panel_df.to_csv(args.outfile, index=False)
+    print(f"Selected top {len(top_features)} proteins by AUROC")
+    print(f"AUROC range: {sorted_proteins[0][1]:.4f} (best) to {sorted_proteins[args.final_k-1][1]:.4f} (k={args.final_k})")
+
+    # Save panel (no header - just protein names, one per line)
+    args.outfile.write_text('\n'.join(top_features) + '\n')
 
     print(f"\nPanel saved to: {args.outfile}")
+    print(f"Proteins: {len(top_features)} (no header)")
     print(f"First 10 proteins: {top_features[:10]}")
 
 

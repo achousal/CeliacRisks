@@ -68,10 +68,15 @@ def find_model_paths_for_run(
         FileNotFoundError: If no models found
         ValueError: If configuration is invalid
     """
+    # Determine results directory (CED_RESULTS_DIR env var for testability)
+    import os
     from pathlib import Path
 
-    # Determine results directory (project root / results)
-    results_dir = Path(__file__).parent.parent.parent.parent.parent / "results"
+    results_dir_env = os.environ.get("CED_RESULTS_DIR")
+    if results_dir_env:
+        results_dir = Path(results_dir_env)
+    else:
+        results_dir = Path(__file__).parent.parent.parent.parent.parent / "results"
 
     if not results_dir.exists():
         raise FileNotFoundError(f"Results directory not found: {results_dir}")
@@ -456,6 +461,7 @@ def run_optimize_panel(
             out_path=plot_path,
             title="Panel Size vs AUROC (RFE)",
             model_name=model_name,
+            pareto_points=result.pareto_points,
         )
         paths["panel_curve_plot"] = str(plot_path)
         logger.info(f"Saved panel curve plot to {plot_path}")
@@ -492,8 +498,14 @@ def run_optimize_panel(
     for key, size in result.recommended_panels.items():
         print(f"  {key}: {size} proteins")
 
+    # Print Pareto frontier summary
+    if result.pareto_points:
+        print(f"\nPareto frontier: {len(result.pareto_points)} non-dominated points")
+        print("  (Points where no smaller panel has higher AUROC)")
+
     print(f"\nResults saved to: {outdir}")
     print("  - panel_curve.csv (full curve with all metrics)")
+    print("  - pareto_frontier.csv (non-dominated size-AUROC pairs)")
     print("  - metrics_summary.csv (metrics at each panel size)")
     print("  - recommended_panels.json (threshold-based recommendations)")
     print("  - feature_ranking.csv (protein elimination order)")
@@ -507,7 +519,7 @@ def run_optimize_panel(
 
 def discover_models_by_run_id(
     run_id: str,
-    results_root: Path,
+    results_root: Path | str,
     model_filter: str | None = None,
 ) -> dict[str, Path]:
     """Discover models with aggregated results for a given run_id.
@@ -522,15 +534,20 @@ def discover_models_by_run_id(
         Example: {"LR_EN": Path("../results/LR_EN/run_20260127_115115/aggregated")}
 
     Raises:
-        FileNotFoundError: If no models found with aggregated results
+        FileNotFoundError: If results_root does not exist
     """
+    # Convert to Path and validate
+    results_root = Path(results_root)
+    if not results_root.exists():
+        raise FileNotFoundError(f"Results root not found: {results_root}")
+
     model_dirs = {}
 
     for model_dir in sorted(results_root.glob("*/")):
         model_name = model_dir.name
 
-        # Skip hidden/special directories
-        if model_name.startswith(".") or model_name == "investigations":
+        # Skip hidden/special directories and ensemble models
+        if model_name.startswith(".") or model_name in ("investigations", "ENSEMBLE"):
             continue
 
         # Apply model filter if specified
@@ -548,9 +565,16 @@ def discover_models_by_run_id(
             continue
 
         # Check for required aggregated files
-        feature_stability_file = (
-            aggregated_dir / "reports" / "feature_reports" / "feature_stability_summary.csv"
-        )
+        feature_stability_file = aggregated_dir / "panels" / "feature_stability_summary.csv"
+        # Fallback: check legacy nested path
+        if not feature_stability_file.exists():
+            feature_stability_file = (
+                aggregated_dir / "panels" / "features" / "feature_stability_summary.csv"
+            )
+        if not feature_stability_file.exists():
+            feature_stability_file = (
+                aggregated_dir / "reports" / "feature_reports" / "feature_stability_summary.csv"
+            )
         if not feature_stability_file.exists():
             continue
 
@@ -649,11 +673,18 @@ def run_optimize_panel_aggregated(
     logger.info(f"Results dir: {results_dir}")
 
     # Load aggregated stability panel
-    stability_file = results_path / "reports" / "feature_reports" / "feature_stability_summary.csv"
+    stability_file = results_path / "panels" / "feature_stability_summary.csv"
+    # Fallback: check legacy nested paths
+    if not stability_file.exists():
+        stability_file = results_path / "panels" / "features" / "feature_stability_summary.csv"
+    if not stability_file.exists():
+        stability_file = (
+            results_path / "reports" / "feature_reports" / "feature_stability_summary.csv"
+        )
     if not stability_file.exists():
         raise FileNotFoundError(
-            f"Feature stability file not found: {stability_file}\n"
-            f"Run 'ced aggregate-splits' first to generate aggregated results."
+            "Feature stability file not found in panels/ or legacy reports/\n"
+            "Run 'ced aggregate-splits' first to generate aggregated results."
         )
 
     logger.info(f"Loading aggregated stability panel from {stability_file}")
@@ -689,8 +720,10 @@ def run_optimize_panel_aggregated(
     # results_dir is: ../results/LR_EN/run_20260127_115115/aggregated
     run_dir = results_path.parent
 
-    # Discover available split seeds
-    split_dirs = sorted(run_dir.glob("split_seed*"))
+    # Discover available split seeds (new: splits/split_seed*, legacy: split_seed*)
+    split_dirs = sorted(run_dir.glob("splits/split_seed*"))
+    if not split_dirs:
+        split_dirs = sorted(run_dir.glob("split_seed*"))
     if not split_dirs:
         raise FileNotFoundError(
             f"No split directories found in {run_dir}. "
@@ -890,6 +923,7 @@ def run_optimize_panel_aggregated(
             out_path=plot_path,
             title=f"Panel Size Optimization ({model_name}, Aggregated)",
             model_name=model_name,
+            pareto_points=result.pareto_points,
         )
         paths["panel_curve_plot"] = str(plot_path)
         logger.info(f"Saved panel curve plot to {plot_path}")
@@ -925,7 +959,17 @@ def run_optimize_panel_aggregated(
     for key, size in result.recommended_panels.items():
         print(f"  {key}: {size} proteins")
 
+    # Print Pareto frontier summary
+    if result.pareto_points:
+        print(f"\nPareto frontier: {len(result.pareto_points)} non-dominated points")
+        print("  (Points where no smaller panel has higher AUROC)")
+
     print(f"\nResults saved to: {outdir}")
+    print("  - panel_curve_aggregated.csv (full curve with all metrics)")
+    print("  - pareto_frontier_aggregated.csv (non-dominated size-AUROC pairs)")
+    print("  - metrics_summary_aggregated.csv (metrics at each panel size)")
+    print("  - recommended_panels_aggregated.json (threshold-based recommendations)")
+    print("  - feature_ranking_aggregated.csv (protein elimination order)")
     print(f"Log file: {log_file}")
     print(f"{'='*60}\n")
 

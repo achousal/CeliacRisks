@@ -317,9 +317,9 @@ for MODEL in "${MODEL_ARRAY[@]}"; do
 
     # Check for required output files
     METRICS_FILE="${MODEL_SPLIT_DIR}/core/test_metrics.csv"
-    OOF_FILE="${MODEL_SPLIT_DIR}/preds/train_oof/train_oof__${MODEL}.csv"
-    TEST_FILE="${MODEL_SPLIT_DIR}/preds/test_preds/test_preds__${MODEL}.csv"
-    VAL_FILE="${MODEL_SPLIT_DIR}/preds/val_preds/val_preds__${MODEL}.csv"
+    OOF_FILE="${MODEL_SPLIT_DIR}/preds/train_oof__${MODEL}.csv"
+    TEST_FILE="${MODEL_SPLIT_DIR}/preds/test_preds__${MODEL}.csv"
+    VAL_FILE="${MODEL_SPLIT_DIR}/preds/val_preds__${MODEL}.csv"
 
     if [[ -f "${METRICS_FILE}" && -f "${OOF_FILE}" && -f "${TEST_FILE}" ]]; then
       COMPLETED_SPLITS=$((COMPLETED_SPLITS + 1))

@@ -53,12 +53,64 @@ def validate_config_file(
     errors = []
     warnings = []
 
-    # Load config
+    # Load raw YAML
     try:
-        load_yaml(config_file)
+        raw_config = load_yaml(config_file)
     except Exception as e:
         errors.append(f"Failed to load YAML: {e}")
         return False, errors, warnings
+
+    # Check for completely invalid configs (no recognized top-level keys)
+    if command == "save-splits":
+        valid_keys = {
+            "mode",
+            "scenarios",
+            "n_splits",
+            "val_size",
+            "test_size",
+            "holdout_size",
+            "seed_start",
+            "train_control_per_case",
+            "prevalent_train_only",
+            "prevalent_train_frac",
+            "temporal_split",
+            "temporal_col",
+            "train_frac",
+            "val_frac",
+            "test_frac",
+        }
+    elif command == "train":
+        valid_keys = {
+            "scenario",
+            "cv",
+            "optuna",
+            "features",
+            "calibration",
+            "thresholds",
+            "lr",
+            "rf",
+            "xgboost",
+            "svm",
+            "ensemble",
+            "splits",
+            "panels",
+            "evaluation",
+            "dca",
+            "output",
+            "strictness",
+        }
+    else:
+        errors.append(f"Unknown command: {command}")
+        return False, errors, warnings
+
+    # Check if config has ANY valid top-level keys
+    config_keys = set(raw_config.keys()) if isinstance(raw_config, dict) else set()
+    if config_keys and not (config_keys & valid_keys):
+        warnings.append(
+            f"Config contains no recognized top-level keys for '{command}' command. "
+            f"Found keys: {sorted(config_keys)}. "
+            f"Expected at least one of: {sorted(valid_keys)[:5]}..."
+        )
 
     # Validate schema
     try:
@@ -66,9 +118,6 @@ def validate_config_file(
             config = load_splits_config(config_file)
         elif command == "train":
             config = load_training_config(config_file)
-        else:
-            errors.append(f"Unknown command: {command}")
-            return False, errors, warnings
     except Exception as e:
         errors.append(f"Schema validation failed: {e}")
         return False, errors, warnings
@@ -120,38 +169,46 @@ def diff_configs(
 
     _diff_dicts(config1, config2, diff_result)
 
+    # Calculate total differences
+    total_diffs = (
+        len(diff_result["only_in_first"])
+        + len(diff_result["only_in_second"])
+        + len(diff_result["different_values"])
+    )
+
     # Generate report
     report_lines = []
     report_lines.append("=" * 80)
     report_lines.append(f"Config Diff: {config_file1.name} vs {config_file2.name}")
     report_lines.append("=" * 80)
 
-    if diff_result["only_in_first"]:
-        report_lines.append(f"\nOnly in {config_file1.name}:")
-        for key, value in diff_result["only_in_first"].items():
-            report_lines.append(f"  {key}: {value}")
+    if total_diffs == 0:
+        report_lines.append("\nConfigs are identical (no differences found)")
+    else:
+        if diff_result["only_in_first"]:
+            report_lines.append(f"\nOnly in {config_file1.name}:")
+            for key, value in diff_result["only_in_first"].items():
+                report_lines.append(f"  {key}: {value}")
 
-    if diff_result["only_in_second"]:
-        report_lines.append(f"\nOnly in {config_file2.name}:")
-        for key, value in diff_result["only_in_second"].items():
-            report_lines.append(f"  {key}: {value}")
+        if diff_result["only_in_second"]:
+            report_lines.append(f"\nOnly in {config_file2.name}:")
+            for key, value in diff_result["only_in_second"].items():
+                report_lines.append(f"  {key}: {value}")
 
-    if diff_result["different_values"]:
-        report_lines.append("\nDifferent values:")
-        for key, (val1, val2) in diff_result["different_values"].items():
-            report_lines.append(f"  {key}:")
-            report_lines.append(f"    {config_file1.name}: {val1}")
-            report_lines.append(f"    {config_file2.name}: {val2}")
+        if diff_result["different_values"]:
+            report_lines.append("\nDifferent values:")
+            for key, (val1, val2) in diff_result["different_values"].items():
+                report_lines.append(f"  {key}:")
+                report_lines.append(f"    {config_file1.name}: {val1}")
+                report_lines.append(f"    {config_file2.name}: {val2}")
 
-    report_lines.append(
-        f"\nTotal differences: {len(diff_result['only_in_first']) + len(diff_result['only_in_second']) + len(diff_result['different_values'])}"
-    )
+    report_lines.append(f"\nTotal differences: {total_diffs}")
     report_lines.append("=" * 80)
 
     report = "\n".join(report_lines)
 
-    # Print report
-    logger.info(report)
+    # Print report to stdout (not logger, so it appears in CLI output)
+    print(report)
 
     # Save report if requested
     if output_file:
@@ -256,18 +313,13 @@ def run_config_diff(
     """
     setup_logger("ced.config.diff", level=_verbose_to_level(verbose))
 
-    diff_result = diff_configs(
+    diff_configs(
         config_file1=config_file1,
         config_file2=config_file2,
         output_file=output_file,
         verbose=verbose,
     )
 
-    # Exit with non-zero if differences found
-    total_diffs = (
-        len(diff_result["only_in_first"])
-        + len(diff_result["only_in_second"])
-        + len(diff_result["different_values"])
-    )
-
-    sys.exit(0 if total_diffs == 0 else 1)
+    # Always exit with 0 (success) - diff command itself succeeded
+    # The diff result is shown in the output, not the exit code
+    sys.exit(0)

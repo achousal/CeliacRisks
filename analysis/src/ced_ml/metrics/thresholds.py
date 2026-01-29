@@ -103,6 +103,13 @@ def threshold_max_f1(y_true: np.ndarray, p: np.ndarray) -> float:
     if len(y_true) == 0 or len(p) == 0:
         return 0.5
 
+    # Filter out NaN/inf values (can occur with small datasets or failed predictions)
+    valid_mask = np.isfinite(p) & np.isfinite(y_true)
+    if not np.any(valid_mask):
+        return 0.5
+    y_true = y_true[valid_mask]
+    p = p[valid_mask]
+
     prec, rec, thr = precision_recall_curve(y_true, p)
     if thr.size == 0:
         return 0.5
@@ -139,6 +146,13 @@ def threshold_max_fbeta(y_true: np.ndarray, p: np.ndarray, beta: float = 1.0) ->
     beta = float(beta)
     if beta <= 0:
         beta = 1.0
+
+    # Filter out NaN/inf values (can occur with small datasets or failed predictions)
+    valid_mask = np.isfinite(p) & np.isfinite(y_true)
+    if not np.any(valid_mask):
+        return 0.5
+    y_true = y_true[valid_mask]
+    p = p[valid_mask]
 
     prec, rec, thr = precision_recall_curve(y_true, p)
     if thr.size == 0:
@@ -177,6 +191,13 @@ def threshold_youden(y_true: np.ndarray, p: np.ndarray) -> float:
     if len(y_true) == 0 or len(p) == 0:
         return 0.5
 
+    # Filter out NaN/inf values (can occur with small datasets or failed predictions)
+    valid_mask = np.isfinite(p) & np.isfinite(y_true)
+    if not np.any(valid_mask):
+        return 0.5
+    y_true = y_true[valid_mask]
+    p = p[valid_mask]
+
     # Single-class guard: ROC curve requires at least 2 unique labels
     if len(np.unique(y_true)) < 2:
         return 0.5
@@ -213,6 +234,13 @@ def threshold_for_specificity(
     """
     y_true = np.asarray(y_true).astype(int)
     p = np.asarray(p).astype(float)
+
+    # Filter out NaN/inf values (can occur with small datasets or failed predictions)
+    valid_mask = np.isfinite(p) & np.isfinite(y_true)
+    if not np.any(valid_mask):
+        return 0.5
+    y_true = y_true[valid_mask]
+    p = p[valid_mask]
 
     # Single-class guard: ROC curve requires at least 2 unique labels
     if len(np.unique(y_true)) < 2:
@@ -258,6 +286,13 @@ def threshold_for_precision(y_true: np.ndarray, p: np.ndarray, target_ppv: float
     target_ppv = float(target_ppv)
     if not (0 < target_ppv <= 1):
         return threshold_max_f1(y_true, p)
+
+    # Filter out NaN/inf values (can occur with small datasets or failed predictions)
+    valid_mask = np.isfinite(p) & np.isfinite(y_true)
+    if not np.any(valid_mask):
+        return 0.5
+    y_true = y_true[valid_mask]
+    p = p[valid_mask]
 
     prec, rec, thr = precision_recall_curve(y_true, p)
     if thr.size == 0:

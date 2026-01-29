@@ -16,11 +16,18 @@ WORKFLOW:
 OUTPUT:
     results/consensus_panel/run_<RUN_ID>/
         final_panel.txt          # One protein per line (for --fixed-panel)
-        final_panel.csv          # With consensus scores
-        consensus_ranking.csv    # All proteins with RRA scores
+        final_panel.csv          # Panel with uncertainty metrics (n_models_present, agreement_strength, rank_cv)
+        consensus_ranking.csv    # All proteins with RRA scores and uncertainty
+        uncertainty_summary.csv  # Focused uncertainty report for final panel
         per_model_rankings.csv   # Per-model composite rankings
         correlation_clusters.csv # Cluster assignments
-        consensus_metadata.json  # Run parameters and statistics
+        consensus_metadata.json  # Run parameters, statistics, and uncertainty summary
+
+UNCERTAINTY METRICS:
+    - n_models_present: Number of models with this protein (cross-model agreement)
+    - agreement_strength: Fraction of models agreeing (0-1)
+    - rank_std: Standard deviation of ranks across models
+    - rank_cv: Coefficient of variation (std/mean) - lower = more stable ranking
 """
 
 import json
@@ -82,9 +89,16 @@ def discover_models_with_aggregated_results(
 
         # Check for aggregated results with feature stability
         aggregated_dir = run_dir / "aggregated"
-        stability_file = (
-            aggregated_dir / "reports" / "feature_reports" / "feature_stability_summary.csv"
-        )
+        stability_file = aggregated_dir / "panels" / "feature_stability_summary.csv"
+        # Fallback: check legacy nested paths
+        if not stability_file.exists():
+            stability_file = (
+                aggregated_dir / "panels" / "features" / "feature_stability_summary.csv"
+            )
+        if not stability_file.exists():
+            stability_file = (
+                aggregated_dir / "reports" / "feature_reports" / "feature_stability_summary.csv"
+            )
 
         if not stability_file.exists():
             continue
@@ -116,12 +130,20 @@ def load_model_stability(
     Raises:
         FileNotFoundError: If stability file not found.
     """
-    stability_file = (
-        aggregated_dir / "reports" / "feature_reports" / "feature_stability_summary.csv"
-    )
+    stability_file = aggregated_dir / "panels" / "feature_stability_summary.csv"
+    # Fallback: check legacy nested paths
+    if not stability_file.exists():
+        stability_file = aggregated_dir / "panels" / "features" / "feature_stability_summary.csv"
+    if not stability_file.exists():
+        stability_file = (
+            aggregated_dir / "reports" / "feature_reports" / "feature_stability_summary.csv"
+        )
 
     if not stability_file.exists():
-        raise FileNotFoundError(f"Feature stability file not found: {stability_file}")
+        raise FileNotFoundError(
+            f"Feature stability file not found in panels/ or legacy reports/\n"
+            f"Checked: {aggregated_dir}"
+        )
 
     df = pd.read_csv(stability_file)
 
@@ -180,7 +202,7 @@ def auto_detect_data_paths(
     Returns:
         Tuple of (infile, split_dir) or (None, None) if not found.
     """
-    # Find any model's run_settings.json
+    # Find any model's run_metadata.json (at run level, not split level)
     for model_dir in results_root.glob("*/"):
         if model_dir.name.startswith(".") or model_dir.name in ("investigations", "ENSEMBLE"):
             continue
@@ -189,20 +211,20 @@ def auto_detect_data_paths(
         if not run_dir.exists():
             continue
 
-        # Try to find run_settings in any split
-        for split_dir in run_dir.glob("split_seed*"):
-            settings_file = split_dir / "core" / "run_settings.json"
-            if settings_file.exists():
-                try:
-                    with open(settings_file) as f:
-                        settings = json.load(f)
+        # Look for run_metadata.json at the run level
+        metadata_file = run_dir / "run_metadata.json"
+        if metadata_file.exists():
+            try:
+                with open(metadata_file) as f:
+                    metadata = json.load(f)
 
-                    infile = settings.get("infile")
-                    split_dir_path = settings.get("split_dir")
+                infile = metadata.get("infile")
+                split_dir_path = metadata.get("splits_dir")
 
+                if infile and split_dir_path:
                     return infile, split_dir_path
-                except Exception:
-                    continue
+            except Exception:
+                continue
 
     return None, None
 
@@ -277,8 +299,14 @@ def run_consensus_panel(
 
     logger.info(f"Consensus panel generation started for run_id={run_id}")
 
-    # Determine results root
-    results_root = Path(__file__).parent.parent.parent.parent.parent / "results"
+    # Determine results root (CED_RESULTS_DIR env var for testability)
+    import os
+
+    results_root_env = os.environ.get("CED_RESULTS_DIR")
+    if results_root_env:
+        results_root = Path(results_root_env)
+    else:
+        results_root = Path(__file__).parent.parent.parent.parent.parent / "results"
 
     if not results_root.exists():
         raise FileNotFoundError(f"Results directory not found: {results_root}")
@@ -343,7 +371,9 @@ def run_consensus_panel(
     run_dir = first_aggregated.parent
 
     # Find representative split for metadata
-    split_dirs = sorted(run_dir.glob("split_seed*"))
+    split_dirs = sorted(run_dir.glob("splits/split_seed*"))
+    if not split_dirs:
+        split_dirs = sorted(run_dir.glob("split_seed*"))
     if not split_dirs:
         raise FileNotFoundError(f"No split directories found in {run_dir}")
 
@@ -427,14 +457,34 @@ def run_consensus_panel(
 
     print("\nTop 10 proteins in consensus panel:")
     for i, protein in enumerate(result.final_panel[:10], 1):
-        score = result.consensus_ranking[result.consensus_ranking["protein"] == protein][
-            "consensus_score"
-        ].iloc[0]
-        print(f"  {i:2d}. {protein} (score: {score:.4f})")
+        protein_row = result.consensus_ranking[result.consensus_ranking["protein"] == protein]
+        score = protein_row["consensus_score"].iloc[0]
+        n_models = protein_row["n_models_present"].iloc[0]
+        agreement = protein_row["agreement_strength"].iloc[0]
+        print(
+            f"  {i:2d}. {protein} (score: {score:.4f}, {n_models}/{len(model_dirs)} models, agreement: {agreement:.2f})"
+        )
+
+    # Print uncertainty summary
+    if "uncertainty" in result.metadata:
+        unc = result.metadata["uncertainty"]
+        print("\nUncertainty Summary:")
+        print(f"  Mean agreement strength: {unc['mean_agreement_strength']:.2f}")
+        print(f"  Min agreement strength: {unc['min_agreement_strength']:.2f}")
+        print(f"  Mean rank CV: {unc['mean_rank_cv']:.3f}")
+        print(f"  Max rank CV: {unc['max_rank_cv']:.3f}")
+        print(
+            f"  Proteins in all models: {unc['proteins_in_all_models']}/{len(result.final_panel)}"
+        )
+        print(
+            f"  Proteins in majority: {unc['proteins_in_majority_models']}/{len(result.final_panel)}"
+        )
 
     print(f"\nOutput saved to: {outdir}")
     print("  - final_panel.txt (for --fixed-panel)")
-    print("  - consensus_ranking.csv")
+    print("  - final_panel.csv (with uncertainty metrics)")
+    print("  - consensus_ranking.csv (all proteins with uncertainty)")
+    print("  - uncertainty_summary.csv (focused uncertainty report)")
     print("  - per_model_rankings.csv")
     print("  - correlation_clusters.csv")
     print("  - consensus_metadata.json")

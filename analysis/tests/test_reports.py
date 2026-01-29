@@ -82,7 +82,7 @@ def test_output_directories_creation(temp_output_dir):
     assert os.path.isdir(dirs.cv)
     assert os.path.isdir(dirs.preds_test)
     assert os.path.isdir(dirs.preds_val)
-    assert os.path.isdir(dirs.reports_features)
+    assert os.path.isdir(dirs.panels_features)
     assert os.path.isdir(dirs.diag_calibration)
 
 
@@ -95,17 +95,15 @@ def test_output_directories_all_categories(output_dirs):
         "preds_val",
         "preds_controls",
         "preds_train_oof",
-        "reports_features",
-        "reports_stable",
-        "reports_panels",
-        "reports_subgroups",
+        "panels_features",
+        "panels_stable",
+        "panels_sizes",
+        "panels_subgroups",
         "diag",
         "diag_splits",
         "diag_calibration",
         "diag_learning",
         "diag_dca",
-        "diag_tuning",
-        "diag_plots",
         "diag_screening",
         "diag_test_ci",
     ]

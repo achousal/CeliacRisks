@@ -93,7 +93,7 @@ The [docs/adr/](analysis/docs/adr/) directory contains 15 Architecture Decision 
 - [ADR-003](analysis/docs/adr/ADR-003-control-downsampling.md): Control downsampling ratio
 
 **Stage 2: Feature Selection**
-- [ADR-013](analysis/docs/adr/ADR-013-four-strategy-feature-selection.md): Four-strategy feature selection framework (rationale, use cases, trade-offs)
+- [ADR-013](analysis/docs/adr/ADR-013-four-strategy-feature-selection.md): Five-strategy feature selection framework (rationale, use cases, trade-offs)
 - [ADR-004](analysis/docs/adr/ADR-004-hybrid-feature-selection.md): Strategy 1 - Hybrid Stability (production default, tuned k-best)
 - [ADR-005](analysis/docs/adr/ADR-005-stability-panel.md): Stability panel extraction (0.75 threshold, used by all strategies)
 
@@ -152,7 +152,7 @@ Output: `../results/{model}/split_seed{N}/`
 
 ### 3. Feature Selection
 
-The pipeline provides **four** distinct feature selection methods, each optimized for different use cases:
+The pipeline provides **five** distinct feature selection methods, each optimized for different use cases:
 
 | Method | Type | Use Case | Speed |
 |--------|------|----------|-------|
@@ -403,9 +403,10 @@ These files control:
 | Document | Purpose |
 |----------|---------|
 | [analysis/docs/ARCHITECTURE.md](analysis/docs/ARCHITECTURE.md) | Technical architecture with code pointers |
-| [analysis/docs/adr/](analysis/docs/adr/) | Architecture Decision Records (19 decisions) |
+| [analysis/docs/adr/](analysis/docs/adr/) | Architecture Decision Records (15 decisions) |
 | [analysis/docs/reference/CLI_REFERENCE.md](analysis/docs/reference/CLI_REFERENCE.md) | Complete CLI command reference |
-| [analysis/docs/reference/FEATURE_SELECTION.md](analysis/docs/reference/FEATURE_SELECTION.md) | Feature selection guide (all 4 strategies, workflows, troubleshooting) |
+| [analysis/docs/reference/FEATURE_SELECTION.md](analysis/docs/reference/FEATURE_SELECTION.md) | Feature selection guide (all 5 strategies, workflows, troubleshooting) |
+| [analysis/docs/reference/UNCERTAINTY_QUANTIFICATION.md](analysis/docs/reference/UNCERTAINTY_QUANTIFICATION.md) | Uncertainty metrics for panel optimization and consensus |
 | [analysis/SETUP_README.md](analysis/SETUP_README.md) | Environment setup and getting started |
 | [README.md](README.md) | Root project overview |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
@@ -639,8 +640,13 @@ ls results/{MODEL}/run_{RUN_ID}/split_seed*/preds/train_oof/
    - `ced optimize-panel --run-id <RUN_ID>` auto-detects infile, split-dir, and results paths
    - `ced consensus-panel --run-id <RUN_ID>` auto-detects all required paths
    - `ced train-ensemble --run-id <RUN_ID>` auto-detects base models and paths
-2. **Post-Training Pipeline Auto-Detection** - `post_training_pipeline.sh` now auto-detects models and splits from run-id (no config coordination needed)
-3. **Conda Environment Support** - HPC post-training pipeline now supports both venv and conda environments
+2. **Uncertainty Quantification** - Comprehensive uncertainty metrics for panel optimization:
+   - Bootstrap CIs for RFE AUROC estimates (already implemented, now fully documented)
+   - Cross-model agreement metrics: `n_models_present`, `agreement_strength`, `rank_std`, `rank_cv`
+   - Statistical comparisons between recommended panel sizes
+   - Uncertainty summary CSV and metadata JSON with deployment-ready metrics
+3. **Post-Training Pipeline Auto-Detection** - `post_training_pipeline.sh` now auto-detects models and splits from run-id (no config coordination needed)
+4. **Conda Environment Support** - HPC post-training pipeline now supports both venv and conda environments
 
 **2026-01-27:**
 1. **Cross-Model Consensus Panel** - `ced consensus-panel` generates consensus protein panel via Robust Rank Aggregation across multiple models

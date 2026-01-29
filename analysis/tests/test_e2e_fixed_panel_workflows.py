@@ -197,7 +197,7 @@ class TestPanelExtraction:
 
         # Extract panel from feature stability
         agg_dir = results_dir / "LR_EN" / f"run_{run_id}" / "aggregated"
-        stability_file = agg_dir / "panels" / "features" / "feature_stability_summary.csv"
+        stability_file = agg_dir / "panels" / "feature_stability_summary.csv"
 
         if not stability_file.exists():
             pytest.skip("Feature stability file not found")
@@ -284,7 +284,7 @@ class TestPanelExtraction:
         )
 
         agg_dir = results_dir / "LR_EN" / f"run_{run_id}" / "aggregated"
-        stability_file = agg_dir / "panels" / "features" / "feature_stability_summary.csv"
+        stability_file = agg_dir / "panels" / "feature_stability_summary.csv"
 
         if not stability_file.exists():
             pytest.skip("No stability file")
@@ -616,7 +616,7 @@ class TestUnbiasedPanelValidation:
 
         # Step 2: Extract panel
         agg_dir = results_dir / "LR_EN" / f"run_{run_id_discovery}" / "aggregated"
-        stability_file = agg_dir / "panels" / "features" / "feature_stability_summary.csv"
+        stability_file = agg_dir / "panels" / "feature_stability_summary.csv"
 
         if not stability_file.exists():
             pytest.skip("No stability file")

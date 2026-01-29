@@ -67,6 +67,13 @@ def plot_oof_combined(
     p_stacked = oof_preds.ravel()  # Row-major: repeat0 samples, then repeat1, etc.
     split_ids = np.repeat(np.arange(n_repeats), n_samples)
 
+    # Filter out NaN values (can occur if pooled data has incomplete repeat columns)
+    valid_mask = ~np.isnan(p_stacked)
+    if not valid_mask.all():
+        y_stacked = y_stacked[valid_mask]
+        p_stacked = p_stacked[valid_mask]
+        split_ids = split_ids[valid_mask]
+
     # Validate metadata is provided
     if meta_lines is None:
         raise ValueError(

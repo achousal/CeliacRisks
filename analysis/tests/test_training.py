@@ -412,7 +412,8 @@ def test_oof_predictions_with_kbest(toy_data, minimal_config):
 
     X, y, protein_cols = toy_data
 
-    minimal_config.features.feature_select = "kbest"
+    # Set feature_selection_strategy (new API) to enable k tuning
+    minimal_config.features.feature_selection_strategy = "hybrid_stability"
     minimal_config.features.k_grid = [5, 10]
     minimal_config.features.kbest_scope = "transformed"
 
@@ -555,6 +556,7 @@ def test_fixed_panel_bypasses_feature_selection(tmp_path):
     # Simulate fixed panel override (as done in run_train)
     config.features.feature_selection_strategy = "none"
     config.features.screen_top_n = 0
+    config.features.k_grid = []  # Empty k_grid to disable tuning
 
     # Build pipeline
     classifier = build_models("LR_EN", config, random_state=42, n_jobs=1)
@@ -563,13 +565,13 @@ def test_fixed_panel_bypasses_feature_selection(tmp_path):
         classifier,
         protein_cols=panel_proteins,
         cat_cols=["sex"],
-        meta_num_cols=["age"],
     )
 
     # Verify no feature selection steps
     step_names = [name for name, _ in pipeline.steps]
     assert "screen" not in step_names, "Screening should be disabled"
     assert "sel" not in step_names, "SelectKBest should be disabled"
+    assert "prot_sel" not in step_names, "Protein-level SelectKBest should be disabled"
     assert "pre" in step_names, "Preprocessing should still exist"
     assert "clf" in step_names, "Classifier should still exist"
 

@@ -287,7 +287,7 @@ log "Step 2/4: Train models (${N_SPLITS} splits)"
         IFS=',' read -r -a ENSEMBLE_MODEL_ARRAY <<< "${ENSEMBLE_MODELS}"
         for BASE_MODEL in "${ENSEMBLE_MODEL_ARRAY[@]}"; do
           BASE_MODEL=$(echo "${BASE_MODEL}" | xargs)
-          OOF_PATH="${RESULTS_DIR}/${BASE_MODEL}/run_${RUN_ID}/split_seed${SEED}/preds/train_oof/train_oof__${BASE_MODEL}.csv"
+          OOF_PATH="${RESULTS_DIR}/${BASE_MODEL}/run_${RUN_ID}/split_seed${SEED}/preds/train_oof__${BASE_MODEL}.csv"
           if [[ ! -f "${OOF_PATH}" ]]; then
             log "  [WARN] Missing OOF for ${BASE_MODEL} seed ${SEED}: ${OOF_PATH}"
             BASE_MODELS_READY=0

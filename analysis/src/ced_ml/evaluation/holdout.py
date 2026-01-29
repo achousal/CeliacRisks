@@ -520,7 +520,7 @@ def evaluate_holdout(
             bundle.get("args", {}).get("dca_report_points", "")
         )
 
-        dca_dir = os.path.join(outdir, "diagnostics", "dca")
+        dca_dir = os.path.join(outdir, "diagnostics")
         dca_probs = proba_adjusted if dca_use_target_prevalence else proba_eval
         dca_prev = target_prev if dca_use_target_prevalence else None
 

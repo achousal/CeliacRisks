@@ -30,9 +30,9 @@ def collect_ensemble_predictions(
         DataFrame with pooled ensemble predictions
     """
     pred_subdir_map = {
-        "test": "preds/test_preds",
-        "val": "preds/val_preds",
-        "train_oof": "preds/train_oof",
+        "test": "preds",
+        "val": "preds",
+        "train_oof": "preds",
     }
 
     if pred_type not in pred_subdir_map:
@@ -348,9 +348,9 @@ def collect_predictions(
         DataFrame with pooled predictions including split_seed and model columns
     """
     pred_subdir_map = {
-        "test": "preds/test_preds",
-        "val": "preds/val_preds",
-        "train_oof": "preds/train_oof",
+        "test": "preds",
+        "val": "preds",
+        "train_oof": "preds",
     }
 
     if pred_type not in pred_subdir_map:
@@ -421,7 +421,7 @@ def collect_feature_reports(
 
     for split_dir in split_dirs:
         seed = int(split_dir.name.replace("split_seed", ""))
-        reports_dir = split_dir / "reports" / "feature_reports"
+        reports_dir = split_dir / "panels"
 
         if not reports_dir.exists():
             if logger:

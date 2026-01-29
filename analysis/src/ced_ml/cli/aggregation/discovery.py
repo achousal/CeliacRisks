@@ -18,8 +18,10 @@ def discover_split_dirs(
     Returns:
         List of split subdirectory paths, sorted by seed number
     """
-    # Filter directories first, then sort
+    # Check both legacy (split_seed* directly) and new (splits/split_seed*) layouts
     split_dirs = [d for d in results_dir.glob("split_seed*") if d.is_dir()]
+    if not split_dirs:
+        split_dirs = [d for d in results_dir.glob("splits/split_seed*") if d.is_dir()]
     split_dirs = sorted(
         split_dirs,
         key=lambda p: int(p.name.replace("split_seed", "")),

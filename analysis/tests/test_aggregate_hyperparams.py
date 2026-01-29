@@ -315,3 +315,117 @@ def test_collect_best_hyperparams_preserves_optuna_metadata(temp_results_dir):
 
     assert "best_score_inner" in result.columns
     assert result["best_score_inner"].iloc[0] == 0.85
+
+
+def test_optuna_trials_aggregation_with_model_prefix(temp_results_dir):
+    """Test aggregation of model-prefixed optuna_trials.csv files (bug fix regression test)."""
+    from ced_ml.cli.aggregate_splits import run_aggregate_splits
+
+    # Create mock optuna_trials files with model prefix (real-world format)
+    for seed in [0, 1]:
+        split_dir = temp_results_dir / f"split_seed{seed}"
+        optuna_dir = split_dir / "cv" / "optuna"
+        optuna_dir.mkdir(parents=True, exist_ok=True)
+
+        # Use model-prefixed filename (LinSVM_cal__optuna_trials.csv)
+        trials_file = optuna_dir / "LinSVM_cal__optuna_trials.csv"
+
+        # Create mock trials data
+        trials_data = {
+            "number": list(range(10)),
+            "value": np.random.uniform(0.7, 0.9, 10),
+            "params_clf__estimator__C": np.random.uniform(0.001, 100, 10),
+            "params_sel__k": [100] * 10,
+            "state": ["COMPLETE"] * 10,
+        }
+        df = pd.DataFrame(trials_data)
+        df.to_csv(trials_file, index=False)
+
+        # Also create required files for aggregation to run
+        config_metadata = split_dir / "config_metadata.json"
+        with open(config_metadata, "w") as f:
+            json.dump({"model": "LinSVM_cal", "split_seed": seed}, f)
+
+        # Create minimal prediction files
+        for pred_type in ["test", "val", "train_oof"]:
+            pred_dir = (
+                split_dir / "preds" / f"{pred_type}_preds"
+                if pred_type == "test"
+                else split_dir / "preds" / pred_type
+            )
+            pred_dir.mkdir(parents=True, exist_ok=True)
+            pred_file = pred_dir / f"LinSVM_cal__{pred_type}.csv"
+            pd.DataFrame({"y_true": [0, 1], "y_prob": [0.2, 0.8], "y_pred": [0, 1]}).to_csv(
+                pred_file, index=False
+            )
+
+    # Run aggregation
+    run_aggregate_splits(
+        results_dir=str(temp_results_dir),
+        save_plots=False,
+        n_boot=10,
+    )
+
+    # Verify optuna trials were aggregated
+    agg_optuna_file = temp_results_dir / "aggregated" / "cv" / "optuna" / "optuna_trials.csv"
+    assert agg_optuna_file.exists(), "Aggregated optuna_trials.csv not found"
+
+    # Verify combined trials
+    agg_df = pd.read_csv(agg_optuna_file)
+    assert len(agg_df) == 20, f"Expected 20 trials (10 per split), got {len(agg_df)}"
+    assert "number" in agg_df.columns
+    assert "value" in agg_df.columns
+    assert "params_clf__estimator__C" in agg_df.columns
+
+
+def test_optuna_trials_backward_compatibility_no_prefix(temp_results_dir):
+    """Test backward compatibility with non-prefixed optuna_trials.csv files."""
+    from ced_ml.cli.aggregate_splits import run_aggregate_splits
+
+    # Create mock optuna_trials files without model prefix (legacy format)
+    split_dir = temp_results_dir / "split_seed0"
+    optuna_dir = split_dir / "cv" / "optuna"
+    optuna_dir.mkdir(parents=True, exist_ok=True)
+
+    # Use non-prefixed filename (backward compatibility)
+    trials_file = optuna_dir / "optuna_trials.csv"
+
+    trials_data = {
+        "number": list(range(5)),
+        "value": np.random.uniform(0.7, 0.9, 5),
+        "params_clf__C": np.random.uniform(0.1, 10, 5),
+        "state": ["COMPLETE"] * 5,
+    }
+    df = pd.DataFrame(trials_data)
+    df.to_csv(trials_file, index=False)
+
+    # Create minimal required files
+    config_metadata = split_dir / "config_metadata.json"
+    with open(config_metadata, "w") as f:
+        json.dump({"model": "LR_EN", "split_seed": 0}, f)
+
+    for pred_type in ["test", "val", "train_oof"]:
+        pred_dir = (
+            split_dir / "preds" / f"{pred_type}_preds"
+            if pred_type == "test"
+            else split_dir / "preds" / pred_type
+        )
+        pred_dir.mkdir(parents=True, exist_ok=True)
+        pred_file = pred_dir / f"LR_EN__{pred_type}.csv"
+        pd.DataFrame({"y_true": [0, 1], "y_prob": [0.2, 0.8], "y_pred": [0, 1]}).to_csv(
+            pred_file, index=False
+        )
+
+    # Run aggregation
+    run_aggregate_splits(
+        results_dir=str(temp_results_dir),
+        save_plots=False,
+        n_boot=10,
+    )
+
+    # Verify legacy format works
+    agg_optuna_file = temp_results_dir / "aggregated" / "cv" / "optuna" / "optuna_trials.csv"
+    assert agg_optuna_file.exists(), "Aggregated optuna_trials.csv not found (legacy format)"
+
+    agg_df = pd.read_csv(agg_optuna_file)
+    assert len(agg_df) == 5, f"Expected 5 trials, got {len(agg_df)}"

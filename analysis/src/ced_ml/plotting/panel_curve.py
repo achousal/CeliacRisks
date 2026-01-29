@@ -26,8 +26,11 @@ def plot_pareto_curve(
     title: str = "Panel Size vs AUROC",
     model_name: str = "",
     thresholds_to_show: list[float] | None = None,
+    show_ci: bool = True,
+    ci_alpha: float = 0.2,
+    pareto_points: list[dict] | None = None,
 ) -> None:
-    """Plot AUROC vs panel size curve with annotations.
+    """Plot AUROC vs panel size curve with Pareto frontier and confidence intervals.
 
     Args:
         curve: List of dicts with keys "size", "auroc_val", "auroc_cv", "auroc_cv_std".
@@ -36,6 +39,9 @@ def plot_pareto_curve(
         title: Plot title.
         model_name: Model name for subtitle.
         thresholds_to_show: AUROC fraction thresholds to annotate (default: [0.95, 0.90]).
+        show_ci: Whether to show confidence intervals (default: True).
+        ci_alpha: Transparency for CI shaded region (default: 0.2).
+        pareto_points: Optional list of Pareto-optimal points. If None, computed from curve.
 
     Returns:
         None. Saves plot to out_path.
@@ -64,6 +70,10 @@ def plot_pareto_curve(
     aurocs_cv = aurocs_cv[sort_idx]
     aurocs_std = aurocs_std[sort_idx]
 
+    # Compute 95% CI bounds (assuming normal distribution: mean ± 1.96 * std)
+    ci_lower = aurocs_cv - 1.96 * aurocs_std
+    ci_upper = aurocs_cv + 1.96 * aurocs_std
+
     fig, ax = plt.subplots(figsize=(8, 6))
 
     # Plot validation AUROC
@@ -75,6 +85,7 @@ def plot_pareto_curve(
         linewidth=2,
         markersize=6,
         label="Validation AUROC",
+        zorder=5,
     )
 
     # Plot CV AUROC with error bars
@@ -89,7 +100,62 @@ def plot_pareto_curve(
         capsize=3,
         alpha=0.7,
         label="CV AUROC (OOF)",
+        zorder=4,
     )
+
+    # Add 95% CI shaded region for CV AUROC
+    if show_ci and np.any(aurocs_std > 0):
+        ax.fill_between(
+            sizes,
+            ci_lower,
+            ci_upper,
+            color="#64748b",
+            alpha=ci_alpha,
+            label="95% CI",
+            zorder=1,
+        )
+
+    # Plot Pareto frontier
+    if pareto_points is None:
+        # Compute Pareto frontier from curve if not provided
+        from ced_ml.features.rfe import extract_pareto_frontier
+
+        pareto_points = extract_pareto_frontier(curve)
+
+    if pareto_points and len(pareto_points) > 1:
+        # Extract Pareto sizes and AUROCs (sorted by size descending)
+        pareto_sizes = np.array([p["size"] for p in pareto_points])
+        pareto_aurocs = np.array([p["auroc_val"] for p in pareto_points])
+
+        # Sort by size descending
+        sort_idx = np.argsort(pareto_sizes)[::-1]
+        pareto_sizes = pareto_sizes[sort_idx]
+        pareto_aurocs = pareto_aurocs[sort_idx]
+
+        # Plot Pareto frontier as a step function (connecting non-dominated points)
+        ax.plot(
+            pareto_sizes,
+            pareto_aurocs,
+            color="#dc2626",  # red
+            linewidth=2.5,
+            linestyle="-",
+            alpha=0.8,
+            label="Pareto Frontier",
+            zorder=6,
+        )
+
+        # Highlight Pareto-optimal points
+        ax.scatter(
+            pareto_sizes,
+            pareto_aurocs,
+            s=80,
+            c="#dc2626",
+            marker="^",
+            zorder=8,
+            edgecolors="white",
+            linewidths=1.5,
+            alpha=0.9,
+        )
 
     # Threshold lines
     colors = ["#10b981", "#f59e0b", "#ef4444"]  # green, amber, red
@@ -101,6 +167,7 @@ def plot_pareto_curve(
             linestyle=":",
             alpha=0.7,
             linewidth=1.5,
+            zorder=2,
         )
         ax.text(
             sizes.max() * 0.98,
@@ -116,10 +183,13 @@ def plot_pareto_curve(
         key = f"min_size_{int(thresh * 100)}pct"
         if key in recommended:
             rec_size = recommended[key]
-            # Find corresponding AUROC
+            # Find corresponding AUROC and CI
             idx = np.where(sizes == rec_size)[0]
             if len(idx) > 0:
                 rec_auroc = aurocs_val[idx[0]]
+                rec_auroc_cv = aurocs_cv[idx[0]]
+                rec_std = aurocs_std[idx[0]]
+
                 ax.scatter(
                     [rec_size],
                     [rec_auroc],
@@ -130,13 +200,23 @@ def plot_pareto_curve(
                     edgecolors="white",
                     linewidths=1.5,
                 )
+
+                # Annotation with CI
+                if rec_std > 0:
+                    annotation_text = (
+                        f"n={rec_size}\nAUROC: {rec_auroc_cv:.3f} ± {1.96*rec_std:.3f}"
+                    )
+                else:
+                    annotation_text = f"n={rec_size}\nAUROC: {rec_auroc:.3f}"
+
                 ax.annotate(
-                    f"n={rec_size}",
+                    annotation_text,
                     (rec_size, rec_auroc),
                     textcoords="offset points",
-                    xytext=(10, -10),
-                    fontsize=9,
+                    xytext=(10, -15),
+                    fontsize=8,
                     color=colors[i % len(colors)],
+                    bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none", "pad": 2},
                 )
 
     # Mark knee point
@@ -145,6 +225,9 @@ def plot_pareto_curve(
         idx = np.where(sizes == knee_size)[0]
         if len(idx) > 0:
             knee_auroc = aurocs_val[idx[0]]
+            knee_auroc_cv = aurocs_cv[idx[0]]
+            knee_std = aurocs_std[idx[0]]
+
             ax.scatter(
                 [knee_size],
                 [knee_auroc],
@@ -155,15 +238,28 @@ def plot_pareto_curve(
                 edgecolors="white",
                 linewidths=1,
             )
+
+            # Annotation with CI
+            if knee_std > 0:
+                knee_text = (
+                    f"Knee (n={knee_size})\nAUROC: {knee_auroc_cv:.3f} ± {1.96*knee_std:.3f}"
+                )
+            else:
+                knee_text = f"Knee (n={knee_size})\nAUROC: {knee_auroc:.3f}"
+
             ax.annotate(
-                f"Knee (n={knee_size})",
+                knee_text,
                 (knee_size, knee_auroc),
                 textcoords="offset points",
                 xytext=(-10, 10),
-                fontsize=9,
+                fontsize=8,
                 fontweight="bold",
                 color="#7c3aed",
+                bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none", "pad": 2},
             )
+
+    # Add statistical comparison annotations for adjacent recommended sizes
+    _add_comparison_annotations(ax, sizes, aurocs_cv, aurocs_std, recommended, thresholds_to_show)
 
     # Styling
     ax.set_xlabel("Panel Size (number of proteins)", fontsize=11)
@@ -171,14 +267,14 @@ def plot_pareto_curve(
     ax.set_xlim(0, sizes.max() * 1.05)
 
     # Y-axis: show reasonable range around the data
-    y_min = min(aurocs_val.min(), aurocs_cv.min() - aurocs_std.max()) - 0.02
-    y_max = max(aurocs_val.max(), aurocs_cv.max() + aurocs_std.max()) + 0.02
+    y_min = min(aurocs_val.min(), (aurocs_cv - 1.96 * aurocs_std).min()) - 0.02
+    y_max = max(aurocs_val.max(), (aurocs_cv + 1.96 * aurocs_std).max()) + 0.02
     y_min = max(0.5, y_min)  # Don't go below 0.5
     y_max = min(1.0, y_max)  # Don't go above 1.0
     ax.set_ylim(y_min, y_max)
 
     ax.legend(loc="lower right", fontsize=9)
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, alpha=0.3, zorder=0)
 
     # Title
     if model_name:
@@ -189,11 +285,15 @@ def plot_pareto_curve(
     # Add summary text
     summary_lines = [
         f"Max AUROC: {max_auroc:.3f}",
-        f"Start size: {sizes.max()}",
-        f"Min size evaluated: {sizes.min()}",
+        f"Start size: {int(sizes.max())}",
+        f"Min size evaluated: {int(sizes.min())}",
     ]
     if "knee_point" in recommended:
         summary_lines.append(f"Knee point: {recommended['knee_point']}")
+
+    # Add Pareto frontier summary
+    if pareto_points and len(pareto_points) > 1:
+        summary_lines.append(f"Pareto points: {len(pareto_points)}")
 
     summary_text = "\n".join(summary_lines)
     ax.text(
@@ -210,6 +310,121 @@ def plot_pareto_curve(
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+
+
+def _add_comparison_annotations(
+    ax,
+    sizes: np.ndarray,
+    aurocs_cv: np.ndarray,
+    aurocs_std: np.ndarray,
+    recommended: dict[str, int],
+    thresholds: list[float],
+) -> None:
+    """Add statistical comparison annotations between recommended panel sizes.
+
+    Draws lines and text indicating whether differences between adjacent
+    recommended panel sizes are statistically significant (non-overlapping CIs).
+
+    Args:
+        ax: Matplotlib axes object.
+        sizes: Array of panel sizes.
+        aurocs_cv: Array of CV AUROC means.
+        aurocs_std: Array of CV AUROC standard deviations.
+        recommended: Dict with recommended panel sizes.
+        thresholds: List of AUROC thresholds.
+    """
+    if not _HAS_PLOTTING:
+        return
+
+    # Get sorted recommended sizes (excluding knee_point for now)
+    rec_sizes = []
+    for thresh in sorted(thresholds, reverse=True):
+        key = f"min_size_{int(thresh * 100)}pct"
+        if key in recommended:
+            rec_sizes.append(recommended[key])
+
+    # Remove duplicates and sort
+    rec_sizes = sorted(set(rec_sizes), reverse=True)
+
+    # Compare adjacent pairs
+    for i in range(len(rec_sizes) - 1):
+        size_larger = rec_sizes[i]
+        size_smaller = rec_sizes[i + 1]
+
+        # Find indices
+        idx_larger = np.where(sizes == size_larger)[0]
+        idx_smaller = np.where(sizes == size_smaller)[0]
+
+        if len(idx_larger) == 0 or len(idx_smaller) == 0:
+            continue
+
+        # Get metrics
+        auroc_larger = aurocs_cv[idx_larger[0]]
+        std_larger = aurocs_std[idx_larger[0]]
+        ci_lower_larger = auroc_larger - 1.96 * std_larger
+        ci_upper_larger = auroc_larger + 1.96 * std_larger
+
+        auroc_smaller = aurocs_cv[idx_smaller[0]]
+        std_smaller = aurocs_std[idx_smaller[0]]
+        ci_lower_smaller = auroc_smaller - 1.96 * std_smaller
+        ci_upper_smaller = auroc_smaller + 1.96 * std_smaller
+
+        # Check if CIs overlap
+        cis_overlap = not (ci_upper_smaller < ci_lower_larger or ci_upper_larger < ci_lower_smaller)
+
+        # Compute Z-score for difference (approximate)
+        if std_larger > 0 and std_smaller > 0:
+            se_diff = np.sqrt(std_larger**2 + std_smaller**2)
+            z_score = abs(auroc_larger - auroc_smaller) / se_diff
+            is_significant = z_score > 1.96  # p < 0.05
+        else:
+            is_significant = False
+            z_score = 0.0
+
+        # Only annotate if there's a meaningful comparison
+        if std_larger == 0 and std_smaller == 0:
+            continue
+
+        # Position for annotation line (halfway between points in x-axis space)
+        x_mid = (size_larger + size_smaller) / 2
+        y_pos = min(auroc_larger, auroc_smaller) - 0.015  # Slightly below lower point
+
+        # Color code: green if not significant (CIs overlap), red if significant difference
+        if cis_overlap or not is_significant:
+            color = "#10b981"  # green - not significantly different
+            label = "NS"
+        else:
+            color = "#ef4444"  # red - significantly different
+            label = f"p<0.05\nΔ={abs(auroc_larger - auroc_smaller):.3f}"
+
+        # Draw horizontal line between points
+        ax.plot(
+            [size_larger, size_smaller],
+            [y_pos, y_pos],
+            color=color,
+            linestyle="--",
+            linewidth=1,
+            alpha=0.6,
+            zorder=3,
+        )
+
+        # Add text annotation
+        ax.text(
+            x_mid,
+            y_pos - 0.008,
+            label,
+            fontsize=7,
+            ha="center",
+            va="top",
+            color=color,
+            bbox={
+                "facecolor": "white",
+                "alpha": 0.9,
+                "edgecolor": color,
+                "pad": 1,
+                "linewidth": 0.5,
+            },
+        )
 
 
 def plot_feature_ranking(

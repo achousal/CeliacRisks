@@ -33,45 +33,43 @@ class OutputDirectories:
 
     Attributes:
         root: Base output directory
+        plots: All split-level visualizations (ROC, PR, calibration, DCA, risk distributions, OOF)
         core: Core metrics and settings (val_metrics.csv, test_metrics.csv, run_settings.json)
-        cv: Cross-validation artifacts (best_params_per_split.csv, cv_repeat_metrics.csv)
+        cv: Cross-validation artifacts (best_params_per_split.csv, cv_repeat_metrics.csv, Optuna plots)
         preds_test: Test set predictions
         preds_val: Validation set predictions
         preds_controls: Control subjects OOF predictions
         preds_train_oof: Out-of-fold train predictions
-        reports_features: Feature importance reports
-        reports_stable: Stable panel reports
-        reports_panels: Panel building reports (N=10, 25, 50, etc.)
-        reports_subgroups: Subgroup analysis reports
+        panels_features: Feature importance reports
+        panels_stable: Stable panel reports
+        panels_sizes: Panel building reports (N=10, 25, 50, etc.)
+        panels_subgroups: Subgroup analysis reports
         diag: Diagnostics root
         diag_splits: Split trace and diagnostics
-        diag_calibration: Calibration curves
-        diag_learning: Learning curves
-        diag_dca: Decision curve analysis
-        diag_tuning: Hyperparameter tuning diagnostics
-        diag_plots: Diagnostic plots (ROC, PR, calibration, DCA, risk distributions)
+        diag_calibration: Calibration curve data (CSVs)
+        diag_learning: Learning curve data (CSVs)
+        diag_dca: Decision curve analysis data (CSVs)
         diag_screening: Feature screening results
         diag_test_ci: Bootstrap CI files for test metrics
     """
 
     root: str
+    plots: str
     core: str
     cv: str
     preds_test: str
     preds_val: str
     preds_controls: str
     preds_train_oof: str
-    reports_features: str
-    reports_stable: str
-    reports_panels: str
-    reports_subgroups: str
+    panels_features: str
+    panels_stable: str
+    panels_sizes: str
+    panels_subgroups: str
     diag: str
     diag_splits: str
     diag_calibration: str
     diag_learning: str
     diag_dca: str
-    diag_tuning: str
-    diag_plots: str
     diag_screening: str
     diag_test_ci: str
 
@@ -90,9 +88,9 @@ class OutputDirectories:
             root: Base output directory path
             exist_ok: If True, do not raise if directories exist
             split_seed: If provided, creates a split-specific subdirectory
-                        (e.g., root/run_20260121_143022/split_seed0/) for multi-split runs
+                        (e.g., root/run_20260121_143022/splits/split_seed0/)
             run_id: If provided, creates a run-specific subdirectory
-                    (e.g., root/run_20260121_143022/split_seed0/)
+                    (e.g., root/run_20260121_143022/splits/split_seed0/)
 
         Returns:
             OutputDirectories instance with all paths created
@@ -106,31 +104,30 @@ class OutputDirectories:
         if run_id is not None:
             root_path = root_path / f"run_{run_id}"
 
-        # If split_seed is provided, nest under a split-specific subdirectory
+        # If split_seed is provided, nest under splits/ parent folder
         if split_seed is not None:
-            root_path = root_path / f"split_seed{split_seed}"
+            root_path = root_path / "splits" / f"split_seed{split_seed}"
 
         # Define structure (relative to root)
         structure = {
+            "plots": "plots",
             "core": "core",
             "cv": "cv",
-            "preds_test": "preds/test_preds",
-            "preds_val": "preds/val_preds",
-            "preds_controls": "preds/controls_oof",
-            "preds_train_oof": "preds/train_oof",
-            "reports_features": "reports/feature_reports",
-            "reports_stable": "reports/stable_panel",
-            "reports_panels": "reports/panels",
-            "reports_subgroups": "reports/subgroups",
+            "preds_test": "preds",
+            "preds_val": "preds",
+            "preds_controls": "preds",
+            "preds_train_oof": "preds",
+            "panels_features": "panels",
+            "panels_stable": "panels",
+            "panels_sizes": "panels",
+            "panels_subgroups": "panels",
             "diag": "diagnostics",
-            "diag_splits": "diagnostics/splits",
-            "diag_calibration": "diagnostics/calibration",
-            "diag_learning": "diagnostics/learning_curve",
-            "diag_dca": "diagnostics/dca",
-            "diag_tuning": "diagnostics/tuning",
-            "diag_plots": "diagnostics/plots",
-            "diag_screening": "diagnostics/screening",
-            "diag_test_ci": "diagnostics/test_ci_files",
+            "diag_splits": "diagnostics",
+            "diag_calibration": "diagnostics",
+            "diag_learning": "diagnostics",
+            "diag_dca": "diagnostics",
+            "diag_screening": "diagnostics",
+            "diag_test_ci": "diagnostics",
         }
 
         # Create all directories
@@ -148,7 +145,7 @@ class OutputDirectories:
         Construct full path for a file in a specific category.
 
         Args:
-            category: Directory category (e.g., "core", "cv", "reports_features")
+            category: Directory category (e.g., "core", "cv", "panels_features")
             filename: File name
 
         Returns:
@@ -159,6 +156,89 @@ class OutputDirectories:
         """
         if not hasattr(self, category):
             raise ValueError(f"Unknown output category: {category}")
+        return os.path.join(getattr(self, category), filename)
+
+
+@dataclass
+class AggregatedOutputDirectories:
+    """
+    Structured output directory paths for aggregated results.
+
+    Attributes:
+        root: Base aggregated directory (e.g., results/{model}/run_{id}/aggregated/)
+        metrics: Aggregated metrics (pooled_test_metrics.csv, test_metrics_summary.csv, selection_scores.csv)
+        panels: Feature panels and stability (consensus_panel_*.txt, feature_stability.csv)
+        plots: ALL aggregated visualizations (aggregated ROC, PR, calibration, feature curves, etc.)
+        cv: Cross-validation aggregated artifacts (all_cv_repeat_metrics.csv, hyperparams_summary.csv)
+        preds: Pooled predictions (test_preds/, val_preds/, train_oof/)
+        diagnostics: Diagnostic artifacts (calibration/, dca/, screening/)
+    """
+
+    root: str
+    metrics: str
+    panels: str
+    plots: str
+    cv: str
+    preds: str
+    diagnostics: str
+
+    @classmethod
+    def create(
+        cls,
+        root: str,
+        exist_ok: bool = True,
+    ) -> "AggregatedOutputDirectories":
+        """
+        Create aggregated output directory structure.
+
+        Args:
+            root: Base output directory path (e.g., results/{model}/run_{id}/aggregated/)
+            exist_ok: If True, do not raise if directories exist
+
+        Returns:
+            AggregatedOutputDirectories instance with all paths created
+
+        Raises:
+            OSError: If directory creation fails
+        """
+        root_path = Path(root) / "aggregated"
+
+        # Define structure (relative to aggregated/)
+        structure = {
+            "metrics": "metrics",
+            "panels": "panels",
+            "plots": "plots",
+            "cv": "cv",
+            "preds": "preds",
+            "diagnostics": "diagnostics",
+        }
+
+        # Create all directories
+        paths = {"root": str(root_path)}
+        for key, rel_path in structure.items():
+            abs_path = root_path / rel_path
+            abs_path.mkdir(parents=True, exist_ok=exist_ok)
+            paths[key] = str(abs_path)
+
+        logger.debug(f"Created aggregated output structure at: {root_path}")
+        return cls(**paths)
+
+    def get_path(self, category: str, filename: str) -> str:
+        """
+        Construct full path for a file in a specific category.
+
+        Args:
+            category: Directory category (e.g., "metrics", "panels", "plots")
+            filename: File name
+
+        Returns:
+            Full file path as string
+
+        Raises:
+            ValueError: If category is invalid
+        """
+        if not hasattr(self, category):
+            raise ValueError(f"Unknown aggregated output category: {category}")
         return os.path.join(getattr(self, category), filename)
 
 
@@ -362,7 +442,7 @@ class ResultsWriter:
 
     def save_test_predictions(self, predictions_df: pd.DataFrame, model: str) -> str:
         """
-        Save test predictions to preds/test_preds/test_preds__{model}.csv.
+        Save test predictions to preds/test_preds__{model}.csv.
 
         Args:
             predictions_df: DataFrame with ID, y_true, predictions
@@ -379,7 +459,7 @@ class ResultsWriter:
 
     def save_val_predictions(self, predictions_df: pd.DataFrame, model: str) -> str:
         """
-        Save validation predictions to preds/val_preds/val_preds__{model}.csv.
+        Save validation predictions to preds/val_preds__{model}.csv.
 
         Args:
             predictions_df: DataFrame with ID, y_true, predictions
@@ -396,7 +476,7 @@ class ResultsWriter:
 
     def save_train_oof_predictions(self, predictions_df: pd.DataFrame, model: str) -> str:
         """
-        Save train out-of-fold predictions to preds/train_oof/train_oof__{model}.csv.
+        Save train out-of-fold predictions to preds/train_oof__{model}.csv.
 
         Args:
             predictions_df: DataFrame with ID, y_true, OOF predictions
@@ -432,7 +512,7 @@ class ResultsWriter:
 
     def save_feature_report(self, report_df: pd.DataFrame, model: str) -> str:
         """
-        Save feature importance report to reports/feature_reports/{model}__feature_report_train.csv.
+        Save feature importance report to panels/{model}__feature_report_train.csv.
 
         Args:
             report_df: DataFrame with protein, effect_size, p_value, selection_freq
@@ -442,14 +522,14 @@ class ResultsWriter:
             Path to saved file
         """
         filename = f"{model}__feature_report_train.csv"
-        path = self.dirs.get_path("reports_features", filename)
+        path = self.dirs.get_path("panels_features", filename)
         report_df.to_csv(path, index=False)
         logger.info(f"Saved feature report: {path}")
         return str(path)
 
     def save_stable_panel_report(self, panel_df: pd.DataFrame, panel_type: str = "KBest") -> str:
         """
-        Save stable panel report to reports/stable_panel/stable_panel__{panel_type}.csv.
+        Save stable panel report to panels/stable_panel__{panel_type}.csv.
 
         Args:
             panel_df: DataFrame with stable panel proteins and statistics
@@ -459,14 +539,14 @@ class ResultsWriter:
             Path to saved file
         """
         filename = f"stable_panel__{panel_type}.csv"
-        path = self.dirs.get_path("reports_stable", filename)
+        path = self.dirs.get_path("panels_stable", filename)
         panel_df.to_csv(path, index=False)
         logger.info(f"Saved stable panel report: {path}")
         return str(path)
 
     def save_panel_manifest(self, manifest: dict[str, Any], model: str, panel_size: int) -> str:
         """
-        Save panel manifest to reports/panels/{model}__N{size}__panel_manifest.json.
+        Save panel manifest to panels/{model}__N{size}__panel_manifest.json.
 
         Args:
             manifest: Panel metadata dictionary
@@ -477,7 +557,7 @@ class ResultsWriter:
             Path to saved file
         """
         filename = f"{model}__N{panel_size}__panel_manifest.json"
-        path = self.dirs.get_path("reports_panels", filename)
+        path = self.dirs.get_path("panels_sizes", filename)
         with open(path, "w") as f:
             json.dump(manifest, f, indent=2, sort_keys=True)
         logger.info(f"Saved panel manifest: {path}")
@@ -487,7 +567,7 @@ class ResultsWriter:
         self, panel_proteins: list[str], scenario: str, model: str, metadata: dict[str, Any] = None
     ) -> str:
         """
-        Save final test panel (proteins used in final model) to reports/panels/{model}__final_test_panel.json.
+        Save final test panel (proteins used in final model) to panels/{model}__final_test_panel.json.
 
         Args:
             panel_proteins: List of protein names selected in final model
@@ -506,7 +586,7 @@ class ResultsWriter:
             "metadata": metadata or {},
         }
         filename = f"{model}__final_test_panel.json"
-        path = self.dirs.get_path("reports_panels", filename)
+        path = self.dirs.get_path("panels_sizes", filename)
         with open(path, "w") as f:
             json.dump(manifest, f, indent=2, sort_keys=True)
         logger.info(f"Saved final test panel: {path}")
@@ -514,7 +594,7 @@ class ResultsWriter:
 
     def save_subgroup_metrics(self, subgroup_df: pd.DataFrame, model: str) -> str:
         """
-        Save subgroup analysis to reports/subgroups/{model}__test_subgroup_metrics.csv.
+        Save subgroup analysis to panels/{model}__test_subgroup_metrics.csv.
 
         Args:
             subgroup_df: DataFrame with per-subgroup metrics
@@ -524,7 +604,7 @@ class ResultsWriter:
             Path to saved file
         """
         filename = f"{model}__test_subgroup_metrics.csv"
-        path = self.dirs.get_path("reports_subgroups", filename)
+        path = self.dirs.get_path("panels_subgroups", filename)
         subgroup_df.to_csv(path, index=False)
         logger.info(f"Saved subgroup metrics: {path}")
         return str(path)

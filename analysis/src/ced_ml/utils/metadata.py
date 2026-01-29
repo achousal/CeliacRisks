@@ -136,7 +136,7 @@ def build_plot_metadata(
             breakdown.append(f"prevalent={n_prevalent}")
 
         # Add prevalence if we have categories and positive count
-        if breakdown and n_pos is not None:
+        if breakdown and n_pos is not None and n_total > 0:
             breakdown.append(f"prev={n_pos/n_total:.3f}")
         elif n_pos is not None and not breakdown:
             # Fallback to old format if no categories

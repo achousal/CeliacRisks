@@ -17,14 +17,14 @@ def mock_aggregated_structure(tmp_path):
             LR_EN/
                 run_20260127_115115/
                     aggregated/
-                        reports/feature_reports/
+                        panels/
                             feature_stability_summary.csv
                         optimize_panel/
                             feature_ranking_aggregated.csv
             RF/
                 run_20260127_115115/
                     aggregated/
-                        reports/feature_reports/
+                        panels/
                             feature_stability_summary.csv
             XGBoost/
                 run_20260127_115115/
@@ -32,14 +32,14 @@ def mock_aggregated_structure(tmp_path):
             ENSEMBLE/
                 run_20260127_115115/
                     aggregated/
-                        reports/feature_reports/
+                        panels/
                             feature_stability_summary.csv
     """
     results_root = tmp_path / "results"
 
     # LR_EN with full aggregated results including RFE
     lr_en_agg = results_root / "LR_EN" / "run_20260127_115115" / "aggregated"
-    lr_en_reports = lr_en_agg / "reports" / "feature_reports"
+    lr_en_reports = lr_en_agg / "panels"
     lr_en_reports.mkdir(parents=True)
 
     # Create stability CSV
@@ -65,7 +65,7 @@ def mock_aggregated_structure(tmp_path):
 
     # RF with stability only (no RFE)
     rf_agg = results_root / "RF" / "run_20260127_115115" / "aggregated"
-    rf_reports = rf_agg / "reports" / "feature_reports"
+    rf_reports = rf_agg / "panels"
     rf_reports.mkdir(parents=True)
 
     # Create stability CSV with slightly different rankings
@@ -84,7 +84,7 @@ def mock_aggregated_structure(tmp_path):
 
     # ENSEMBLE with stability (should be skipped by default)
     ens_agg = results_root / "ENSEMBLE" / "run_20260127_115115" / "aggregated"
-    ens_reports = ens_agg / "reports" / "feature_reports"
+    ens_reports = ens_agg / "panels"
     ens_reports.mkdir(parents=True)
     stability_df.to_csv(ens_reports / "feature_stability_summary.csv", index=False)
 

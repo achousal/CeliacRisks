@@ -74,10 +74,24 @@ def resolve_results_dir_from_run_id(
         FileNotFoundError: If no matching results found
         ValueError: If configuration is invalid
     """
+    import os
     from pathlib import Path
 
-    # Determine results directory (project root / results)
-    results_dir = Path(__file__).parent.parent.parent.parent.parent / "results"
+    # Determine results directory
+    # Try multiple locations in order:
+    # 1. Environment variable (for explicit override)
+    # 2. Current working directory (for tests)
+    # 3. Project root (for production)
+    results_dir_env = os.getenv("CED_RESULTS_DIR")
+    if results_dir_env:
+        results_dir = Path(results_dir_env)
+    elif (Path.cwd() / "results").exists():
+        results_dir = Path.cwd() / "results"
+    else:
+        # Try to find project root by looking for analysis/ directory
+        analysis_dir = Path(__file__).parent.parent.parent
+        project_root = analysis_dir.parent
+        results_dir = project_root / "results"
 
     if not results_dir.exists():
         raise FileNotFoundError(f"Results directory not found: {results_dir}")
@@ -102,13 +116,22 @@ def resolve_results_dir_from_run_id(
 
     # If model is specified, look for that specific model
     if model:
+        # Try model-prefixed path first (production structure)
         model_path = results_dir / model / f"run_{run_id}"
-        if not model_path.exists():
-            raise FileNotFoundError(
-                f"Results directory not found for model {model}, run {run_id}.\n"
-                f"Expected: {model_path}"
-            )
-        return str(model_path)
+        if model_path.exists():
+            return str(model_path)
+
+        # Fall back to flat structure (e.g., when using --outdir in tests)
+        flat_path = results_dir / f"run_{run_id}"
+        if flat_path.exists():
+            return str(flat_path)
+
+        raise FileNotFoundError(
+            f"Results directory not found for model {model}, run {run_id}.\n"
+            f"Tried:\n"
+            f"  - {model_path} (production structure)\n"
+            f"  - {flat_path} (flat structure)"
+        )
 
     # If model is not specified, find any model with this run_id
     matching_models = []
@@ -343,13 +366,14 @@ def run_aggregate_splits(
     for ed in ensemble_dirs:
         logger.info(f"  ENSEMBLE/{ed.name}")
 
-    # Setup directory structure
+    # Setup directory structure: aggregated/metrics/, aggregated/panels/, aggregated/plots/
     dirs = setup_aggregation_directories(results_path)
     agg_dir = dirs["agg"]
-    core_dir = dirs["core"]
-    cv_dir = dirs["cv"]
-    preds_dir = dirs["preds"]
-    reports_dir = dirs["reports"]
+    metrics_dir = dirs["metrics"]  # CSV/JSON metrics
+    panels_dir = dirs["panels"]  # Feature panels and stability
+    plots_dir = dirs["plots"]  # All visualizations
+    cv_dir = dirs["cv"]  # CV artifacts (hyperparams, repeat metrics)
+    preds_dir = dirs["preds"]  # Pooled predictions
 
     logger.info(f"Output: {agg_dir}")
 
@@ -390,7 +414,7 @@ def run_aggregate_splits(
         pooled_val_df=pooled_val_df,
         target_specificity=target_specificity,
         control_spec_targets=control_spec_targets,
-        core_dir=core_dir,
+        metrics_dir=metrics_dir,
         agg_dir=agg_dir,
         logger=logger,
     )
@@ -427,7 +451,7 @@ def run_aggregate_splits(
                 save_ensemble_aggregation_metadata,
             )
 
-            agg_plots_dir = agg_dir / "diagnostics" / "plots"
+            agg_plots_dir = plots_dir
             agg_plots_dir.mkdir(parents=True, exist_ok=True)
 
             # Collect meta-learner coefficients from each ensemble split
@@ -515,7 +539,7 @@ def run_aggregate_splits(
 
         summary = compute_summary_stats(test_metrics, logger=logger)
         if not summary.empty:
-            summary_path = core_dir / "test_metrics_summary.csv"
+            summary_path = metrics_dir / "test_metrics_summary.csv"
             summary.to_csv(summary_path, index=False)
             logger.info(f"Summary stats saved: {summary_path}")
 
@@ -527,7 +551,7 @@ def run_aggregate_splits(
 
         val_summary = compute_summary_stats(val_metrics, logger=logger)
         if not val_summary.empty:
-            val_summary_path = core_dir / "val_metrics_summary.csv"
+            val_summary_path = metrics_dir / "val_metrics_summary.csv"
             val_summary.to_csv(val_summary_path, index=False)
             logger.info(f"Val summary saved: {val_summary_path}")
 
@@ -579,20 +603,14 @@ def run_aggregate_splits(
         split_dirs, stability_threshold=stability_threshold, logger=logger
     )
 
-    feature_reports_dir = reports_dir / "feature_reports"
-    feature_reports_dir.mkdir(parents=True, exist_ok=True)
-
-    stable_panel_dir = reports_dir / "stable_panel"
-    stable_panel_dir.mkdir(parents=True, exist_ok=True)
+    panels_dir.mkdir(parents=True, exist_ok=True)
 
     if not feature_stability_df.empty:
-        feature_stability_df.to_csv(
-            feature_reports_dir / "feature_stability_summary.csv", index=False
-        )
+        feature_stability_df.to_csv(panels_dir / "feature_stability_summary.csv", index=False)
         logger.info(f"Feature stability: {len(feature_stability_df)} features analyzed")
 
     if not stable_features_df.empty:
-        stable_features_df.to_csv(stable_panel_dir / "consensus_stable_features.csv", index=False)
+        stable_features_df.to_csv(panels_dir / "consensus_stable_features.csv", index=False)
         logger.info(
             f"Stable features (>={stability_threshold*100:.0f}% splits): "
             f"{len(stable_features_df)} features"
@@ -605,9 +623,6 @@ def run_aggregate_splits(
     consensus_panels = build_consensus_panels(
         split_dirs, threshold=stability_threshold, logger=logger
     )
-
-    panels_dir = reports_dir / "panels"
-    panels_dir.mkdir(parents=True, exist_ok=True)
 
     for panel_size, manifest in consensus_panels.items():
         manifest_path = panels_dir / f"consensus_panel_N{panel_size}.json"
@@ -624,7 +639,7 @@ def run_aggregate_splits(
     agg_feature_report = pd.DataFrame()
 
     if not all_feature_reports.empty:
-        all_feature_reports_path = feature_reports_dir / "all_feature_reports.csv"
+        all_feature_reports_path = panels_dir / "all_feature_reports.csv"
         all_feature_reports.to_csv(all_feature_reports_path, index=False)
         logger.info(
             f"All feature reports: {len(all_feature_reports)} entries from "
@@ -633,7 +648,7 @@ def run_aggregate_splits(
 
         agg_feature_report = aggregate_feature_reports(all_feature_reports, logger=logger)
         if not agg_feature_report.empty:
-            agg_feature_report_path = feature_reports_dir / "feature_report.csv"
+            agg_feature_report_path = panels_dir / "feature_report.csv"
             agg_feature_report.to_csv(agg_feature_report_path, index=False)
             logger.info(f"Aggregated feature report: {len(agg_feature_report)} proteins analyzed")
             logger.info(
@@ -691,8 +706,21 @@ def run_aggregate_splits(
         optuna_trials_combined = None
         n_optuna_trials = 0
         for split_dir in split_dirs:
-            optuna_csv = split_dir / "cv" / "optuna" / "optuna_trials.csv"
-            if optuna_csv.exists():
+            optuna_dir = split_dir / "cv" / "optuna"
+            if not optuna_dir.exists():
+                continue
+
+            # Look for model-prefixed optuna_trials file (e.g., LinSVM_cal__optuna_trials.csv)
+            optuna_files = list(optuna_dir.glob("*__optuna_trials.csv"))
+
+            # Fallback to non-prefixed filename for backward compatibility
+            if not optuna_files:
+                optuna_csv = optuna_dir / "optuna_trials.csv"
+                if optuna_csv.exists():
+                    optuna_files = [optuna_csv]
+
+            if optuna_files:
+                optuna_csv = optuna_files[0]  # Use first match
                 try:
                     df = pd.read_csv(optuna_csv)
                     if optuna_trials_combined is None:

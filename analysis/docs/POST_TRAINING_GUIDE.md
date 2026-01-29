@@ -16,37 +16,51 @@ cd analysis/
 # Check job status
 bjobs -w | grep CeD_
 
-# When all jobs are DONE, run post-processing
+# When all jobs are DONE, run post-processing (auto-detection mode)
 bash scripts/post_training_pipeline.sh --run-id <YOUR_RUN_ID>
 
+# With ensemble training (auto-detects base models)
+bash scripts/post_training_pipeline.sh --run-id <YOUR_RUN_ID> --train-ensemble
+
 # Check results
-cat logs/post/post_20260122_120000/pipeline_summary_20260122_120000.json
-ls results/*/run_20260122_120000/aggregated/
+cat logs/aggregation/run_<YOUR_RUN_ID>/post_training_<YOUR_RUN_ID>.log
+ls results/*/run_<YOUR_RUN_ID>/aggregated/
 ```
 
 Replace `<YOUR_RUN_ID>` with the timestamp from `run_hpc.sh` output (e.g., `20260122_120000`).
 
-## post_training_pipeline.sh configurable options avalable
+**New in v1.3.0:** Complete `--run-id` auto-detection eliminates manual configuration. The pipeline automatically:
+- Discovers all models with `run_{RUN_ID}` directories
+- Validates base model outputs (checks required files per split)
+- Detects split count and validates completeness
+- Auto-configures ensemble training (if `--train-ensemble` flag used)
+- No config coordination needed between run_hpc.sh and post-processing
 
-#==============================================================
-### ARGUMENT PARSING
-#==============================================================
-TRAIN_ENSEMBLE=1
-SKIP_ENSEMBLE=0
-RUN_ID=""
-RESULTS_DIR=""
-CONFIG_FILE=""
-BASE_MODELS=""
-MIN_SPLITS=1
+## post_training_pipeline.sh Options
+
+**Required:**
+- `--run-id <RUN_ID>` - Run identifier (e.g., 20260122_120000)
+
+**Optional:**
+- `--train-ensemble` - Train ensemble meta-learner (default: disabled)
+- `--min-splits N` - Minimum splits required (default: 1)
+- `--results-dir DIR` - Override results directory (disables auto-detection)
+- `--base-models M1,M2,...` - Override base models (disables auto-detection)
+- `--config FILE` - Override config file (default: configs/pipeline_hpc.yaml)
+
+**Auto-Detection:**
+- By default, models and splits are auto-detected from run-id
+- Manual overrides (--results-dir, --base-models) disable auto-detection
+- Ensemble training uses `ced train-ensemble --run-id` for full auto-detection
 
 ## What the Pipeline Does
 
 ### Step 1: Validate Base Model Outputs
 - Checks each model's output for required files:
   - `core/test_metrics.csv`
-  - `preds/train_oof/train_oof__{MODEL}.csv`
-  - `preds/test_preds/test_preds__{MODEL}.csv`
-  - `preds/val_preds/val_preds__{MODEL}.csv`
+  - `preds/train_oof__{MODEL}.csv`
+  - `preds/test_preds__{MODEL}.csv`
+  - `preds/val_preds__{MODEL}.csv`
 - Reports which models completed successfully
 - Only aggregates validated models
 
@@ -55,7 +69,8 @@ MIN_SPLITS=1
 - Trains L2 logistic regression meta-learner
 - Generates ensemble predictions on val/test sets
 - Saves to `results/ENSEMBLE/run_{run_id}/split_seed{X}/`
-- **Enabled by default** (use `--skip-ensemble` flag to disable)
+- **Opt-in via `--train-ensemble` flag** (disabled by default)
+- Auto-detects base models and results directory from run-id
 
 ### Step 3: Aggregate Results
 - Runs `ced aggregate-splits` for each validated model

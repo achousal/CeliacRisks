@@ -59,34 +59,15 @@ def aggregate_feature_stability(
                 if pd.isna(proteins_raw):
                     continue
 
-                # Parse protein list (handle JSON strings from pd.read_csv)
-                # TODO: Remove comma-separated fallback once all legacy data is regenerated.
-                # Standard format from training.py (line 399) uses json.dumps().
-                proteins_list = None
-                if isinstance(proteins_raw, str):
-                    # Try parsing as JSON first (standard format from training.py)
-                    try:
-                        proteins_list = json.loads(proteins_raw)
-                    except (json.JSONDecodeError, TypeError):
-                        # Fallback: try comma-separated (legacy format)
-                        try:
-                            proteins_list = [
-                                p.strip() for p in proteins_raw.split(",") if p.strip()
-                            ]
-                        except Exception:
-                            if logger:
-                                logger.warning(
-                                    f"Failed to parse protein list in split {seed}: "
-                                    f"{proteins_raw[:100]}"
-                                )
-                            continue
-                elif isinstance(proteins_raw, list):
-                    # Already a list (backward compatibility for in-memory DataFrames)
-                    proteins_list = proteins_raw
-                else:
+                # Parse protein list from JSON format (standard from training.py:399 and rfe.py:758)
+                try:
+                    proteins_list = (
+                        json.loads(proteins_raw) if isinstance(proteins_raw, str) else proteins_raw
+                    )
+                except (json.JSONDecodeError, TypeError) as e:
                     if logger:
                         logger.warning(
-                            f"Unexpected protein format in split {seed}: {type(proteins_raw)}"
+                            f"Failed to parse protein list in split {seed}: {proteins_raw[:100]} ({e})"
                         )
                     continue
 

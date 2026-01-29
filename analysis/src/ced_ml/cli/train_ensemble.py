@@ -176,6 +176,7 @@ def discover_base_models_for_run(
     run_id: str | None = None,
     split_seed: int = 0,
     skip_ensemble: bool = True,
+    results_dir: str | None = None,
 ) -> tuple[str, list[str]]:
     """Auto-detect results directory and base models from run_id.
 
@@ -183,6 +184,7 @@ def discover_base_models_for_run(
         run_id: Run ID (e.g., "20260127_104409"). If None, auto-detects latest.
         split_seed: Split seed (default: 0)
         skip_ensemble: If True, exclude ENSEMBLE models (default: True)
+        results_dir: Root results directory (optional). If None, uses project root/results.
 
     Returns:
         Tuple of (results_dir, base_models) where:
@@ -194,16 +196,20 @@ def discover_base_models_for_run(
     """
     from pathlib import Path
 
-    # Determine results directory (project root / results)
-    results_dir = Path(__file__).parent.parent.parent.parent.parent / "results"
+    # Determine results directory
+    if results_dir is None:
+        # Default: project root / results
+        results_dir_path = Path(__file__).parent.parent.parent.parent.parent / "results"
+    else:
+        results_dir_path = Path(results_dir)
 
-    if not results_dir.exists():
-        raise FileNotFoundError(f"Results directory not found: {results_dir}")
+    if not results_dir_path.exists():
+        raise FileNotFoundError(f"Results directory not found: {results_dir_path}")
 
     # Auto-detect run_id if not provided
     if not run_id:
         run_ids = []
-        for model_dir in results_dir.glob("*/"):
+        for model_dir in results_dir_path.glob("*/"):
             if model_dir.name.startswith(".") or model_dir.name == "investigations":
                 continue
             for run_dir in model_dir.glob("run_*"):
@@ -221,7 +227,7 @@ def discover_base_models_for_run(
     # Find all models for this run with OOF predictions
     base_models = []
 
-    for model_dir in sorted(results_dir.glob("*/")):
+    for model_dir in sorted(results_dir_path.glob("*/")):
         model_name = model_dir.name
 
         # Skip hidden/special directories
@@ -237,13 +243,15 @@ def discover_base_models_for_run(
         if not run_path.exists():
             continue
 
-        # Check for split seed directory
-        split_path = run_path / f"split_seed{split_seed}"
+        # Check for split seed directory (new: splits/split_seed{N}, legacy: split_seed{N})
+        split_path = run_path / "splits" / f"split_seed{split_seed}"
+        if not split_path.exists():
+            split_path = run_path / f"split_seed{split_seed}"
         if not split_path.exists():
             continue
 
-        # Check for OOF predictions
-        oof_path = split_path / "preds" / "train_oof" / f"train_oof__{model_name}.csv"
+        # Check for OOF predictions (flat preds directory)
+        oof_path = split_path / "preds" / f"train_oof__{model_name}.csv"
         if oof_path.exists():
             base_models.append(model_name)
 
@@ -251,14 +259,14 @@ def discover_base_models_for_run(
         if skip_ensemble:
             raise FileNotFoundError(
                 f"No base models found for run {run_id}, split {split_seed} (ENSEMBLE excluded).\n"
-                f"Base models must have OOF predictions in: results/{{MODEL}}/run_{run_id}/split_seed{split_seed}/preds/train_oof/"
+                f"Base models must have OOF predictions in: results/{{MODEL}}/run_{run_id}/split_seed{split_seed}/preds/"
             )
         else:
             raise FileNotFoundError(
                 f"No models found for run {run_id}, split {split_seed} with OOF predictions"
             )
 
-    return str(results_dir), base_models
+    return str(results_dir_path), base_models
 
 
 def run_train_ensemble(
@@ -319,6 +327,7 @@ def run_train_ensemble(
             run_id=run_id,
             split_seed=split_seed,
             skip_ensemble=True,
+            results_dir=results_dir,
         )
 
         # Use detected values if not explicitly provided
@@ -366,7 +375,9 @@ def run_train_ensemble(
             # Use _find_model_split_dir for flexible path resolution (H1 fix)
             # This handles both legacy (split_{seed}) and new (run_{id}/split_seed{seed}) layouts
             model_dir = _find_model_split_dir(results_path, model, split_seed)
-            oof_path = model_dir / "preds" / "train_oof" / f"train_oof__{model}.csv"
+
+            # Flat preds directory structure
+            oof_path = model_dir / "preds" / f"train_oof__{model}.csv"
             if oof_path.exists():
                 available_models.append(model)
             else:
@@ -511,14 +522,8 @@ def run_train_ensemble(
     # Create output subdirectories matching standard structure
     core_dir = outdir / "core"
     preds_dir = outdir / "preds"
-    preds_test_dir = preds_dir / "test_preds"
-    preds_val_dir = preds_dir / "val_preds"
-    preds_train_oof_dir = preds_dir / "train_oof"
     core_dir.mkdir(exist_ok=True)
     preds_dir.mkdir(exist_ok=True)
-    preds_test_dir.mkdir(parents=True, exist_ok=True)
-    preds_val_dir.mkdir(parents=True, exist_ok=True)
-    preds_train_oof_dir.mkdir(parents=True, exist_ok=True)
 
     # Save ensemble model bundle
     import joblib
@@ -556,7 +561,8 @@ def run_train_ensemble(
         # Add category if available
         if "cat_val" in results and results["cat_val"] is not None:
             val_df["category"] = results["cat_val"]
-        val_path = preds_val_dir / "val_preds__ENSEMBLE.csv"
+        # Save directly in preds/ (matching training output structure)
+        val_path = preds_dir / "val_preds__ENSEMBLE.csv"
         val_df.to_csv(val_path, index=False)
         logger.info(f"Validation predictions saved: {val_path}")
 
@@ -571,7 +577,8 @@ def run_train_ensemble(
         # Add category if available
         if "cat_test" in results and results["cat_test"] is not None:
             test_df["category"] = results["cat_test"]
-        test_path = preds_test_dir / "test_preds__ENSEMBLE.csv"
+        # Save directly in preds/ (matching training output structure)
+        test_path = preds_dir / "test_preds__ENSEMBLE.csv"
         test_df.to_csv(test_path, index=False)
         logger.info(f"Test predictions saved: {test_path}")
 
@@ -587,7 +594,8 @@ def run_train_ensemble(
     # Add category if available
     if cat_train is not None:
         oof_df["category"] = cat_train
-    oof_path = preds_train_oof_dir / "train_oof__ENSEMBLE.csv"
+    # Save directly in preds/ (matching training output structure)
+    oof_path = preds_dir / "train_oof__ENSEMBLE.csv"
     oof_df.to_csv(oof_path, index=False)
     logger.info(f"OOF predictions saved: {oof_path}")
 
@@ -630,10 +638,10 @@ def run_train_ensemble(
     # ---- Generating Ensemble Plots ----
     log_section(logger, "Generating Ensemble Plots")
 
-    diag_plots_dir = outdir / "diagnostics" / "plots"
-    diag_plots_dir.mkdir(parents=True, exist_ok=True)
-    ensemble_diag_dir = outdir / "diagnostics" / "ensemble"
-    ensemble_diag_dir.mkdir(parents=True, exist_ok=True)
+    plots_dir = outdir / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    diagnostics_dir = outdir / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     plot_format = "png"
 
@@ -663,7 +671,7 @@ def run_train_ensemble(
             plot_roc_curve(
                 y_true=y_val_arr,
                 y_pred=val_proba_arr,
-                out_path=diag_plots_dir / f"ENSEMBLE__val_roc.{plot_format}",
+                out_path=plots_dir / f"ENSEMBLE__val_roc.{plot_format}",
                 title="ENSEMBLE - Validation ROC",
                 subtitle=f"split_seed={split_seed}",
                 meta_lines=meta_lines_plot,
@@ -672,7 +680,7 @@ def run_train_ensemble(
             plot_pr_curve(
                 y_true=y_val_arr,
                 y_pred=val_proba_arr,
-                out_path=diag_plots_dir / f"ENSEMBLE__val_pr.{plot_format}",
+                out_path=plots_dir / f"ENSEMBLE__val_pr.{plot_format}",
                 title="ENSEMBLE - Validation PR Curve",
                 subtitle=f"split_seed={split_seed}",
                 meta_lines=meta_lines_plot,
@@ -680,14 +688,14 @@ def run_train_ensemble(
             plot_calibration_curve(
                 y_true=y_val_arr,
                 y_pred=val_proba_arr,
-                out_path=diag_plots_dir / f"ENSEMBLE__val_calibration.{plot_format}",
+                out_path=plots_dir / f"ENSEMBLE__val_calibration.{plot_format}",
                 title="ENSEMBLE - Validation Calibration",
                 meta_lines=meta_lines_plot,
             )
             plot_dca_curve(
                 y_true=y_val_arr,
                 y_pred=val_proba_arr,
-                out_path=str(diag_plots_dir / f"ENSEMBLE__val_dca.{plot_format}"),
+                out_path=str(plots_dir / f"ENSEMBLE__val_dca.{plot_format}"),
                 title="ENSEMBLE - Validation DCA",
                 meta_lines=meta_lines_plot,
             )
@@ -701,7 +709,7 @@ def run_train_ensemble(
             plot_risk_distribution(
                 y_true=y_val_arr,
                 scores=val_proba_arr,
-                out_path=diag_plots_dir / f"ENSEMBLE__val_risk_dist.{plot_format}",
+                out_path=plots_dir / f"ENSEMBLE__val_risk_dist.{plot_format}",
                 title="ENSEMBLE - Validation Risk Distribution",
                 category_col=cat_val_arr,
                 threshold_bundle=val_bundle,
@@ -719,7 +727,7 @@ def run_train_ensemble(
             plot_roc_curve(
                 y_true=y_test_arr,
                 y_pred=test_proba_arr,
-                out_path=diag_plots_dir / f"ENSEMBLE__test_roc.{plot_format}",
+                out_path=plots_dir / f"ENSEMBLE__test_roc.{plot_format}",
                 title="ENSEMBLE - Test ROC",
                 subtitle=f"split_seed={split_seed}",
                 meta_lines=meta_lines_plot,
@@ -728,7 +736,7 @@ def run_train_ensemble(
             plot_pr_curve(
                 y_true=y_test_arr,
                 y_pred=test_proba_arr,
-                out_path=diag_plots_dir / f"ENSEMBLE__test_pr.{plot_format}",
+                out_path=plots_dir / f"ENSEMBLE__test_pr.{plot_format}",
                 title="ENSEMBLE - Test PR Curve",
                 subtitle=f"split_seed={split_seed}",
                 meta_lines=meta_lines_plot,
@@ -736,14 +744,14 @@ def run_train_ensemble(
             plot_calibration_curve(
                 y_true=y_test_arr,
                 y_pred=test_proba_arr,
-                out_path=diag_plots_dir / f"ENSEMBLE__test_calibration.{plot_format}",
+                out_path=plots_dir / f"ENSEMBLE__test_calibration.{plot_format}",
                 title="ENSEMBLE - Test Calibration",
                 meta_lines=meta_lines_plot,
             )
             plot_dca_curve(
                 y_true=y_test_arr,
                 y_pred=test_proba_arr,
-                out_path=str(diag_plots_dir / f"ENSEMBLE__test_dca.{plot_format}"),
+                out_path=str(plots_dir / f"ENSEMBLE__test_dca.{plot_format}"),
                 title="ENSEMBLE - Test DCA",
                 meta_lines=meta_lines_plot,
             )
@@ -757,7 +765,7 @@ def run_train_ensemble(
             plot_risk_distribution(
                 y_true=y_test_arr,
                 scores=test_proba_arr,
-                out_path=diag_plots_dir / f"ENSEMBLE__test_risk_dist.{plot_format}",
+                out_path=plots_dir / f"ENSEMBLE__test_risk_dist.{plot_format}",
                 title="ENSEMBLE - Test Risk Distribution",
                 category_col=cat_test_arr,
                 threshold_bundle=test_bundle,
@@ -794,7 +802,7 @@ def run_train_ensemble(
                 plot_oof_combined(
                     y_true=y_train_arr,
                     oof_preds=oof_preds_ensemble,
-                    out_dir=diag_plots_dir,
+                    out_dir=plots_dir,
                     model_name="ENSEMBLE",
                     plot_format=plot_format,
                     calib_bins=10,
@@ -831,8 +839,7 @@ def run_train_ensemble(
                 plot_risk_distribution(
                     y_true=y_train_arr,
                     scores=oof_proba,
-                    out_path=diag_plots_dir
-                    / f"ENSEMBLE__TRAIN_OOF_risk_distribution.{plot_format}",
+                    out_path=plots_dir / f"ENSEMBLE__TRAIN_OOF_risk_distribution.{plot_format}",
                     title="ENSEMBLE - Train OOF",
                     subtitle="Risk Score Distribution (meta-learner on OOF meta-features)",
                     category_col=cat_train_arr,
@@ -847,7 +854,7 @@ def run_train_ensemble(
         if coef:
             plot_meta_learner_weights(
                 coef=coef,
-                out_path=ensemble_diag_dir / f"ENSEMBLE__meta_weights.{plot_format}",
+                out_path=diagnostics_dir / f"ENSEMBLE__meta_weights.{plot_format}",
                 title="Meta-Learner Coefficients",
                 subtitle=f"split_seed={split_seed}",
                 meta_penalty=meta_penalty,
@@ -862,14 +869,14 @@ def run_train_ensemble(
         if len(base_metrics) >= 2:
             plot_model_comparison(
                 metrics=base_metrics,
-                out_path=ensemble_diag_dir / f"ENSEMBLE__model_comparison.{plot_format}",
+                out_path=diagnostics_dir / f"ENSEMBLE__model_comparison.{plot_format}",
                 title="Model Comparison (Test Set)",
                 subtitle=f"split_seed={split_seed}",
                 highlight_model="ENSEMBLE",
                 meta_lines=meta_lines_plot,
             )
 
-        logger.info(f"Ensemble-specific plots saved to: {ensemble_diag_dir}")
+        logger.info(f"Ensemble-specific plots saved to: {diagnostics_dir}")
 
     except Exception as e:
         logger.warning(f"Plot generation failed (non-fatal): {e}")
@@ -880,11 +887,13 @@ def run_train_ensemble(
         plot_lc = getattr(config.output, "plot_learning_curve", True) if config else True
         if lc_enabled and plot_lc:
             logger.info("Generating learning curve for ensemble meta-learner...")
-            diag_learning_dir = outdir / "diagnostics" / "learning_curve"
-            diag_learning_dir.mkdir(parents=True, exist_ok=True)
+            diagnostics_dir = outdir / "diagnostics"
+            diagnostics_dir.mkdir(parents=True, exist_ok=True)
+            plots_dir = outdir / "plots"
+            plots_dir.mkdir(parents=True, exist_ok=True)
 
-            lc_csv_path = diag_learning_dir / "ENSEMBLE__learning_curve.csv"
-            lc_plot_path = diag_learning_dir / f"ENSEMBLE__learning_curve.{plot_format}"
+            lc_csv_path = diagnostics_dir / "ENSEMBLE__learning_curve.csv"
+            lc_plot_path = plots_dir / f"ENSEMBLE__learning_curve.{plot_format}"
 
             # Build meta-features for learning curve computation
             # Use OOF predictions from base models as features for the meta-learner

@@ -191,7 +191,6 @@ def test_check_split_files_exist_none(temp_outdir):
         scenario="IncidentOnly",
         seed=42,
         has_val=False,
-        n_splits=1,
     )
     assert not exists
     assert len(paths) == 0
@@ -207,7 +206,6 @@ def test_check_split_files_exist_train_only(temp_outdir):
         scenario="IncidentOnly",
         seed=42,
         has_val=False,
-        n_splits=1,
     )
     assert exists
     assert train_path in paths
@@ -227,7 +225,6 @@ def test_check_split_files_exist_all_splits(temp_outdir):
         scenario="IncidentOnly",
         seed=42,
         has_val=False,
-        n_splits=1,
     )
     assert exists
     assert len(paths) == 3
@@ -248,7 +245,6 @@ def test_check_split_files_exist_with_val(temp_outdir):
         scenario="IncidentOnly",
         seed=42,
         has_val=True,
-        n_splits=1,
     )
     assert exists
     assert len(paths) == 4
@@ -268,7 +264,6 @@ def test_save_split_indices_twoway(temp_outdir, valid_split):
         train_idx=valid_split["train"],
         test_idx=valid_split["test"],
         val_idx=None,
-        n_splits=1,
     )
 
     assert "train" in paths
@@ -296,7 +291,6 @@ def test_save_split_indices_threeway(temp_outdir, valid_split):
         train_idx=valid_split["train"],
         test_idx=valid_split["test"],
         val_idx=valid_split["val"],
-        n_splits=10,  # Multiple splits use seed suffix
     )
 
     assert "train" in paths
@@ -939,7 +933,6 @@ def test_full_split_persistence_workflow(temp_outdir, valid_split, valid_labels)
         train_idx=valid_split["train"],
         test_idx=valid_split["test"],
         val_idx=valid_split["val"],
-        n_splits=10,
     )
 
     # Save metadata
@@ -968,7 +961,6 @@ def test_full_split_persistence_workflow(temp_outdir, valid_split, valid_labels)
         scenario="IncidentOnly",
         seed=42,
         has_val=True,
-        n_splits=10,
     )
     assert exists
     assert len(existing) == 4  # train, val, test, metadata

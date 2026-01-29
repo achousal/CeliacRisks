@@ -1,8 +1,8 @@
 # CeliacRisks Output Artifacts
 
-**Version:** 1.0
-**Date:** 2026-01-24
-**Status:** Reference documentation for output artifacts
+**Version:** 2.1
+**Date:** 2026-01-28
+**Status:** Reference documentation with `--run-id` auto-detection support
 
 ---
 
@@ -13,32 +13,83 @@
 3. [Cross-Validation Artifacts](#3-cross-validation-artifacts)
 4. [Plots](#4-plots)
 5. [File Formats](#5-file-formats)
+6. [Ensemble Artifacts](#6-ensemble-artifacts)
+7. [Auto-Detection Examples](#7-auto-detection-examples)
 
 ---
 
 ## 1. Directory Structure
 
-### 1.1 Single Split Output
+### 1.1 Overview
+
+All outputs follow a **three-level hierarchical structure**:
 
 ```
-results_hpc/{model}/split_seed{N}/
+results/
+  {model}/                        # Level 1: Model name (LR_EN, RF, XGBoost, ENSEMBLE)
+    run_{run_id}/                 # Level 2: Run ID (timestamped, e.g., 20260127_115115)
+      run_metadata.json           # Auto-detection metadata (NEW in v2.0)
+      splits/                     # Split container directory
+        split_seed{N}/            # Level 3: Split seed (0, 1, 2, ...)
+          core/                   # Metrics and settings
+          cv/                     # Cross-validation artifacts
+          plots/                  # Visualizations
+          preds/                  # Predictions (all types in flat structure)
+          panels/                 # Feature panels and reports
+          diagnostics/            # CSV data exports
+      aggregated/                 # Cross-split aggregation (created by aggregate-splits)
+        metrics/
+        panels/
+        plots/
+        cv/
+        preds/
+        diagnostics/
+```
+
+**Key structural features:**
+1. **Model isolation** - Each model has its own top-level directory
+2. **Run grouping** - All splits from the same training run share a `run_id`
+3. **Split separation** - Individual splits live under `splits/split_seed{N}/`
+4. **Flat predictions** - All prediction types (test, val, train_oof, controls) in single `preds/` directory (no subdirectories)
+5. **Flat diagnostics** - All diagnostic CSVs in single `diagnostics/` directory (no subdirectories)
+6. **Flat panels** - All panel reports in single `panels/` directory (no subdirectories)
+7. **Auto-detection support** - `run_metadata.json` at run level enables zero-config CLI commands
+
+**Auto-detection examples:**
+```bash
+# Aggregate results (auto-detects results directory from run-id)
+ced aggregate-splits --run-id 20260127_115115 --model LR_EN
+
+# Optimize panel (auto-detects infile, split-dir, aggregated/ paths)
+ced optimize-panel --run-id 20260127_115115 --model LR_EN
+
+# Cross-model consensus (auto-detects all model aggregated/ directories)
+ced consensus-panel --run-id 20260127_115115
+
+# Train ensemble (auto-detects base models and paths)
+ced train-ensemble --run-id 20260127_115115 --split-seed 0
+```
+
+### 1.2 Single Split Output
+
+**Path pattern:** `results/{model}/run_{run_id}/splits/split_seed{N}/`
+
+**Example:** `results/LR_EN/run_20260127_115115/splits/split_seed0/`
+
+```
+results/{model}/run_{run_id}/splits/split_seed{N}/
   core/
     final_model.pkl               # Trained sklearn model (pickled)
-    oof_predictions.csv           # OOF predictions (TRAIN set)
-    val_predictions.csv           # VAL predictions
-    test_predictions.csv          # TEST predictions
-    train_metrics.json            # TRAIN metrics
-    val_metrics.json              # VAL metrics
-    test_metrics.json             # TEST metrics
     run_settings.json             # Full config + metadata
-    stable_features.txt           # Stability panel proteins
+    test_metrics.csv              # TEST metrics
+    val_metrics.csv               # VAL metrics
   cv/
     cv_repeat_metrics.csv         # Per-repeat OOF metrics
-    best_params.csv               # Best hyperparameters per fold
+    best_params_per_split.csv     # Best hyperparameters per fold
     optuna/                       # (if Optuna enabled)
       optuna_config.json          # Optuna settings
       best_params_optuna.csv      # Best params with trial metadata
-      study.pkl                   # Optuna study object
+      optuna_trials.csv           # All trial results
   plots/
     roc_pr.png                    # ROC + PR curves
     calibration.png               # Calibration plot
@@ -47,19 +98,171 @@ results_hpc/{model}/split_seed{N}/
     oof_roc.png                   # OOF ROC with confidence bands
     oof_pr.png                    # OOF PR with confidence bands
     oof_calibration.png           # OOF calibration plot
-  diag_splits/
-    train_test_split_trace.csv    # Split assignment trace
+  preds/
+    test_preds__*.csv             # TEST set predictions (flat structure)
+    val_preds__*.csv              # VAL set predictions (flat structure)
+    train_oof__*.csv              # OOF predictions TRAIN set (flat structure)
+    controls_risk__*__oof_mean.csv # Control subjects OOF predictions (flat structure)
+  panels/
+    {model}__feature_report_train.csv    # Feature importance on TRAIN set
+    stable_panel__{panel_type}.csv       # Stable features (threshold 0.75+)
+    {model}__N{size}__panel_manifest.json # Panel at specific size (N=10, 25, 50, etc.)
+    {model}__final_test_panel.json       # Final deployment-ready panel
+    {model}__test_subgroup_metrics.csv   # Subgroup performance metrics
+  diagnostics/                    # Flat directory - all diagnostic CSVs in one place
+    train_test_split_trace.csv    # Split indices trace
+    {model}__calibration.csv      # Calibration curve data
+    {model}__learning_curve.csv   # Learning curve data
+    {model}__test__dca_results.csv # DCA results (test set)
+    {model}__val__dca_results.csv  # DCA results (val set)
+    {model}__screening_results.csv # Feature screening statistics
+    {model}__test_bootstrap_ci.csv # Bootstrap confidence intervals
 ```
 
-### 1.2 Aggregated Output (Multiple Splits)
+### 1.3 Run-Level Metadata
+
+**New in v2.0:** All training runs now create `run_metadata.json` at the run level for CLI auto-detection.
+
+**Path pattern:** `results/{model}/run_{run_id}/`
+
+**Example:** `results/LR_EN/run_20260127_115115/`
 
 ```
-results_hpc/{model}/aggregated/
-  aggregate_metrics.json          # Mean ± SE across splits
-  pooled_predictions.csv          # Predictions from all splits
-  pooled_metrics.json             # Metrics on pooled predictions
-  consensus_panel_*.txt           # Proteins selected across splits
-  per_split_summary.csv           # Per-split performance
+results/{model}/run_{run_id}/
+  run_metadata.json               # Run-level metadata (for CLI auto-detection)
+  splits/
+    split_seed0/                  # First split
+    split_seed1/                  # Second split
+    ...
+```
+
+**run_metadata.json contents:**
+```json
+{
+  "run_id": "20260127_115115",
+  "model": "LR_EN",
+  "infile": "../data/Celiac_dataset_proteomics_w_demo.parquet",
+  "split_dir": "../splits",
+  "results_dir": "../results/LR_EN/run_20260127_115115",
+  "config_path": "configs/training_config.yaml",
+  "timestamp": "2026-01-27T11:51:15",
+  "git_commit": "dee227b",
+  "split_seeds": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+}
+```
+
+**Usage:** Enables zero-config CLI commands:
+```bash
+# Auto-detect results directory from run-id
+ced aggregate-splits --run-id 20260127_115115 --model LR_EN
+
+# Auto-detect infile, split-dir, and results paths
+ced optimize-panel --run-id 20260127_115115 --model LR_EN
+
+# Auto-detect all paths for consensus panel
+ced consensus-panel --run-id 20260127_115115
+
+# Auto-detect base models and paths for ensemble training
+ced train-ensemble --run-id 20260127_115115 --split-seed 0
+```
+
+### 1.4 Aggregated Output (Multiple Splits)
+
+**Path pattern:** `results/{model}/run_{run_id}/aggregated/`
+
+**Example:** `results/LR_EN/run_20260127_115115/aggregated/`
+
+**Purpose:** Cross-split aggregation and model comparison.
+
+```
+results/{model}/run_{run_id}/aggregated/
+  aggregation_metadata.json       # Full aggregation metadata
+  all_test_metrics.csv            # Per-split test metrics (all splits)
+  all_val_metrics.csv             # Per-split val metrics (all splits)
+  metrics/
+    pooled_test_metrics.csv       # Pooled test metrics by model
+    pooled_val_metrics.csv        # Pooled val metrics by model
+    test_metrics_summary.csv      # Summary stats across splits
+    val_metrics_summary.csv       # Val summary stats
+    selection_scores.csv          # Model selection scores
+    model_comparison.csv          # Model comparison report
+  panels/
+    feature_stability.csv         # Aggregated feature stability across all splits
+    consensus_panel_N{size}.json  # Consensus panel at specific size (e.g., N=25)
+    consensus_panel_metadata.json # Consensus aggregation metadata
+    {model}__rfe_panel_N{size}.json # RFE-optimized panel (from optimize-panel)
+    uncertainty_summary.csv       # Uncertainty metrics for panel optimization
+  plots/
+    test_roc.png                  # Aggregated test ROC
+    test_pr.png                   # Aggregated test PR
+    calibration.png               # Aggregated calibration
+    risk_distribution.png         # Aggregated risk distributions
+    dca.png                       # Aggregated DCA
+    oof_combined.png              # Combined OOF plots
+    learning_curve.png            # Aggregated learning curves
+    ensemble_weights_aggregated.png  # (if ensemble) Meta-learner coefficients
+    model_comparison.png          # (if multi-model) Model comparison chart
+  cv/
+    all_cv_repeat_metrics.csv     # CV metrics from all splits
+    cv_metrics_summary.csv        # CV summary stats
+    all_best_params_per_split.csv # Best hyperparameters across splits
+    hyperparams_summary.csv       # Hyperparameter summary
+    ensemble_config_per_split.csv # (if ensemble) Ensemble configs
+    optuna/
+      optuna_trials.csv           # Combined Optuna trials from all splits
+  preds/
+    pooled_test_preds.csv         # All test predictions pooled across splits
+    pooled_test_preds__*.csv      # Per-model pooled test predictions
+    pooled_val_preds.csv          # All val predictions pooled across splits
+    pooled_val_preds__*.csv       # Per-model pooled val predictions
+    pooled_train_oof.csv          # All OOF predictions pooled across splits
+    pooled_train_oof__*.csv       # Per-model pooled OOF predictions
+  diagnostics/                    # Flat directory - aggregated diagnostic CSVs
+    {model}__aggregated_calibration.csv  # Aggregated calibration curves
+    {model}__aggregated_dca.csv          # Aggregated DCA results
+    {model}__aggregated_screening.csv    # Aggregated screening statistics
+    {model}__aggregated_learning_curve.csv # Aggregated learning curves
+```
+
+**Auto-detection:** Use `--run-id` for automatic path resolution:
+```bash
+# Aggregate single model
+ced aggregate-splits --run-id 20260127_115115 --model LR_EN
+
+# Optimize panel (auto-detects aggregated/ directory)
+ced optimize-panel --run-id 20260127_115115 --model LR_EN
+
+# Generate cross-model consensus panel
+ced consensus-panel --run-id 20260127_115115
+```
+
+### 1.5 Consensus Panel Output (Cross-Model)
+
+**Path pattern:** `results/consensus/run_{run_id}/`
+
+**Example:** `results/consensus/run_20260127_115115/`
+
+**Purpose:** Cross-model consensus panels via Robust Rank Aggregation.
+
+```
+results/consensus/run_{run_id}/
+  consensus_panel_N{size}.json    # Consensus panel at specific size (e.g., N=25)
+  consensus_panel_metadata.json   # Consensus aggregation statistics
+  uncertainty_summary.csv         # Cross-model agreement metrics
+  feature_ranks_by_model.csv      # Per-model protein rankings
+```
+
+**Generation:**
+```bash
+# Auto-detects all models under run-id and aggregates their feature rankings
+ced consensus-panel --run-id 20260127_115115
+
+# Reads from:
+#   results/LR_EN/run_20260127_115115/aggregated/panels/feature_stability.csv
+#   results/RF/run_20260127_115115/aggregated/panels/feature_stability.csv
+#   results/XGBoost/run_20260127_115115/aggregated/panels/feature_stability.csv
+# Writes to:
+#   results/consensus/run_20260127_115115/
 ```
 
 ---
@@ -74,7 +277,7 @@ results_hpc/{model}/aggregated/
 
 **Metadata stored separately in:**
 - `run_settings.json` - Full config, hyperparameters, feature names
-- `stable_features.txt` - Selected feature panel
+- `reports/stable_panel/` - Selected feature panel
 
 **Usage:**
 ```python
@@ -93,66 +296,31 @@ y_pred = model.predict_proba(X)[:, 1]
 **Format:** CSV with headers
 
 **Columns:**
-- `eid` - Sample identifier
+- `idx` - Sample index
 - `y_true` - True label (0/1)
-- `y_pred_proba` - Predicted probability
-- `y_pred` - Binary prediction (using selected threshold)
-- `fold` - CV fold index (for OOF predictions)
-- `repeat` - CV repeat index (for OOF predictions)
+- `y_prob` - Predicted probability
+- `category` - Sample category (Controls, Incident, Prevalent)
+- `split_seed` - Split seed used
+- `model` - Model name
 
-**Example:**
-```csv
-eid,y_true,y_pred_proba,y_pred,fold,repeat
-1001,0,0.012,0,0,0
-1002,1,0.842,1,0,0
-1003,0,0.098,0,1,0
-```
+**Files (per split):**
+- `preds/test_preds__*.csv` - TEST set predictions (flattened to preds/)
+- `preds/val_preds__*.csv` - VAL set predictions (flattened to preds/)
+- `preds/train_oof__*.csv` - TRAIN set OOF predictions (with per-repeat probabilities, flattened to preds/)
 
-**Files:**
-- `oof_predictions.csv` - TRAIN set OOF predictions (5 folds × 10 repeats)
-- `val_predictions.csv` - VAL set predictions
-- `test_predictions.csv` - TEST set predictions
+### 2.3 Metrics CSVs
 
-### 2.3 Metrics JSONs
+**Format:** CSV with headers
 
-**Format:** JSON with numeric values
-
-**Common fields:**
-- `auroc` - Area under ROC curve
-- `prauc` - Area under Precision-Recall curve
-- `brier` - Brier score (lower is better)
-- `threshold` - Selected decision threshold
-- `sensitivity` - True positive rate
-- `specificity` - True negative rate
-- `ppv` - Positive predictive value
-- `npv` - Negative predictive value
-- `accuracy` - Overall accuracy
-- `f1` - F1 score
-- `calibration_slope` - Calibration slope (1.0 = perfect)
-- `calibration_intercept` - Calibration intercept (0.0 = perfect)
-
-**Example:**
-```json
-{
-  "auroc": 0.8534,
-  "prauc": 0.4231,
-  "brier": 0.0812,
-  "threshold": 0.3521,
-  "sensitivity": 0.7812,
-  "specificity": 0.8241,
-  "ppv": 0.1234,
-  "npv": 0.9876,
-  "accuracy": 0.8198,
-  "f1": 0.2134,
-  "calibration_slope": 0.987,
-  "calibration_intercept": 0.012
-}
-```
-
-**Files:**
-- `train_metrics.json` - TRAIN set metrics
-- `val_metrics.json` - VAL set metrics
-- `test_metrics.json` - TEST set metrics
+**Common columns:**
+- `model` - Model name
+- `scenario` - Training scenario
+- `AUROC` - Area under ROC curve
+- `PR_AUC` - Area under Precision-Recall curve
+- `Brier` - Brier score (lower is better)
+- `Sensitivity`, `Specificity` - At selected threshold
+- `PPV`, `NPV` - Predictive values
+- `calibration_slope`, `calibration_intercept` - Calibration metrics
 
 ### 2.4 run_settings.json
 
@@ -171,21 +339,6 @@ eid,y_true,y_pred_proba,y_pred,fold,repeat
 
 **Purpose:** Complete provenance for reproducibility.
 
-### 2.5 stable_features.txt
-
-**Format:** Plain text, one feature per line
-
-**Contents:** List of protein features selected in ≥75% of CV folds (stability panel).
-
-**Example:**
-```
-APOE_resid
-SERPINA1_resid
-ALB_resid
-TTR_resid
-...
-```
-
 ---
 
 ## 3. Cross-Validation Artifacts
@@ -195,38 +348,32 @@ TTR_resid
 **Format:** CSV with headers
 
 **Columns:**
-- `repeat` - CV repeat index (0-9)
-- `fold` - CV fold index (0-4)
-- `auroc` - OOF AUROC for this fold
-- `prauc` - OOF PR-AUC for this fold
-- `brier` - OOF Brier score for this fold
+- `repeat` - CV repeat index (0-2)
+- `outer_split` - CV fold index (0-4)
+- `AUROC` - OOF AUROC for this fold
+- `PR_AUC` - OOF PR-AUC for this fold
+- `Brier` - OOF Brier score for this fold
 - Additional metrics...
 
 **Purpose:** Per-fold performance for stability analysis.
 
-### 3.2 best_params.csv
+### 3.2 best_params_per_split.csv
 
 **Format:** CSV with headers
 
 **Columns:**
 - `repeat` - CV repeat index
-- `fold` - CV fold index
+- `outer_split` - CV fold index
 - Model-specific hyperparameters (e.g., `C`, `max_depth`, `learning_rate`)
+- `best_score_inner` - Best inner CV score
 
 **Purpose:** Track hyperparameter selection across CV folds.
 
 ### 3.3 Optuna Artifacts (if enabled)
 
-**optuna_config.json:**
-- Optuna settings (n_trials, sampler, pruner)
-- Study metadata
-
-**best_params_optuna.csv:**
-- Best hyperparameters per trial
-- Trial metadata (value, duration, state)
-
-**study.pkl:**
-- Pickled Optuna study object for resume/analysis
+Generated in `cv/optuna/` subdirectory:
+- `optuna_trials.csv` - All trial results with parameters and scores
+- `optuna_config.json` - Optuna settings
 
 ---
 
@@ -285,85 +432,77 @@ TTR_resid
 
 **Purpose:** Assess model stability across CV repeats.
 
-### 4.6 Optuna Plots (if enabled)
-
-Generated in `cv/optuna/` subdirectory:
-- `optimization_history.png` - Trial objective values over time
-- `param_importances.png` - Feature importance bar chart
-- `parallel_coordinate.png` - Hyperparameter interactions
-- `slice.png` - Marginal effects of each hyperparameter
-
 ---
 
 ## 5. File Formats
 
-### 5.1 Split Index CSVs
+### 5.1 Split Files
 
 **Location:** `splits/` directory (sibling to `results/`)
 
-**Format:** Single-column CSV
+**Format:** Pickle files containing split indices
 
-**Filename pattern:** `{scenario}_{split}_idx_seed{N}.csv`
+**Filename pattern:** `splits_{seed}.pkl`
 
-**Example:**
+**Purpose:** Reproducible split indices for deterministic train/val/test splits.
+
+### 5.2 Aggregated Metrics
+
+**Location:** `results/{model}/run_{run_id}/aggregated/metrics/`
+
+**Files:**
+- `pooled_test_metrics.csv` - Metrics computed on pooled predictions across all splits
+- `test_metrics_summary.csv` - Mean, std, min, max across per-split metrics
+- `selection_scores.csv` - Composite model selection scores
+
+### 5.3 Aggregated Panel Artifacts
+
+**Location:** `results/{model}/run_{run_id}/aggregated/panels/`
+
+**Format:** CSV and JSON files (flat structure)
+
+**Example files:**
+
+**Feature Stability (aggregated across splits):**
 ```
-splits/
-  IncidentPlusPrevalent_train_idx_seed42.csv
-  IncidentPlusPrevalent_val_idx_seed42.csv
-  IncidentPlusPrevalent_test_idx_seed42.csv
-```
-
-**Contents:**
-```csv
-row_idx
-0
-5
-12
-...
-```
-
-**Purpose:** Reproducible split indices (language-agnostic, version-controllable).
-
-### 5.2 Aggregated Metrics JSON
-
-**Location:** `results_hpc/{model}/aggregated/aggregate_metrics.json`
-
-**Format:** JSON with nested structure
-
-**Example:**
-```json
-{
-  "test": {
-    "auroc_mean": 0.8534,
-    "auroc_se": 0.0234,
-    "auroc_min": 0.8102,
-    "auroc_max": 0.8876,
-    "auroc_median": 0.8547,
-    "auroc_q1": 0.8312,
-    "auroc_q3": 0.8702,
-    "prauc_mean": 0.4231,
-    "prauc_se": 0.0512,
-    ...
-  },
-  "val": { ... }
-}
+feature_stability.csv       # Columns: protein, stability, agreement, rank, rank_std
 ```
 
-**Purpose:** Summary statistics across multiple split seeds.
-
-### 5.3 Consensus Panels
-
-**Location:** `results_hpc/{model}/aggregated/consensus_panel_*.txt`
-
-**Format:** Plain text, one feature per line
-
-**Example:**
+**Consensus Panel (RRA aggregation across models):**
 ```
-consensus_panel_75pct.txt  # Proteins in ≥75% of splits
-consensus_panel_50pct.txt  # Proteins in ≥50% of splits
+consensus_panel_N25.json    # 25-protein consensus panel with metadata
+consensus_panel_N50.json    # 50-protein consensus panel with metadata
+consensus_panel_N100.json   # 100-protein consensus panel with metadata
+consensus_panel_metadata.json # Consensus aggregation statistics
+uncertainty_summary.csv     # Cross-model agreement and uncertainty metrics
 ```
 
-**Purpose:** Identify features consistently selected across different data partitions.
+**RFE-Optimized Panels (per model):**
+```
+LR_EN__rfe_panel_N25.json   # 25-protein RFE panel for LR_EN
+RF__rfe_panel_N50.json      # 50-protein RFE panel for RF
+LR_EN__uncertainty_metadata.json # Uncertainty quantification for RFE panels
+```
+
+**Purpose:**
+- `feature_stability.csv`: Identify proteins consistently selected across all splits (0.75+ threshold)
+- Consensus panels: Cross-model agreement via Robust Rank Aggregation
+- RFE panels: Aggregated recursive feature elimination for single-model deployment
+- Uncertainty metrics: Bootstrap CIs and cross-model agreement for deployment decisions
+
+**Auto-detection usage:**
+```bash
+# Single-model panel optimization (auto-detects aggregated/ directory)
+ced optimize-panel --run-id 20260127_115115 --model LR_EN
+
+# Cross-model consensus panel (auto-detects all model aggregated/ directories)
+ced consensus-panel --run-id 20260127_115115
+
+# Batch optimization for all models under run-id
+ced optimize-panel --run-id 20260127_115115  # Processes all models
+```
+
+**For detailed uncertainty quantification documentation, see [UNCERTAINTY_QUANTIFICATION.md](UNCERTAINTY_QUANTIFICATION.md)**
 
 ---
 
@@ -371,15 +510,12 @@ consensus_panel_50pct.txt  # Proteins in ≥50% of splits
 
 **Typical sizes for 43,960-sample dataset:**
 - `final_model.pkl`: 1-10 MB (depends on model type)
-- `oof_predictions.csv`: 5-10 MB (TRAIN set)
-- `val_predictions.csv`: 2-5 MB
-- `test_predictions.csv`: 2-5 MB
-- `*_metrics.json`: <1 KB each
+- Prediction CSVs: 2-10 MB each
+- `*_metrics.csv`: <100 KB each
 - `run_settings.json`: 5-20 KB
 - Plots: 50-200 KB each
 - `cv_repeat_metrics.csv`: 10-50 KB
-- `best_params.csv`: 5-20 KB
-- Split index CSVs: 500 KB - 2 MB each
+- Split pickle files: 500 KB - 2 MB each
 
 **Total per split:** ~20-50 MB
 
@@ -390,13 +526,174 @@ consensus_panel_50pct.txt  # Proteins in ≥50% of splits
 ## Artifact Retention Policy
 
 **Development runs:**
-- Keep: `*_metrics.json`, `run_settings.json`, plots
-- Optional: predictions CSVs, CV artifacts
+- Keep: metrics CSVs, `run_settings.json`, plots
+- Optional: prediction CSVs, CV artifacts
 - Discard: `final_model.pkl` (unless best model)
 
 **Production runs:**
 - Keep all artifacts for reproducibility
 - Archive to long-term storage after validation
+
+---
+
+## 6. Ensemble Artifacts
+
+### 6.1 Ensemble Directory Structure
+
+**Path pattern:** `results/ENSEMBLE/run_{run_id}/splits/split_seed{N}/`
+
+**Example:** `results/ENSEMBLE/run_20260127_115115/splits/split_seed0/`
+
+**Purpose:** Stacking ensemble meta-learner outputs (requires base models trained first).
+
+```
+results/ENSEMBLE/run_{run_id}/splits/split_seed{N}/
+  core/
+    final_model.pkl               # Meta-learner (L2 logistic regression)
+    run_settings.json             # Ensemble config + base model references
+    test_metrics.csv              # TEST metrics
+    val_metrics.csv               # VAL metrics
+  cv/
+    cv_repeat_metrics.csv         # OOF meta-learner metrics
+    ensemble_config.json          # Base model paths and settings
+  plots/
+    ensemble_weights.png          # Meta-learner coefficients
+    ensemble_roc_comparison.png   # Ensemble vs. base models ROC
+    ensemble_calibration.png      # Ensemble calibration plot
+  preds/
+    test_preds__ENSEMBLE.csv      # TEST predictions
+    val_preds__ENSEMBLE.csv       # VAL predictions
+    train_oof__ENSEMBLE.csv       # OOF predictions
+```
+
+### 6.2 Base Model Requirements
+
+**Required files per base model (for ensemble training):**
+```
+results/{base_model}/run_{run_id}/splits/split_seed{N}/preds/train_oof__*.csv  # OOF predictions
+results/{base_model}/run_{run_id}/splits/split_seed{N}/preds/val_preds__*.csv  # VAL predictions
+results/{base_model}/run_{run_id}/splits/split_seed{N}/preds/test_preds__*.csv # TEST predictions
+```
+
+**Example:**
+```
+results/LR_EN/run_20260127_115115/splits/split_seed0/preds/train_oof__LR_EN.csv
+results/RF/run_20260127_115115/splits/split_seed0/preds/train_oof__RF.csv
+results/XGBoost/run_20260127_115115/splits/split_seed0/preds/train_oof__XGBoost.csv
+```
+
+### 6.3 Auto-Detection Workflow
+
+```bash
+# Step 1: Train base models (creates run_metadata.json per model)
+ced train --model LR_EN --split-seed 0
+ced train --model RF --split-seed 0
+ced train --model XGBoost --split-seed 0
+
+# Step 2: Train ensemble (auto-detects base models from run-id)
+ced train-ensemble --run-id 20260127_115115 --split-seed 0
+
+# Step 3: Aggregate ensemble results
+ced aggregate-splits --run-id 20260127_115115 --model ENSEMBLE
+```
+
+**Key artifact:** `results/ENSEMBLE/run_{run_id}/run_metadata.json` contains:
+```json
+{
+  "run_id": "20260127_115115",
+  "model": "ENSEMBLE",
+  "base_models": ["LR_EN", "RF", "XGBoost"],
+  "meta_learner_type": "logistic_regression",
+  "base_model_paths": {
+    "LR_EN": "results/LR_EN/run_20260127_115115",
+    "RF": "results/RF/run_20260127_115115",
+    "XGBoost": "results/XGBoost/run_20260127_115115"
+  }
+}
+```
+
+---
+
+## 7. Auto-Detection Examples
+
+### 7.1 Single Model Workflow
+
+```bash
+# Step 1: Train with auto-generated run-id
+ced train --model LR_EN --split-seed 0
+# Creates: results/LR_EN/run_20260127_115115/splits/split_seed0/
+#          results/LR_EN/run_20260127_115115/run_metadata.json
+
+# Step 2: Aggregate using run-id (auto-detects results directory)
+ced aggregate-splits --run-id 20260127_115115 --model LR_EN
+# Reads: results/LR_EN/run_20260127_115115/run_metadata.json
+# Creates: results/LR_EN/run_20260127_115115/aggregated/
+
+# Step 3: Optimize panel (auto-detects infile, split-dir, aggregated/)
+ced optimize-panel --run-id 20260127_115115 --model LR_EN
+# Reads: run_metadata.json → infile, split_dir paths
+#        aggregated/panels/feature_stability.csv
+# Creates: aggregated/panels/LR_EN__rfe_panel_N*.json
+```
+
+### 7.2 Multi-Model Consensus Workflow
+
+```bash
+# Step 1: Train multiple models (same run-id timestamp)
+ced train --model LR_EN --split-seed 0
+ced train --model RF --split-seed 0
+ced train --model XGBoost --split-seed 0
+
+# Step 2: Aggregate each model
+ced aggregate-splits --run-id 20260127_115115 --model LR_EN
+ced aggregate-splits --run-id 20260127_115115 --model RF
+ced aggregate-splits --run-id 20260127_115115 --model XGBoost
+
+# Step 3: Generate consensus panel (auto-detects all models)
+ced consensus-panel --run-id 20260127_115115
+# Scans: results/*/run_20260127_115115/aggregated/panels/feature_stability.csv
+# Creates: results/consensus/run_20260127_115115/consensus_panel_N*.json
+```
+
+### 7.3 Ensemble Training Workflow
+
+```bash
+# Step 1: Train base models (auto-creates run-id)
+ced train --model LR_EN --split-seed 0
+ced train --model RF --split-seed 0
+ced train --model XGBoost --split-seed 0
+
+# Step 2: Train ensemble (auto-detects base models)
+ced train-ensemble --run-id 20260127_115115 --split-seed 0
+# Reads: results/*/run_20260127_115115/run_metadata.json (all models)
+# Creates: results/ENSEMBLE/run_20260127_115115/split_seed0/
+
+# Step 3: Aggregate ensemble
+ced aggregate-splits --run-id 20260127_115115 --model ENSEMBLE
+```
+
+### 7.4 Legacy Mode (Explicit Paths)
+
+**Still supported for backward compatibility:**
+
+```bash
+# Explicit results directory
+ced aggregate-splits --results-dir results/LR_EN/run_20260127_115115/
+
+# Explicit panel optimization paths
+ced optimize-panel \
+  --results-dir results/LR_EN/run_20260127_115115 \
+  --infile ../data/Celiac_dataset_proteomics_w_demo.parquet \
+  --split-dir ../splits/
+
+# Explicit ensemble base models
+ced train-ensemble \
+  --results-dir results/ \
+  --base-models LR_EN,RF,XGBoost \
+  --split-seed 0
+```
+
+**Recommendation:** Use `--run-id` for all new workflows (simpler, less error-prone).
 
 ---
 

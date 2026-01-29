@@ -185,7 +185,11 @@ def robust_rank_aggregate(
         DataFrame with columns:
             - protein: Protein name
             - consensus_score: Aggregated score (higher = better)
+            - consensus_rank: Rank by consensus score
             - n_models_present: Number of models with this protein
+            - rank_std: Standard deviation of ranks across models
+            - rank_cv: Coefficient of variation of ranks (std/mean)
+            - agreement_strength: Fraction of models agreeing (n_models_present / n_models)
             - per-model columns: {model}_rank for each model
 
     Raises:
@@ -220,6 +224,7 @@ def robust_rank_aggregate(
     for protein in sorted(all_proteins):
         row = {"protein": protein}
         ranks = []
+        ranks_present_only = []  # Ranks only from models where protein is present
 
         for model_name in model_names:
             df = per_model_rankings[model_name]
@@ -227,6 +232,7 @@ def robust_rank_aggregate(
 
             if len(protein_row) > 0:
                 rank = float(protein_row["final_rank"].iloc[0])
+                ranks_present_only.append(rank)
             else:
                 # Missing protein gets worst rank + 1 (penalty)
                 rank = max_ranks[model_name] + 1
@@ -235,11 +241,28 @@ def robust_rank_aggregate(
             ranks.append(rank)
 
         # Count models where protein was actually present
-        row["n_models_present"] = sum(
+        n_present = sum(
             1
             for model_name in model_names
             if protein in per_model_rankings[model_name]["protein"].values
         )
+        row["n_models_present"] = n_present
+
+        # Compute uncertainty metrics (using only ranks from models where protein is present)
+        if len(ranks_present_only) > 1:
+            rank_std = float(np.std(ranks_present_only, ddof=1))
+            rank_mean = float(np.mean(ranks_present_only))
+            rank_cv = rank_std / rank_mean if rank_mean > 0 else 0.0
+        elif len(ranks_present_only) == 1:
+            rank_std = 0.0
+            rank_cv = 0.0
+        else:
+            rank_std = np.nan
+            rank_cv = np.nan
+
+        row["rank_std"] = rank_std
+        row["rank_cv"] = rank_cv
+        row["agreement_strength"] = n_present / n_models
 
         # Compute consensus score based on method
         if method == "geometric_mean":
@@ -270,7 +293,15 @@ def robust_rank_aggregate(
     result["consensus_rank"] = range(1, len(result) + 1)
 
     # Reorder columns
-    col_order = ["protein", "consensus_score", "consensus_rank", "n_models_present"]
+    col_order = [
+        "protein",
+        "consensus_score",
+        "consensus_rank",
+        "n_models_present",
+        "agreement_strength",
+        "rank_std",
+        "rank_cv",
+    ]
     col_order += [f"{m}_rank" for m in model_names]
     result = result[col_order]
 
@@ -565,24 +596,27 @@ def save_consensus_results(
             f.write(f"{protein}\n")
     paths["final_panel_txt"] = str(panel_txt_path)
 
-    # 2. Final panel (CSV with details)
+    # 2. Final panel (CSV with details including uncertainty metrics)
     panel_csv_path = output_dir / "final_panel.csv"
     panel_df = pd.DataFrame({"protein": result.final_panel})
     panel_df["rank"] = range(1, len(panel_df) + 1)
 
-    # Add consensus scores
-    score_map = dict(
-        zip(
-            result.consensus_ranking["protein"],
-            result.consensus_ranking["consensus_score"],
-            strict=False,
-        )
-    )
-    panel_df["consensus_score"] = panel_df["protein"].map(score_map)
+    # Add all consensus metrics for final panel proteins
+    for col in ["consensus_score", "n_models_present", "agreement_strength", "rank_std", "rank_cv"]:
+        if col in result.consensus_ranking.columns:
+            col_map = dict(
+                zip(
+                    result.consensus_ranking["protein"],
+                    result.consensus_ranking[col],
+                    strict=False,
+                )
+            )
+            panel_df[col] = panel_df["protein"].map(col_map)
+
     panel_df.to_csv(panel_csv_path, index=False)
     paths["final_panel_csv"] = str(panel_csv_path)
 
-    # 3. Consensus ranking (all proteins)
+    # 3. Consensus ranking (all proteins with uncertainty metrics)
     ranking_path = output_dir / "consensus_ranking.csv"
     result.consensus_ranking.to_csv(ranking_path, index=False)
     paths["consensus_ranking"] = str(ranking_path)
@@ -598,8 +632,73 @@ def save_consensus_results(
         result.correlation_clusters.to_csv(clusters_path, index=False)
         paths["correlation_clusters"] = str(clusters_path)
 
-    # 6. Metadata JSON
+    # 6. Uncertainty summary (new file)
+    uncertainty_summary_path = output_dir / "uncertainty_summary.csv"
+    if not result.consensus_ranking.empty:
+        # Extract final panel proteins with uncertainty metrics
+        uncertainty_df = result.consensus_ranking[
+            result.consensus_ranking["protein"].isin(result.final_panel)
+        ].copy()
+
+        # Sort by rank (same order as final_panel)
+        uncertainty_df["panel_rank"] = uncertainty_df["protein"].map(
+            {p: i for i, p in enumerate(result.final_panel, 1)}
+        )
+        uncertainty_df = uncertainty_df.sort_values("panel_rank")
+
+        # Select columns to save, handling missing uncertainty metrics gracefully
+        base_cols = ["protein", "panel_rank", "consensus_score"]
+        optional_cols = ["n_models_present", "agreement_strength", "rank_std", "rank_cv"]
+
+        cols_to_save = base_cols.copy()
+        # Add optional uncertainty columns if they exist
+        for col in optional_cols:
+            if col in uncertainty_df.columns:
+                cols_to_save.append(col)
+
+        # Add per-model ranks if available (exclude consensus_rank)
+        model_rank_cols = [
+            c
+            for c in uncertainty_df.columns
+            if c.endswith("_rank") and c not in ["consensus_rank", "panel_rank"]
+        ]
+        cols_to_save.extend(model_rank_cols)
+
+        uncertainty_df[cols_to_save].to_csv(uncertainty_summary_path, index=False)
+        paths["uncertainty_summary"] = str(uncertainty_summary_path)
+
+    # 7. Metadata JSON (enhanced with uncertainty statistics)
     metadata_path = output_dir / "consensus_metadata.json"
+
+    # Compute uncertainty statistics for final panel (if uncertainty metrics exist)
+    if not result.consensus_ranking.empty:
+        panel_uncertainty = result.consensus_ranking[
+            result.consensus_ranking["protein"].isin(result.final_panel)
+        ]
+
+        # Check if uncertainty metrics are available
+        has_uncertainty_metrics = all(
+            col in panel_uncertainty.columns
+            for col in ["agreement_strength", "rank_cv", "n_models_present"]
+        )
+
+        if has_uncertainty_metrics:
+            uncertainty_stats = {
+                "mean_agreement_strength": float(panel_uncertainty["agreement_strength"].mean()),
+                "min_agreement_strength": float(panel_uncertainty["agreement_strength"].min()),
+                "mean_rank_cv": float(panel_uncertainty["rank_cv"].mean()),
+                "max_rank_cv": float(panel_uncertainty["rank_cv"].max()),
+                "proteins_in_all_models": int(
+                    (panel_uncertainty["n_models_present"] == result.metadata["n_models"]).sum()
+                ),
+                "proteins_in_majority_models": int(
+                    (panel_uncertainty["n_models_present"] >= result.metadata["n_models"] / 2).sum()
+                ),
+            }
+
+            # Add to metadata
+            result.metadata["uncertainty"] = uncertainty_stats
+
     with open(metadata_path, "w") as f:
         json.dump(result.metadata, f, indent=2)
     paths["metadata"] = str(metadata_path)

@@ -94,7 +94,7 @@ class StackingEnsemble(BaseEstimator, ClassifierMixin):
 
         Args:
             base_model_names: List of base model identifiers to include
-            meta_penalty: Regularization penalty for meta-learner ('l2', 'l1', 'elasticnet')
+            meta_penalty: Regularization penalty for meta-learner ('l2', 'l1', 'elasticnet', 'none')
             meta_C: Inverse regularization strength for meta-learner
             meta_max_iter: Max iterations for meta-learner convergence
             meta_solver: Solver for logistic regression meta-learner
@@ -122,6 +122,35 @@ class StackingEnsemble(BaseEstimator, ClassifierMixin):
         self.classes_ = np.array([0, 1])
         self.is_fitted_ = False
         self._feature_names: list[str] = []
+
+    def _build_meta_estimator(self) -> LogisticRegression:
+        """Build the LogisticRegression meta-learner with valid sklearn settings."""
+        penalty = None if self.meta_penalty in (None, "none") else self.meta_penalty
+        if penalty not in {"l1", "l2", "elasticnet", None}:
+            penalty = "l2"
+
+        solver = self.meta_solver
+        if penalty == "l1":
+            if solver not in {"saga", "liblinear"}:
+                solver = "saga"
+        elif penalty == "elasticnet":
+            solver = "saga"
+        elif penalty is None:
+            if solver == "liblinear":
+                solver = "lbfgs"
+
+        kwargs: dict[str, Any] = {
+            "penalty": penalty,
+            "C": self.meta_C if penalty is not None else 1.0,
+            "max_iter": self.meta_max_iter,
+            "solver": solver,
+            "random_state": self.random_state,
+            "class_weight": "balanced",
+        }
+        if penalty == "elasticnet":
+            kwargs["l1_ratio"] = 0.5
+
+        return LogisticRegression(**kwargs)
 
     def _build_meta_features(
         self,
@@ -212,14 +241,7 @@ class StackingEnsemble(BaseEstimator, ClassifierMixin):
             X_meta = self.scaler.fit_transform(X_meta)
 
         # Build meta-learner
-        base_meta = LogisticRegression(
-            penalty=self.meta_penalty if self.meta_penalty != "none" else None,
-            C=self.meta_C,
-            max_iter=self.meta_max_iter,
-            solver=self.meta_solver,
-            random_state=self.random_state,
-            class_weight="balanced",
-        )
+        base_meta = self._build_meta_estimator()
 
         # Optionally wrap in calibration
         if self.calibrate_meta and len(y) >= 2 * self.calibration_cv:
@@ -321,14 +343,7 @@ class StackingEnsemble(BaseEstimator, ClassifierMixin):
             self.scaler = StandardScaler()
             X = self.scaler.fit_transform(X)
 
-        base_meta = LogisticRegression(
-            penalty=self.meta_penalty if self.meta_penalty != "none" else None,
-            C=self.meta_C,
-            max_iter=self.meta_max_iter,
-            solver=self.meta_solver,
-            random_state=self.random_state,
-            class_weight="balanced",
-        )
+        base_meta = self._build_meta_estimator()
 
         if self.calibrate_meta and len(y) >= 2 * self.calibration_cv:
             self.meta_model = CalibratedClassifierCV(
@@ -466,6 +481,11 @@ def _find_model_split_dir(
 
     # Pattern 1: Explicit run_id provided (model-specific subdirectory)
     if run_id is not None:
+        # Try new layout first: splits/split_seed{N}
+        candidate = model_root / f"run_{run_id}" / "splits" / f"split_seed{split_seed}"
+        if candidate.exists():
+            return candidate
+        # Legacy: split_seed{N} directly
         candidate = model_root / f"run_{run_id}" / f"split_seed{split_seed}"
         if candidate.exists():
             return candidate
@@ -474,22 +494,30 @@ def _find_model_split_dir(
     if model_root.exists():
         run_dirs = sorted(model_root.glob("run_*"), reverse=True)
         for run_dir in run_dirs:
+            # Try new layout first
+            candidate = run_dir / "splits" / f"split_seed{split_seed}"
+            if candidate.exists():
+                logger.debug(f"Auto-discovered run directory: {run_dir.name}")
+                return candidate
+            # Legacy
             candidate = run_dir / f"split_seed{split_seed}"
             if candidate.exists():
                 logger.debug(f"Auto-discovered run directory: {run_dir.name}")
                 return candidate
 
-    # Pattern 3: Top-level run directories (new default layout)
-    # Search for run_*/split_seed{split_seed} and filter by model name from config
+    # Pattern 3: Top-level run directories (flat layout)
     run_dirs = sorted(results_dir.glob("run_*"), reverse=True)
     for run_dir in run_dirs:
-        candidate = run_dir / f"split_seed{split_seed}"
-        if candidate.exists():
-            # Check if this is the right model by reading config or checking for model file
-            model_file = candidate / "core" / f"{model_name}__final_model.joblib"
-            if model_file.exists():
-                logger.debug(f"Found {model_name} in top-level run directory: {run_dir.name}")
-                return candidate
+        for sub in ["splits", ""]:
+            parent = run_dir / sub if sub else run_dir
+            candidate = parent / f"split_seed{split_seed}"
+            if candidate.exists():
+                # Check for model file OR OOF predictions (more reliable indicator)
+                model_file = candidate / "core" / f"{model_name}__final_model.joblib"
+                oof_file = candidate / "preds" / f"train_oof__{model_name}.csv"
+                if model_file.exists() or oof_file.exists():
+                    logger.debug(f"Found {model_name} in top-level run directory: {run_dir.name}")
+                    return candidate
 
     # Pattern 4: Legacy layout (no run subdirectory)
     legacy_candidate = model_root / f"split_{split_seed}"
@@ -677,8 +705,9 @@ def collect_oof_predictions(
     for model_name in base_models:
         # Look for OOF predictions file using flexible path discovery
         model_dir = _find_model_split_dir(results_dir, model_name, split_seed, run_id)
-        oof_path = model_dir / "preds" / "train_oof" / f"train_oof__{model_name}.csv"
 
+        # Flat preds directory structure
+        oof_path = model_dir / "preds" / f"train_oof__{model_name}.csv"
         if not oof_path.exists():
             raise FileNotFoundError(f"OOF predictions not found: {oof_path}")
 
@@ -753,10 +782,11 @@ def collect_split_predictions(
     for model_name in base_models:
         model_dir = _find_model_split_dir(results_dir, model_name, split_seed, run_id)
 
+        # Predictions are stored directly in preds/ directory, not in subdirectories
         if split_name == "val":
-            pred_path = model_dir / "preds" / "val_preds" / f"val_preds__{model_name}.csv"
+            pred_path = model_dir / "preds" / f"val_preds__{model_name}.csv"
         else:
-            pred_path = model_dir / "preds" / "test_preds" / f"test_preds__{model_name}.csv"
+            pred_path = model_dir / "preds" / f"test_preds__{model_name}.csv"
 
         if not pred_path.exists():
             raise FileNotFoundError(f"Predictions not found: {pred_path}")

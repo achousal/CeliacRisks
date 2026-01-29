@@ -63,7 +63,6 @@ def run_eval_holdout(
             toprisk_fracs=toprisk_fracs,
             target_prevalence=target_prevalence,
             clinical_threshold_points=clinical_threshold_points,
-            subgroup_min_n=subgroup_min_n,
         )
 
         logger.info("Holdout evaluation complete")
