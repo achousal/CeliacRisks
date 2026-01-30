@@ -329,14 +329,8 @@ def screen_proteins(
             )
             return selected, stats
 
-    # Log screening configuration (reduce verbosity for diagnostic operations)
+    # Run screening (with minimal logging for repeated CV folds)
     log_level = logger.debug if _REDUCED_VERBOSITY else logger.info
-    log_level(f"Feature Screening ({method})")
-    log_level(f"  Training samples: {len(X_train)}")
-    log_level(f"  Testing {len(protein_cols)} proteins")
-    if method == "mannwhitney":
-        logger.debug(f"  Minimum samples per group: {min_n_per_group}")
-
     if method == "mannwhitney":
         selected, stats = mann_whitney_screen(
             X_train, y_train, protein_cols, top_n, min_n_per_group
@@ -353,56 +347,44 @@ def screen_proteins(
         cache = get_screening_cache()
         cache.put(X_train, y_train, protein_cols, method, top_n, selected, stats)
 
-    # Log screening results
+    # Log screening results (compact single-line format)
     if stats.empty:
-        logger.warning("  Screening failed: no proteins tested (check data quality)")
+        logger.warning("Screening failed: no proteins tested (check data quality)")
         return selected, stats
 
-    # P-value distribution summary
+    n_selected = len(selected)
+
+    # Compact summary: method, selection ratio, key statistic
     if "p_value" in stats.columns:
         p_vals = stats["p_value"].dropna()
         if len(p_vals) > 0:
             log_level(
-                f"  P-value distribution: min={p_vals.min():.2e}, median={p_vals.median():.2e}, max={p_vals.max():.2e}"
+                f"Screened {method}: {n_selected}/{len(protein_cols)} proteins "
+                f"(n={len(X_train)}, p_median={p_vals.median():.2e})"
             )
-            # Report significance at common thresholds
-            n_sig_001 = (p_vals < 0.001).sum()
-            n_sig_01 = (p_vals < 0.01).sum()
-            n_sig_05 = (p_vals < 0.05).sum()
+            # Detailed stats at DEBUG level
             logger.debug(
-                f"  Significant proteins: p<0.001: {n_sig_001}, p<0.01: {n_sig_01}, p<0.05: {n_sig_05}"
+                f"  P-value range: [{p_vals.min():.2e}, {p_vals.max():.2e}], "
+                f"sig: p<0.001={int((p_vals < 0.001).sum())}, p<0.01={int((p_vals < 0.01).sum())}"
             )
-
-    # F-score distribution (for f_classif method)
-    if "F_score" in stats.columns:
+    elif "F_score" in stats.columns:
         f_scores = stats["F_score"].dropna()
         if len(f_scores) > 0:
             log_level(
-                f"  F-score distribution: min={f_scores.min():.2f}, median={f_scores.median():.2f}, max={f_scores.max():.2f}"
+                f"Screened {method}: {n_selected}/{len(protein_cols)} proteins "
+                f"(n={len(X_train)}, F_median={f_scores.median():.2f})"
             )
+            logger.debug(f"  F-score range: [{f_scores.min():.2f}, {f_scores.max():.2f}]")
+    else:
+        log_level(
+            f"Screened {method}: {n_selected}/{len(protein_cols)} proteins (n={len(X_train)})"
+        )
 
-    # Selection results
-    n_selected = len(selected)
-    log_level(f"  Selected {n_selected}/{len(protein_cols)} proteins (top_n={top_n})")
-
+    # Warnings for edge cases
     if n_selected == 0:
-        logger.warning(
-            "  WARNING: Zero proteins passed screening threshold - check data quality or relax top_n"
-        )
+        logger.warning("Zero proteins passed screening - check data quality or relax top_n")
     elif n_selected < top_n:
-        logger.warning(f"  WARNING: Only {n_selected} proteins available (requested top_n={top_n})")
-
-    # Rationale logging (scientific transparency) - only log at DEBUG in reduced verbosity mode
-    if method == "mannwhitney":
-        log_level(
-            "  Rationale: Mann-Whitney U test identifies proteins with different distributions between cases/controls"
-        )
-        logger.debug("  Test statistic: U = sum of case ranks - (n_cases * (n_cases + 1) / 2)")
-    elif method == "f_classif":
-        log_level(
-            "  Rationale: ANOVA F-statistic identifies proteins with different mean expressions between classes"
-        )
-        logger.debug("  Test statistic: F = between-group variance / within-group variance")
+        logger.warning(f"Only {n_selected} proteins available (requested top_n={top_n})")
 
     return selected, stats
 
