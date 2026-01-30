@@ -244,8 +244,6 @@ def _build_postprocessing_command(
     Returns a multi-line bash script fragment that runs each step sequentially.
     """
     lines = [
-        "set -euo pipefail",
-        "",
         f'echo "Post-processing (aggregation + ensemble) for run {run_id}"',
         "",
     ]

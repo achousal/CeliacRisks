@@ -9,10 +9,6 @@
 
 ---
 
-## What is this?
-
-A modular ML framework for predicting disease risk from proteomics or other high-dimensional biomarker data. Built for Celiac Disease prediction, but generalizable to any disease/biomarker combination.
-
 **Core features:**
 - Multi-model ensemble with stacking (RF, XGBoost, SVM, Logistic Regression)
 - Five feature selection strategies (hybrid stability, nested RFECV, post-hoc RFE, cross-model consensus, fixed panel)
@@ -52,8 +48,6 @@ bjobs -w | grep CeD_
 **Pipeline flow:** Data → Split → Feature Selection → Model Training → Calibration → Ensemble → Evaluation
 
 ---
-
-## What Can This Software Do?
 
 ### 1. Run the Full Pipeline (Local)
 Run the complete pipeline on your machine with a single command:
