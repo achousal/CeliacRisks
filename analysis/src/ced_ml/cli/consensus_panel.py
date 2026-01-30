@@ -281,11 +281,13 @@ def run_consensus_panel(
     # Determine results root (CED_RESULTS_DIR env var for testability)
     import os
 
+    from ced_ml.utils.paths import get_project_root
+
     results_root_env = os.environ.get("CED_RESULTS_DIR")
     if results_root_env:
         results_root = Path(results_root_env)
     else:
-        results_root = Path(__file__).parent.parent.parent.parent.parent / "results"
+        results_root = get_project_root() / "results"
 
     if not results_root.exists():
         raise FileNotFoundError(f"Results directory not found: {results_root}")

@@ -144,9 +144,21 @@ def auto_log_path(
         handles that.
     """
     outdir = Path(outdir).resolve()
-    # Place logs/ as a sibling of the results directory
-    logs_root = outdir.parent / "logs" if outdir.name != "logs" else outdir
 
+    # Find CeliacRisks project root by traversing up
+    # This is more reliable than looking for logs/results which may exist at multiple levels
+    current = outdir
+    project_root = None
+
+    for parent in [current] + list(current.parents):
+        if parent.name == "CeliacRisks":
+            project_root = parent
+            break
+
+    if project_root is None:
+        raise RuntimeError(f"Cannot locate CeliacRisks project root. " f"Started from: {outdir}")
+
+    logs_root = project_root / "logs"
     rid = run_id or "unknown"
 
     if command == "train":

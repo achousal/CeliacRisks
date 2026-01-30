@@ -67,13 +67,14 @@ def _find_results_root() -> Path:
     """
     import os
 
+    from ced_ml.utils.paths import get_project_root
+
     results_dir_env = os.getenv("CED_RESULTS_DIR")
     if results_dir_env:
         return Path(results_dir_env)
 
-    # From src/ced_ml/cli/aggregate_splits.py, go up 4 levels to project root
-    project_root = Path(__file__).parent.parent.parent.parent.parent
-    results_dir = project_root / "results"
+    # Use smart traversal to find project root
+    results_dir = get_project_root() / "results"
 
     if not results_dir.exists() and (Path.cwd() / "results").exists():
         results_dir = Path.cwd() / "results"

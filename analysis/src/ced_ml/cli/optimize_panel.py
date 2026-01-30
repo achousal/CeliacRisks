@@ -69,11 +69,13 @@ def find_model_paths_for_run(
     import os
     from pathlib import Path
 
+    from ced_ml.utils.paths import get_project_root
+
     results_dir_env = os.environ.get("CED_RESULTS_DIR")
     if results_dir_env:
         results_dir = Path(results_dir_env)
     else:
-        results_dir = Path(__file__).parent.parent.parent.parent.parent / "results"
+        results_dir = get_project_root() / "results"
 
     if not results_dir.exists():
         raise FileNotFoundError(f"Results directory not found: {results_dir}")
@@ -189,9 +191,9 @@ def run_optimize_panel(
     logger.propagate = False  # Prevent propagation to root logger
 
     # Create logs/features directory at root level (parallel to results/)
-    # __file__ is: .../analysis/src/ced_ml/cli/optimize_panel.py
-    # Go up to project root: .. (cli) .. (ced_ml) .. (src) .. (analysis) .. (root) / logs / features
-    log_dir = Path(__file__).parent.parent.parent.parent.parent / "logs" / "features"
+    from ced_ml.utils.paths import get_project_root
+
+    log_dir = get_project_root() / "logs" / "features"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # Timestamped log file

@@ -678,11 +678,13 @@ def optimize_panel(ctx, config, **kwargs):
         # Support CED_RESULTS_DIR environment variable for testing
         import os
 
+        from ced_ml.utils.paths import get_project_root
+
         results_root_env = os.environ.get("CED_RESULTS_DIR")
         if results_root_env:
             results_root = Path(results_root_env)
         else:
-            results_root = Path(__file__).parent.parent.parent.parent.parent / "results"
+            results_root = get_project_root() / "results"
 
         click.echo(f"Auto-discovering models for run_id={run_id} in {results_root}")
 
@@ -910,13 +912,14 @@ def consensus_panel(ctx, config, **kwargs):
         - correlation_clusters.csv: Cluster assignments
         - consensus_metadata.json: Run parameters and statistics
     """
-    from pathlib import Path
 
     from ced_ml.cli.consensus_panel import run_consensus_panel
 
     # Load config file if provided or auto-detect
+    from ced_ml.utils.paths import get_analysis_dir
+
     config_params = {}
-    default_config = Path(__file__).parent.parent.parent.parent / "configs" / "consensus_panel.yaml"
+    default_config = get_analysis_dir() / "configs" / "consensus_panel.yaml"
     config_path = config or (default_config if default_config.exists() else None)
 
     if config_path:

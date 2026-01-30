@@ -196,10 +196,12 @@ def discover_base_models_for_run(
     """
     from pathlib import Path
 
+    from ced_ml.utils.paths import get_project_root
+
     # Determine results directory
     if results_dir is None:
         # Default: project root / results
-        results_dir_path = Path(__file__).parent.parent.parent.parent.parent / "results"
+        results_dir_path = get_project_root() / "results"
     else:
         results_dir_path = Path(results_dir)
 
