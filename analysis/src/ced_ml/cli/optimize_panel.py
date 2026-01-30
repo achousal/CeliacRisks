@@ -269,17 +269,14 @@ def run_optimize_panel(
     split_path = Path(split_dir)
     scenario = bundle.get("scenario", "IncidentOnly")
 
-    # Try new format first (with scenario)
     train_file = split_path / f"train_idx_{scenario}_seed{split_seed}.csv"
     val_file = split_path / f"val_idx_{scenario}_seed{split_seed}.csv"
 
-    # Fallback to old format (without scenario)
-    if not train_file.exists():
-        train_file = split_path / f"train_idx_seed{split_seed}.csv"
-        val_file = split_path / f"val_idx_seed{split_seed}.csv"
-
     if not train_file.exists() or not val_file.exists():
-        raise FileNotFoundError(f"Split files not found. Tried: {train_file}, {val_file}")
+        raise FileNotFoundError(
+            f"Split files not found: {train_file}, {val_file}\n"
+            f"Run 'ced save-splits' to generate splits with scenario={scenario}"
+        )
 
     logger.info(f"Loading splits from {split_path}")
     train_idx = pd.read_csv(train_file).squeeze().values
@@ -351,7 +348,7 @@ def run_optimize_panel(
                 initial_proteins = [p for p in initial_proteins if p in X_train.columns]
                 logger.info(f"After filtering: {len(initial_proteins)} proteins available")
 
-        # Fallback: Load from cv/selected_proteins_per_split.csv (legacy)
+        # Alternative: Load from cv/selected_proteins_per_split.csv if stable panel not found
         elif selected_proteins_path.exists():
             logger.info(f"Loading stability panel from {selected_proteins_path}")
             sel_df = pd.read_csv(selected_proteins_path)
@@ -440,7 +437,6 @@ def run_optimize_panel(
             out_path=plot_path,
             title="Panel Size vs AUROC (RFE)",
             model_name=model_name,
-            pareto_points=result.pareto_points,
         )
         paths["panel_curve_plot"] = str(plot_path)
         logger.info(f"Saved panel curve plot to {plot_path}")
@@ -477,14 +473,8 @@ def run_optimize_panel(
     for key, size in result.recommended_panels.items():
         print(f"  {key}: {size} proteins")
 
-    # Print Pareto frontier summary
-    if result.pareto_points:
-        print(f"\nPareto frontier: {len(result.pareto_points)} non-dominated points")
-        print("  (Points where no smaller panel has higher AUROC)")
-
     print(f"\nResults saved to: {outdir}")
     print("  - panel_curve.csv (full curve with all metrics)")
-    print("  - pareto_frontier.csv (non-dominated size-AUROC pairs)")
     print("  - metrics_summary.csv (metrics at each panel size)")
     print("  - recommended_panels.json (threshold-based recommendations)")
     print("  - feature_ranking.csv (protein elimination order)")
@@ -545,15 +535,6 @@ def discover_models_by_run_id(
 
         # Check for required aggregated files
         feature_stability_file = aggregated_dir / "panels" / "feature_stability_summary.csv"
-        # Fallback: check legacy nested path
-        if not feature_stability_file.exists():
-            feature_stability_file = (
-                aggregated_dir / "panels" / "features" / "feature_stability_summary.csv"
-            )
-        if not feature_stability_file.exists():
-            feature_stability_file = (
-                aggregated_dir / "reports" / "feature_reports" / "feature_stability_summary.csv"
-            )
         if not feature_stability_file.exists():
             continue
 
@@ -640,32 +621,14 @@ def run_optimize_panel_aggregated(
 
     # Load aggregated stability panel
     stability_file = results_path / "panels" / "feature_stability_summary.csv"
-    # Fallback: check legacy nested paths
-    if not stability_file.exists():
-        stability_file = results_path / "panels" / "features" / "feature_stability_summary.csv"
-    if not stability_file.exists():
-        stability_file = (
-            results_path / "reports" / "feature_reports" / "feature_stability_summary.csv"
-        )
     if not stability_file.exists():
         raise FileNotFoundError(
-            "Feature stability file not found in panels/ or legacy reports/\n"
+            f"Feature stability file not found: {stability_file}\n"
             "Run 'ced aggregate-splits' first to generate aggregated results."
         )
 
     logger.info(f"Loading aggregated stability panel from {stability_file}")
     stability_df = pd.read_csv(stability_file)
-
-    # DEBUG: Show raw protein names
-    if not stability_df.empty:
-        logger.info(f"Raw protein names (first 3): {stability_df['protein'].head(3).tolist()}")
-
-    # Strip extra quotes AND whitespace from protein names (legacy CSV compatibility)
-    stability_df["protein"] = stability_df["protein"].str.strip().str.strip('"').str.strip("'")
-
-    # DEBUG: Show after stripping
-    if not stability_df.empty:
-        logger.info(f"After strip (first 3): {stability_df['protein'].head(3).tolist()}")
 
     # Filter by stability threshold (column is 'selection_fraction', not 'selection_frequency')
     stable_proteins = stability_df[stability_df["selection_fraction"] >= stability_threshold][
@@ -686,13 +649,11 @@ def run_optimize_panel_aggregated(
     # results_dir is: ../results/LR_EN/run_20260127_115115/aggregated
     run_dir = results_path.parent
 
-    # Discover available split seeds (new: splits/split_seed*, legacy: split_seed*)
+    # Discover available split seeds in splits/ subdirectory
     split_dirs = sorted(run_dir.glob("splits/split_seed*"))
     if not split_dirs:
-        split_dirs = sorted(run_dir.glob("split_seed*"))
-    if not split_dirs:
         raise FileNotFoundError(
-            f"No split directories found in {run_dir}. "
+            f"No split directories found in {run_dir}/splits/. "
             f"Expected at least one split_seed* directory."
         )
 
@@ -747,13 +708,11 @@ def run_optimize_panel_aggregated(
     train_file = split_path / f"train_idx_{scenario}_seed{representative_seed}.csv"
     val_file = split_path / f"val_idx_{scenario}_seed{representative_seed}.csv"
 
-    # Fallback to old format (without scenario)
-    if not train_file.exists():
-        train_file = split_path / f"train_idx_seed{representative_seed}.csv"
-        val_file = split_path / f"val_idx_seed{representative_seed}.csv"
-
     if not train_file.exists() or not val_file.exists():
-        raise FileNotFoundError(f"Split files not found: {train_file}, {val_file}")
+        raise FileNotFoundError(
+            f"Split files not found: {train_file}, {val_file}\n"
+            f"Run 'ced save-splits' to generate splits with scenario={scenario}"
+        )
 
     logger.info(f"Loading splits from {split_path}")
     train_idx = pd.read_csv(train_file).squeeze().values
@@ -791,49 +750,6 @@ def run_optimize_panel_aggregated(
 
     # Filter stable proteins to those available in data
     initial_proteins = [p for p in stable_proteins if p in X_train.columns]
-
-    # Fallback: If no matches, try adding/removing _resid suffix (legacy data compatibility)
-    if len(initial_proteins) == 0:
-        logger.warning("No direct protein matches found - trying suffix variants...")
-        protein_cols_in_data = [c for c in X_train.columns if c.endswith("_resid")]
-
-        # Try matching with _resid suffix added
-        for p in stable_proteins:
-            if not p.endswith("_resid"):
-                p_with_suffix = f"{p}_resid"
-                if p_with_suffix in protein_cols_in_data:
-                    initial_proteins.append(p_with_suffix)
-
-        # Try matching with _resid suffix removed
-        if len(initial_proteins) == 0:
-            for p in stable_proteins:
-                if p.endswith("_resid"):
-                    p_without_suffix = p.replace("_resid", "")
-                    if p_without_suffix in X_train.columns:
-                        initial_proteins.append(p_without_suffix)
-
-        if len(initial_proteins) > 0:
-            logger.info(f"Suffix matching recovered {len(initial_proteins)} proteins")
-
-    # DEBUG: Print diagnostic info if filtering fails
-    if len(initial_proteins) < min_size:
-        logger.error("Protein name mismatch detected!")
-        logger.error(f"Sample stable_proteins (first 5): {stable_proteins[:5]}")
-
-        # Get protein columns from X_train
-        protein_cols_in_data = [c for c in X_train.columns if c.endswith("_resid")]
-        logger.error(f"Sample protein columns in data (first 5): {protein_cols_in_data[:5]}")
-        logger.error(f"Total protein columns in X_train: {len(protein_cols_in_data)}")
-
-        # Check if any stable protein is a substring match
-        sample_stable = stable_proteins[0] if stable_proteins else "N/A"
-        sample_data_col = protein_cols_in_data[0] if protein_cols_in_data else "N/A"
-        logger.error(
-            f"First stable protein: repr={repr(sample_stable)}, len={len(sample_stable) if stable_proteins else 0}"
-        )
-        logger.error(
-            f"First data column: repr={repr(sample_data_col)}, len={len(sample_data_col) if protein_cols_in_data else 0}"
-        )
 
     if len(initial_proteins) < min_size:
         raise ValueError(
@@ -889,7 +805,6 @@ def run_optimize_panel_aggregated(
             out_path=plot_path,
             title=f"Panel Size Optimization ({model_name}, Aggregated)",
             model_name=model_name,
-            pareto_points=result.pareto_points,
         )
         paths["panel_curve_plot"] = str(plot_path)
         logger.info(f"Saved panel curve plot to {plot_path}")
@@ -925,14 +840,8 @@ def run_optimize_panel_aggregated(
     for key, size in result.recommended_panels.items():
         print(f"  {key}: {size} proteins")
 
-    # Print Pareto frontier summary
-    if result.pareto_points:
-        print(f"\nPareto frontier: {len(result.pareto_points)} non-dominated points")
-        print("  (Points where no smaller panel has higher AUROC)")
-
     print(f"\nResults saved to: {outdir}")
     print("  - panel_curve_aggregated.csv (full curve with all metrics)")
-    print("  - pareto_frontier_aggregated.csv (non-dominated size-AUROC pairs)")
     print("  - metrics_summary_aggregated.csv (metrics at each panel size)")
     print("  - recommended_panels_aggregated.json (threshold-based recommendations)")
     print("  - feature_ranking_aggregated.csv (protein elimination order)")

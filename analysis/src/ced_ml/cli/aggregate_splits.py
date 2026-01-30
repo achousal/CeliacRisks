@@ -724,18 +724,13 @@ def run_aggregate_splits(
         optuna_trials_combined = None
         n_optuna_trials = 0
         for split_dir in split_dirs:
-            optuna_dir = split_dir / "cv" / "optuna"
-            if not optuna_dir.exists():
+            # Optuna files are flat at cv level (no optuna subdirectory)
+            cv_dir = split_dir / "cv"
+            if not cv_dir.exists():
                 continue
 
             # Look for model-prefixed optuna_trials file (e.g., LinSVM_cal__optuna_trials.csv)
-            optuna_files = list(optuna_dir.glob("*__optuna_trials.csv"))
-
-            # Fallback to non-prefixed filename for backward compatibility
-            if not optuna_files:
-                optuna_csv = optuna_dir / "optuna_trials.csv"
-                if optuna_csv.exists():
-                    optuna_files = [optuna_csv]
+            optuna_files = list(cv_dir.glob("*__optuna_trials.csv"))
 
             if optuna_files:
                 optuna_csv = optuna_files[0]  # Use first match
@@ -752,13 +747,14 @@ def run_aggregate_splits(
                     logger.warning(f"Failed to load optuna trials from {optuna_csv}: {e}")
 
         if optuna_trials_combined is not None:
-            optuna_dir = agg_dir / "cv" / "optuna"
-            optuna_dir.mkdir(parents=True, exist_ok=True)
+            # Save flat at cv level (no optuna subdirectory)
+            cv_agg_dir = agg_dir / "cv"
+            cv_agg_dir.mkdir(parents=True, exist_ok=True)
 
             # Save combined trials directly (already concatenated)
-            combined_csv = optuna_dir / "optuna_trials.csv"
+            combined_csv = cv_agg_dir / "optuna_trials.csv"
             optuna_trials_combined.to_csv(combined_csv, index=False)
-            logger.info(f"Aggregated {n_optuna_trials} Optuna trial sets: {optuna_dir}")
+            logger.info(f"Aggregated {n_optuna_trials} Optuna trial sets: {cv_agg_dir}")
         else:
             logger.info("No Optuna trials found (optional - depends on config.optuna.enabled)")
 

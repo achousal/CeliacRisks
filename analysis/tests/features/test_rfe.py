@@ -12,7 +12,6 @@ from ced_ml.features.rfe import (
     compute_eval_sizes,
     compute_feature_importance,
     detect_knee_point,
-    extract_pareto_frontier,
     find_recommended_panels,
     save_rfe_results,
 )
@@ -188,66 +187,6 @@ class TestDetectKneePoint:
         assert knee == 50
 
 
-class TestExtractParetoFrontier:
-    """Tests for extract_pareto_frontier function."""
-
-    def test_all_pareto_optimal(self):
-        """All points Pareto-optimal when monotonically decreasing AUROC."""
-        # For Pareto optimality: a point is dominated if another has
-        # BOTH smaller size AND higher AUROC.
-        # In this curve, each smaller panel has lower AUROC, so only
-        # the largest panel (100) is Pareto-optimal.
-        curve = [
-            {"size": 100, "auroc_val": 0.90},
-            {"size": 50, "auroc_val": 0.85},  # Dominated by 100 (higher AUROC)
-            {"size": 25, "auroc_val": 0.80},  # Dominated by 100 (higher AUROC)
-        ]
-        pareto = extract_pareto_frontier(curve)
-        # Only size=100 is on the Pareto frontier (best AUROC overall)
-        assert len(pareto) == 1
-        assert pareto[0]["size"] == 100
-
-    def test_dominated_points_excluded(self):
-        """Dominated points are excluded."""
-        curve = [
-            {"size": 100, "auroc_val": 0.90},
-            {"size": 75, "auroc_val": 0.85},  # Dominated by 50
-            {"size": 50, "auroc_val": 0.88},  # Dominated by 100
-            {"size": 25, "auroc_val": 0.80},  # Dominated by 100
-        ]
-        pareto = extract_pareto_frontier(curve)
-        # Only size=100 is on Pareto frontier (best AUROC)
-        # All other points have smaller size but also lower AUROC,
-        # so they're dominated by 100
-        pareto_sizes = [p["size"] for p in pareto]
-        assert 75 not in pareto_sizes
-        assert 100 in pareto_sizes
-        # 50 is dominated by 100 (100 has higher AUROC)
-        assert 50 not in pareto_sizes
-
-    def test_empty_curve(self):
-        """Empty curve returns empty list."""
-        pareto = extract_pareto_frontier([])
-        assert pareto == []
-
-    def test_true_pareto_frontier(self):
-        """Test curve with multiple Pareto-optimal points."""
-        # This curve has genuine trade-offs: as size decreases,
-        # AUROC sometimes increases (non-monotonic)
-        curve = [
-            {"size": 100, "auroc_val": 0.85},  # Pareto-optimal (largest panel)
-            {"size": 75, "auroc_val": 0.90},  # Pareto-optimal (best AUROC)
-            {"size": 50, "auroc_val": 0.88},  # Dominated by 75
-            {"size": 25, "auroc_val": 0.86},  # Dominated by 75
-            {"size": 10, "auroc_val": 0.80},  # Dominated by 75
-        ]
-        pareto = extract_pareto_frontier(curve)
-        # size=100 and size=75 are both Pareto-optimal (trade-off between size and AUROC)
-        assert len(pareto) == 2
-        assert pareto[0]["size"] == 100
-        assert pareto[1]["size"] == 75
-
-
 class TestComputeFeatureImportance:
     """Tests for compute_feature_importance function."""
 
@@ -346,7 +285,6 @@ class TestSaveRFEResults:
             ],
             feature_ranking={"protein_0": 0, "protein_1": 1},
             recommended_panels={"knee_point": 50, "min_size_95pct": 25},
-            pareto_points=[{"size": 50, "auroc_val": 0.85}],
             max_auroc=0.85,
             model_name="LR_EN",
         )
@@ -358,7 +296,6 @@ class TestSaveRFEResults:
             assert Path(paths["panel_curve"]).exists()
             assert Path(paths["feature_ranking"]).exists()
             assert Path(paths["recommended_panels"]).exists()
-            assert Path(paths["pareto_frontier"]).exists()
 
             # Check panel_curve.csv content
             curve_df = pd.read_csv(paths["panel_curve"])

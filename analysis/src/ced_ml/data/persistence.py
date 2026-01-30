@@ -303,7 +303,7 @@ def save_split_indices(
     if has_val:
         paths["val"] = os.path.join(outdir, f"val_idx{suffix}.csv")
 
-    # Sort indices (match legacy behavior)
+    # Sort indices for deterministic output
     train_idx = np.sort(train_idx.astype(int))
     test_idx = np.sort(test_idx.astype(int))
     if has_val:
@@ -371,7 +371,7 @@ def save_holdout_indices(
 
     os.makedirs(outdir, exist_ok=True)
 
-    # Sort indices (match legacy behavior)
+    # Sort indices for deterministic output
     holdout_idx = np.sort(holdout_idx.astype(int))
 
     pd.DataFrame({"idx": holdout_idx}).to_csv(holdout_path, index=False)
@@ -534,12 +534,7 @@ def load_split_metadata(
     meta_path = os.path.join(split_dir, f"split_meta_{scenario}_seed{seed}.json")
 
     if not os.path.exists(meta_path):
-        # Try fallback without scenario (legacy format)
-        meta_path_legacy = os.path.join(split_dir, f"split_meta_seed{seed}.json")
-        if os.path.exists(meta_path_legacy):
-            meta_path = meta_path_legacy
-        else:
-            return None
+        return None
 
     with open(meta_path) as f:
         return json.load(f)

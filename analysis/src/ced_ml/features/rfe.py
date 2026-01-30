@@ -59,7 +59,6 @@ class RFEResult:
         curve: List of evaluation points with size, AUROC, and selected proteins.
         feature_ranking: Dict mapping protein -> elimination order (0 = removed first).
         recommended_panels: Dict with minimum sizes at various AUROC thresholds.
-        pareto_points: Non-dominated points on the size-AUROC frontier.
         max_auroc: Maximum AUROC achieved.
         model_name: Name of model used.
     """
@@ -67,7 +66,6 @@ class RFEResult:
     curve: list[dict[str, Any]] = field(default_factory=list)
     feature_ranking: dict[str, int] = field(default_factory=dict)
     recommended_panels: dict[str, int] = field(default_factory=dict)
-    pareto_points: list[dict[str, Any]] = field(default_factory=list)
     max_auroc: float = 0.0
     model_name: str = ""
 
@@ -410,35 +408,6 @@ def detect_knee_point(curve: list[dict[str, Any]]) -> int:
     return int(sorted_curve[knee_idx]["size"])
 
 
-def extract_pareto_frontier(curve: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Extract Pareto-optimal points (non-dominated on size vs AUROC).
-
-    A point is Pareto-optimal if no other point has both smaller size AND
-    higher AUROC.
-
-    Args:
-        curve: List of dicts with "size" and "auroc_val".
-
-    Returns:
-        List of Pareto-optimal points.
-    """
-    if not curve:
-        return []
-
-    # Sort by size descending
-    sorted_curve = sorted(curve, key=lambda x: -x["size"])
-
-    pareto = []
-    max_auroc_seen = -np.inf
-
-    for point in sorted_curve:
-        if point["auroc_val"] > max_auroc_seen:
-            pareto.append(point)
-            max_auroc_seen = point["auroc_val"]
-
-    return pareto
-
-
 def build_lightweight_pipeline(
     base_pipeline: Pipeline,
     protein_cols: list[str],
@@ -674,13 +643,11 @@ def recursive_feature_elimination(
 
     # Compute recommendations
     recommended = find_recommended_panels(curve)
-    pareto = extract_pareto_frontier(curve)
 
     return RFEResult(
         curve=curve,
         feature_ranking=feature_ranking,
         recommended_panels=recommended,
-        pareto_points=pareto,
         max_auroc=max_auroc_seen,
         model_name=model_name,
     )
@@ -781,24 +748,13 @@ def save_rfe_results(
         "split_seed": split_seed,
         "max_auroc": result.max_auroc,
         "recommended_panels": result.recommended_panels,
-        "pareto_points": [
-            {"size": p["size"], "auroc_val": p["auroc_val"]} for p in result.pareto_points
-        ],
         "timestamp": datetime.now().isoformat(),
     }
     with open(rec_path, "w") as f:
         json.dump(rec_data, f, indent=2)
     paths["recommended_panels"] = rec_path
 
-    # 4. Pareto frontier CSV
-    pareto_path = os.path.join(output_dir, f"pareto_frontier{suffix}.csv")
-    pareto_df = pd.DataFrame(
-        [{"size": p["size"], "auroc_val": p["auroc_val"]} for p in result.pareto_points]
-    )
-    pareto_df.to_csv(pareto_path, index=False)
-    paths["pareto_frontier"] = pareto_path
-
-    # 5. Metrics summary CSV (panel size vs all metrics)
+    # 4. Metrics summary CSV (panel size vs all metrics)
     metrics_summary_path = os.path.join(output_dir, f"metrics_summary{suffix}.csv")
     metrics_df = pd.DataFrame(
         [

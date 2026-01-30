@@ -36,7 +36,12 @@ ced run-pipeline
 ```bash
 cd CeliacRisks/
 bash analysis/scripts/hpc_setup.sh
-bash analysis/run_hpc.sh  # Submits per-split jobs using ced run-pipeline
+
+# Submit pipeline with parallel panel optimization
+ced run-pipeline --hpc
+
+# Legacy: bash script wrapper
+bash analysis/run_hpc.sh
 ```
 
 ### One-command workflow (RECOMMENDED)
@@ -659,69 +664,3 @@ ls results/run_{RUN_ID}/{MODEL}/splits/split_seed*/preds/train_oof/
 - [analysis/run_local.sh](analysis/run_local.sh) - Local pipeline runner
 - [analysis/scripts/post_training_pipeline.sh](analysis/scripts/post_training_pipeline.sh) - HPC post-processing (legacy)
 - [analysis/scripts/hpc_setup.sh](analysis/scripts/hpc_setup.sh) - HPC environment setup
-
----
-
-## Recent Major Changes
-
-**2026-01-29:**
-1. **Simplified Working Directory Requirement** - All `ced` commands must now run from project root only:
-   - Removed complex "call from anywhere" path resolution (was messy and error-prone)
-   - Simple rule: Always `cd CeliacRisks/` before running `ced` commands
-   - Clear error message if run from wrong directory
-   - Paths in configs remain analysis-relative (unchanged)
-   - See [docs/CLI_WORKING_DIRECTORY.md](analysis/docs/CLI_WORKING_DIRECTORY.md)
-2. **Simplified HPC Runner** - `run_hpc.sh` remodeled to use `ced run-pipeline` CLI:
-   - Reduced from 468 lines to 253 lines (46% reduction)
-   - Submits per-split jobs that each run `ced run-pipeline` for all models
-   - Eliminates manual ensemble training, aggregation, and panel optimization coordination
-   - All workflow logic now handled by tested CLI commands
-   - Maintains HPC job submission, logging, and resource management
-3. **One-Command Pipeline** - NEW `ced run-pipeline` command for end-to-end workflow orchestration:
-   - Runs complete pipeline: splits → train → aggregate → ensemble → optimize panel → consensus
-   - Default: 3 models (LR_EN, RF, XGBoost) × 3 seeds with all features enabled
-   - Customizable models, seeds, and feature toggles (ensemble, consensus, optimize-panel)
-   - Maintains shared run_id across all models for easy tracking
-   - Eliminates need to manually chain individual commands
-4. **Documentation Accuracy Review** - Comprehensive doc-updater agent review and fixes:
-   - Updated version number to 1.0.0 (corrected from 1.3.0)
-   - Updated code statistics: 33,933 lines (src), 64,948 total (src + tests)
-   - Updated test counts: 1,422 test items, 2,610 test functions
-   - Corrected ADR-013 from "Four-Strategy" to "Five-Strategy Feature Selection Framework"
-   - Added Strategy 4 (Consensus Panel) and renumbered Fixed Panel to Strategy 5
-   - All CLI commands, ADRs, and config files verified accurate
-
-**2026-01-28:**
-1. **Complete `--run-id` Auto-Detection** - All CLI commands now support `--run-id` for zero-config path resolution:
-   - `ced train` creates `run_metadata.json` with paths and settings
-   - `ced aggregate-splits --run-id <RUN_ID> --model <MODEL>` auto-detects results directory
-   - `ced optimize-panel --run-id <RUN_ID>` auto-detects infile, split-dir, and results paths
-   - `ced consensus-panel --run-id <RUN_ID>` auto-detects all required paths
-   - `ced train-ensemble --run-id <RUN_ID>` auto-detects base models and paths
-2. **Uncertainty Quantification** - Comprehensive uncertainty metrics for panel optimization:
-   - Bootstrap CIs for RFE AUROC estimates (already implemented, now fully documented)
-   - Cross-model agreement metrics: `n_models_present`, `agreement_strength`, `rank_std`, `rank_cv`
-   - Statistical comparisons between recommended panel sizes
-   - Uncertainty summary CSV and metadata JSON with deployment-ready metrics
-3. **Post-Training Pipeline Auto-Detection** - `post_training_pipeline.sh` now auto-detects models and splits from run-id (no config coordination needed)
-4. **Conda Environment Support** - HPC post-training pipeline now supports both venv and conda environments
-
-**2026-01-27:**
-1. **Cross-Model Consensus Panel** - `ced consensus-panel` generates consensus protein panel via Robust Rank Aggregation across multiple models
-2. **Multi-Model Batch Processing** - `ced optimize-panel --run-id` now processes all base models automatically
-3. **Investigation Workflows Consolidation** - Factorial experiment framework for prevalent case and control ratio optimization
-4. **Test Suite Modernization** - Expanded to 1,271 tests with improved E2E coverage and ensemble testing
-5. **Modular Aggregation Refactor** - Extracted orchestration helpers and metrics aggregation for maintainability
-
-**2026-01-26:**
-1. **Aggregated Panel Optimization** - Panel sizing via RFE on consensus stable proteins across all splits
-2. **Model Stacking Ensemble** - L2 meta-learner, +2-5% AUROC expected
-3. **OOF-Posthoc Calibration** - Eliminates ~0.5-1% optimistic bias
-4. **Expanded Optuna Ranges** - Wider hyperparameter search space
-5. **Temporal Validation** - Chronological train/val/test splits
-6. **DCA Auto-Range** - Prevalence-based threshold configuration
-
----
-
-**Last Updated**: 2026-01-29
-**Status**: Production-ready with complete `--run-id` auto-detection, panel optimization, cross-model consensus, and investigation framework for clinical deployment

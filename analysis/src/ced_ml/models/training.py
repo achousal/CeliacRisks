@@ -1005,6 +1005,11 @@ def _extract_from_model_coefficients(
         support = pipeline.named_steps["sel"].get_support()
         feature_names = feature_names[support]
 
+    # Apply model-specific selector mask if present
+    if "model_sel" in pipeline.named_steps:
+        support = pipeline.named_steps["model_sel"].get_support()
+        feature_names = feature_names[support]
+
     # Extract coefficients
     clf = pipeline.named_steps["clf"]
 
@@ -1077,6 +1082,11 @@ def _extract_from_rf_permutation(
     # Apply K-best mask if present
     if "sel" in pipeline.named_steps:
         support = pipeline.named_steps["sel"].get_support()
+        feature_names = feature_names[support]
+
+    # Apply model-specific selector mask if present
+    if "model_sel" in pipeline.named_steps:
+        support = pipeline.named_steps["model_sel"].get_support()
         feature_names = feature_names[support]
 
     # Compute permutation importance

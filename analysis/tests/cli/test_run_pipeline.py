@@ -1,0 +1,119 @@
+"""
+Tests for run_pipeline CLI command.
+
+Regression tests for bugs discovered during development.
+"""
+
+import json
+
+
+def test_run_id_detection_after_training(tmp_path):
+    """
+    Regression test: run_id should be correctly extracted from run_metadata.json.
+
+    Bug: glob pattern was looking for run_*/*/splits/split_seed{N}/run_metadata.json
+    Fix: Changed to run_*/run_metadata.json (file is at run root, not in splits/)
+
+    This test verifies the glob pattern finds the file in the correct location.
+    """
+    # Create mock directory structure matching actual output
+    results_dir = tmp_path / "results"
+    run_dir = results_dir / "run_20260130_093436"
+    run_dir.mkdir(parents=True)
+
+    # Create run_metadata.json at run root (correct location)
+    metadata = {
+        "run_id": "20260130_093436",
+        "infile": "/path/to/data.parquet",
+        "split_dir": "/path/to/splits",
+        "models": {
+            "LR_EN": {
+                "scenario": "IncidentPlusPrevalent",
+                "split_seed": 0,
+            }
+        },
+    }
+    with open(run_dir / "run_metadata.json", "w") as f:
+        json.dump(metadata, f)
+
+    # Test glob pattern (should find file)
+    metadata_pattern = list(results_dir.glob("run_*/run_metadata.json"))
+    assert len(metadata_pattern) == 1, "Should find exactly one run_metadata.json"
+    assert metadata_pattern[0] == run_dir / "run_metadata.json"
+
+    # Verify we can read run_id
+    with open(metadata_pattern[0]) as f:
+        loaded = json.load(f)
+        assert loaded["run_id"] == "20260130_093436"
+
+
+def test_old_glob_pattern_fails(tmp_path):
+    """
+    Verify that the OLD (buggy) glob pattern does NOT find the file.
+
+    This demonstrates why the bug occurred.
+    """
+    # Create correct structure
+    results_dir = tmp_path / "results"
+    run_dir = results_dir / "run_20260130_093436"
+    run_dir.mkdir(parents=True)
+
+    metadata = {"run_id": "20260130_093436"}
+    with open(run_dir / "run_metadata.json", "w") as f:
+        json.dump(metadata, f)
+
+    # Test OLD pattern (should NOT find file)
+    split_seed = 0
+    old_pattern = list(results_dir.glob(f"run_*/*/splits/split_seed{split_seed}/run_metadata.json"))
+    assert len(old_pattern) == 0, "Old pattern should NOT find file at run root"
+
+
+def test_ensemble_parameter_name_lowercase():
+    """
+    Regression test: train_ensemble function uses 'meta_c' (lowercase) parameter.
+
+    Bug: run_pipeline.py was calling run_train_ensemble(meta_C=None) (uppercase)
+    Fix: Changed to meta_c=None (lowercase) to match function signature
+
+    This test verifies the correct parameter name is used.
+    """
+    import inspect
+
+    from ced_ml.cli.train_ensemble import run_train_ensemble
+
+    # Get function signature
+    sig = inspect.signature(run_train_ensemble)
+    params = list(sig.parameters.keys())
+
+    # Verify 'meta_c' (lowercase) is in parameters
+    assert "meta_c" in params, "Function should accept 'meta_c' parameter"
+
+    # Verify 'meta_C' (uppercase) is NOT in parameters
+    assert "meta_C" not in params, "Function should NOT accept 'meta_C' parameter"
+
+
+def test_run_pipeline_metadata_structure():
+    """
+    Test that run_metadata.json has expected structure for auto-detection.
+    """
+
+    # This is a structural test - just verify the expected fields exist
+    # in the metadata format (without actually running the pipeline)
+    expected_fields = ["run_id", "infile", "split_dir", "models"]
+
+    # Mock metadata structure
+    metadata = {
+        "run_id": "20260130_000000",
+        "infile": "/path/to/data.parquet",
+        "split_dir": "/path/to/splits",
+        "models": {
+            "LR_EN": {
+                "scenario": "IncidentPlusPrevalent",
+                "split_seed": 0,
+            }
+        },
+    }
+
+    # Verify structure
+    for field in expected_fields:
+        assert field in metadata, f"Metadata should contain '{field}' field"

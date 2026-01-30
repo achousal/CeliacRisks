@@ -5,6 +5,7 @@ This module handles reading proteomics CSV files with schema validation,
 dtype coercion, and quality checks.
 """
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -19,9 +20,8 @@ from ced_ml.data.schema import (
     META_NUM_COLS,
     TARGET_COL,
 )
-from ced_ml.utils.logging import get_logger
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def usecols_for_proteomics(

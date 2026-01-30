@@ -586,7 +586,7 @@ class TrainingConfig(BaseModel):
     # Data
     infile: Path | None = None
     split_dir: Path | None = None
-    scenario: str = "IncidentOnly"
+    scenario: str | None = None  # Auto-detect from split files
     split_seed: int = 0
 
     # Model selection

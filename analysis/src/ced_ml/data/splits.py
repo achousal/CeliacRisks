@@ -8,6 +8,7 @@ This module handles three-way stratified splitting (TRAIN/VAL/TEST) with:
 - Holdout set creation for final external validation
 """
 
+import logging
 from typing import Any
 
 import numpy as np
@@ -19,9 +20,8 @@ from ced_ml.data.schema import (
     PREVALENT_LABEL,
     TARGET_COL,
 )
-from ced_ml.utils.logging import get_logger
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================

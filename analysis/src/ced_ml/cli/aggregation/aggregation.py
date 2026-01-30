@@ -339,7 +339,7 @@ def save_threshold_data(
 
     Args:
         threshold_info: Dictionary mapping model name to threshold data
-        out_dir: Output directory for threshold files
+        out_dir: Output directory for threshold files (expected: core directory)
         logger: Optional logger instance
     """
     if not threshold_info:
@@ -347,8 +347,9 @@ def save_threshold_data(
             logger.info("No threshold data to save")
         return
 
-    thresholds_dir = out_dir / "core" / "thresholds"
-    thresholds_dir.mkdir(parents=True, exist_ok=True)
+    # Save thresholds flat at core level (no thresholds subdirectory)
+    core_dir = out_dir / "core"
+    core_dir.mkdir(parents=True, exist_ok=True)
 
     for model_name, model_thresholds in threshold_info.items():
         rows = []
@@ -416,7 +417,7 @@ def save_threshold_data(
 
         if rows:
             df = pd.DataFrame(rows)
-            csv_path = thresholds_dir / f"thresholds__{model_name}.csv"
+            csv_path = core_dir / f"thresholds__{model_name}.csv"
             df.to_csv(csv_path, index=False)
             if logger:
                 logger.info(f"Thresholds saved for {model_name}: {csv_path}")
@@ -490,7 +491,7 @@ def save_threshold_data(
 
     if all_rows:
         combined_df = pd.DataFrame(all_rows)
-        combined_path = thresholds_dir / "thresholds_all_models.csv"
+        combined_path = core_dir / "thresholds_all_models.csv"
         combined_df.to_csv(combined_path, index=False)
         if logger:
             logger.info(f"Combined thresholds saved: {combined_path}")

@@ -145,7 +145,7 @@ def run_save_splits(
 
     logger.info(f"Loading data from: {infile}")
     df = read_proteomics_file(infile, validate=True)
-    logger.info(f"  Loaded {len(df):,} samples")
+    # Loaded message logged by read_proteomics_file()
 
     # Extract flags from cli_args
     overwrite = cli_args.get("overwrite", False) if cli_args else False
@@ -438,16 +438,7 @@ def _generate_repeated_splits(
         # Add prevalent to TRAIN only
         if config.prevalent_train_only and PREVALENT_LABEL in positives:
             idx_train = add_prevalent_to_train(idx_train, df_work, config.prevalent_train_frac, rng)
-            n_prev_added = len(idx_train) - len(
-                np.setdiff1d(
-                    idx_train,
-                    df_work.index[df_work[TARGET_COL] == PREVALENT_LABEL].to_numpy(dtype=int),
-                )
-            )
-            if n_prev_added > 0:
-                logger.info(
-                    f"  Train: added prevalent={n_prev_added:,} (frac={config.prevalent_train_frac:.2f})"
-                )
+            # Logging handled by add_prevalent_to_train()
 
         # Downsample controls
         idx_train = downsample_controls(

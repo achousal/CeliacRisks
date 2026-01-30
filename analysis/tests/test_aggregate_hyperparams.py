@@ -32,9 +32,9 @@ def temp_results_dir():
             split_dir = results_dir / f"split_seed{seed}"
             split_dir.mkdir(parents=True)
 
-            # Create cv/optuna subdirectory
-            optuna_dir = split_dir / "cv" / "optuna"
-            optuna_dir.mkdir(parents=True)
+            # Create cv directory (optuna files are flat at cv level)
+            cv_dir = split_dir / "cv"
+            cv_dir.mkdir(parents=True)
 
         yield results_dir
 
@@ -93,7 +93,7 @@ def test_collect_best_hyperparams_empty_dir(temp_results_dir):
 def test_collect_best_hyperparams_single_split(temp_results_dir, mock_hyperparams_data):
     """Test collecting hyperparameters from a single split."""
     split_dir = temp_results_dir / "split_seed0"
-    params_file = split_dir / "cv" / "optuna" / "best_params_optuna.csv"
+    params_file = split_dir / "cv" / "best_params_optuna.csv"
 
     # Write mock data
     df = pd.DataFrame(mock_hyperparams_data)
@@ -114,7 +114,7 @@ def test_collect_best_hyperparams_multiple_splits(temp_results_dir, mock_hyperpa
     """Test collecting hyperparameters from multiple splits."""
     for seed in [0, 1]:
         split_dir = temp_results_dir / f"split_seed{seed}"
-        params_file = split_dir / "cv" / "optuna" / "best_params_optuna.csv"
+        params_file = split_dir / "cv" / "best_params_optuna.csv"
 
         # Write mock data
         df = pd.DataFrame(mock_hyperparams_data)
@@ -256,7 +256,7 @@ def test_collect_ensemble_hyperparams_with_config(temp_results_dir):
 def test_collect_best_hyperparams_invalid_json(temp_results_dir):
     """Test handling of invalid JSON in best_params column."""
     split_dir = temp_results_dir / "split_seed0"
-    params_file = split_dir / "cv" / "optuna" / "best_params_optuna.csv"
+    params_file = split_dir / "cv" / "best_params_optuna.csv"
 
     # Write data with invalid JSON
     data = {
@@ -295,7 +295,7 @@ def test_aggregate_hyperparams_summary_n_cv_folds():
 def test_collect_best_hyperparams_preserves_optuna_metadata(temp_results_dir):
     """Test that Optuna metadata columns are parsed correctly."""
     split_dir = temp_results_dir / "split_seed0"
-    params_file = split_dir / "cv" / "optuna" / "best_params_optuna.csv"
+    params_file = split_dir / "cv" / "best_params_optuna.csv"
 
     data = {
         "model": ["LR_EN"],
@@ -326,11 +326,11 @@ def test_optuna_trials_aggregation_with_model_prefix(temp_results_dir):
     splits_base = temp_results_dir / "splits"
     for seed in [0, 1]:
         split_dir = splits_base / f"split_seed{seed}"
-        optuna_dir = split_dir / "cv" / "optuna"
-        optuna_dir.mkdir(parents=True, exist_ok=True)
+        cv_dir = split_dir / "cv"
+        cv_dir.mkdir(parents=True, exist_ok=True)
 
         # Use model-prefixed filename (LinSVM_cal__optuna_trials.csv)
-        trials_file = optuna_dir / "LinSVM_cal__optuna_trials.csv"
+        trials_file = cv_dir / "LinSVM_cal__optuna_trials.csv"
 
         # Create mock trials data
         trials_data = {
@@ -369,7 +369,7 @@ def test_optuna_trials_aggregation_with_model_prefix(temp_results_dir):
     )
 
     # Verify optuna trials were aggregated
-    agg_optuna_file = temp_results_dir / "aggregated" / "cv" / "optuna" / "optuna_trials.csv"
+    agg_optuna_file = temp_results_dir / "aggregated" / "cv" / "optuna_trials.csv"
     assert agg_optuna_file.exists(), "Aggregated optuna_trials.csv not found"
 
     # Verify combined trials
@@ -380,56 +380,6 @@ def test_optuna_trials_aggregation_with_model_prefix(temp_results_dir):
     assert "params_clf__estimator__C" in agg_df.columns
 
 
-def test_optuna_trials_backward_compatibility_no_prefix(temp_results_dir):
-    """Test backward compatibility with non-prefixed optuna_trials.csv files."""
-    from ced_ml.cli.aggregate_splits import run_aggregate_splits
-
-    # Create mock optuna_trials files without model prefix (legacy format)
-    # Directory structure: results_dir/splits/split_seed*/
-    splits_base = temp_results_dir / "splits"
-    split_dir = splits_base / "split_seed0"
-    optuna_dir = split_dir / "cv" / "optuna"
-    optuna_dir.mkdir(parents=True, exist_ok=True)
-
-    # Use non-prefixed filename (backward compatibility)
-    trials_file = optuna_dir / "optuna_trials.csv"
-
-    trials_data = {
-        "number": list(range(5)),
-        "value": np.random.uniform(0.7, 0.9, 5),
-        "params_clf__C": np.random.uniform(0.1, 10, 5),
-        "state": ["COMPLETE"] * 5,
-    }
-    df = pd.DataFrame(trials_data)
-    df.to_csv(trials_file, index=False)
-
-    # Create minimal required files
-    config_metadata = split_dir / "config_metadata.json"
-    with open(config_metadata, "w") as f:
-        json.dump({"model": "LR_EN", "split_seed": 0}, f)
-
-    for pred_type in ["test", "val", "train_oof"]:
-        pred_dir = (
-            split_dir / "preds" / f"{pred_type}_preds"
-            if pred_type == "test"
-            else split_dir / "preds" / pred_type
-        )
-        pred_dir.mkdir(parents=True, exist_ok=True)
-        pred_file = pred_dir / f"LR_EN__{pred_type}.csv"
-        pd.DataFrame({"y_true": [0, 1], "y_prob": [0.2, 0.8], "y_pred": [0, 1]}).to_csv(
-            pred_file, index=False
-        )
-
-    # Run aggregation
-    run_aggregate_splits(
-        results_dir=str(temp_results_dir),
-        save_plots=False,
-        n_boot=10,
-    )
-
-    # Verify legacy format works
-    agg_optuna_file = temp_results_dir / "aggregated" / "cv" / "optuna" / "optuna_trials.csv"
-    assert agg_optuna_file.exists(), "Aggregated optuna_trials.csv not found (legacy format)"
-
-    agg_df = pd.read_csv(agg_optuna_file)
-    assert len(agg_df) == 5, f"Expected 5 trials, got {len(agg_df)}"
+# REMOVED: Backward compatibility test for cv/optuna/ nested structure
+# The new flat structure (cv/optuna_trials.csv) does not support backward compatibility
+# with the old nested structure (cv/optuna/optuna_trials.csv)

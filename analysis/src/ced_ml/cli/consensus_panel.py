@@ -92,15 +92,6 @@ def discover_models_with_aggregated_results(
         # Check for aggregated results with feature stability
         aggregated_dir = model_dir / "aggregated"
         stability_file = aggregated_dir / "panels" / "feature_stability_summary.csv"
-        # Fallback: check legacy nested paths
-        if not stability_file.exists():
-            stability_file = (
-                aggregated_dir / "panels" / "features" / "feature_stability_summary.csv"
-            )
-        if not stability_file.exists():
-            stability_file = (
-                aggregated_dir / "reports" / "feature_reports" / "feature_stability_summary.csv"
-            )
 
         if not stability_file.exists():
             continue
@@ -133,18 +124,11 @@ def load_model_stability(
         FileNotFoundError: If stability file not found.
     """
     stability_file = aggregated_dir / "panels" / "feature_stability_summary.csv"
-    # Fallback: check legacy nested paths
-    if not stability_file.exists():
-        stability_file = aggregated_dir / "panels" / "features" / "feature_stability_summary.csv"
-    if not stability_file.exists():
-        stability_file = (
-            aggregated_dir / "reports" / "feature_reports" / "feature_stability_summary.csv"
-        )
 
     if not stability_file.exists():
         raise FileNotFoundError(
-            f"Feature stability file not found in panels/ or legacy reports/\n"
-            f"Checked: {aggregated_dir}"
+            f"Feature stability file not found: {stability_file}\n"
+            f"Run 'ced aggregate-splits' first."
         )
 
     df = pd.read_csv(stability_file)

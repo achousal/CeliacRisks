@@ -417,6 +417,15 @@ def _run_hpc_mode(
     hpc_logger.info(f"Run ID: {result['run_id']}")
     hpc_logger.info(f"Training jobs: {len(result['training_jobs'])}")
     hpc_logger.info(f"Post-processing job: {result['postprocessing_job']}")
+
+    if result.get("panel_optimization_jobs"):
+        hpc_logger.info(
+            f"Panel optimization jobs: {len(result['panel_optimization_jobs'])} (parallel)"
+        )
+
+    if result.get("consensus_job"):
+        hpc_logger.info(f"Consensus panel job: {result['consensus_job']}")
+
     hpc_logger.info("")
     hpc_logger.info("Monitor jobs:")
     hpc_logger.info("  bjobs -w | grep CeD_")
@@ -581,9 +590,7 @@ def run_pipeline(
                 # Read run_metadata.json to get the auto-generated run_id
                 import json
 
-                metadata_pattern = list(
-                    outdir.glob(f"run_*/*/splits/split_seed{split_seed}/run_metadata.json")
-                )
+                metadata_pattern = list(outdir.glob("run_*/run_metadata.json"))
                 if metadata_pattern:
                     with open(metadata_pattern[0]) as f:
                         metadata = json.load(f)
@@ -629,7 +636,7 @@ def run_pipeline(
                 results_dir=None,  # Auto-detect from run_id
                 outdir=None,  # Use default
                 meta_penalty=None,
-                meta_C=None,
+                meta_c=None,
                 log_level=log_level,
             )
 

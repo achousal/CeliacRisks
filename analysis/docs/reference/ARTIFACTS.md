@@ -90,10 +90,9 @@ results/run_{run_id}/{model}/splits/split_seed{N}/
   cv/
     cv_repeat_metrics.csv         # Per-repeat OOF metrics
     best_params_per_split.csv     # Best hyperparameters per fold
-    optuna/                       # (if Optuna enabled)
-      optuna_config.json          # Optuna settings
-      best_params_optuna.csv      # Best params with trial metadata
-      optuna_trials.csv           # All trial results
+    optuna_config.json            # (if Optuna enabled) Optuna settings
+    best_params_optuna.csv        # (if Optuna enabled) Best params with trial metadata
+    optuna_trials.csv             # (if Optuna enabled) All trial results
   plots/
     roc_pr.png                    # ROC + PR curves
     calibration.png               # Calibration plot
@@ -227,8 +226,7 @@ results/run_{run_id}/{model}/aggregated/
     all_best_params_per_split.csv # Best hyperparameters across splits
     hyperparams_summary.csv       # Hyperparameter summary
     ensemble_config_per_split.csv # (if ensemble) Ensemble configs
-    optuna/
-      optuna_trials.csv           # Combined Optuna trials from all splits
+    optuna_trials.csv             # (if Optuna enabled) Combined trials from all splits
   preds/
     pooled_test_preds.csv         # All test predictions pooled across splits
     pooled_test_preds__*.csv      # Per-model pooled test predictions
@@ -390,7 +388,7 @@ y_pred = model.predict_proba(X)[:, 1]
 
 ### 3.3 Optuna Artifacts (if enabled)
 
-Generated in `cv/optuna/` subdirectory:
+Generated flat in `cv/` directory:
 - `optuna_trials.csv` - All trial results with parameters and scores
 - `optuna_config.json` - Optuna settings
 

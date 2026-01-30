@@ -33,7 +33,7 @@ Add Optuna as an optional hyperparameter optimization backend, coexisting with R
 2. **Config-driven selection:** `OptunaConfig.enabled` flag toggles Optuna vs. RandomizedSearchCV
 3. **Sklearn-compatible wrapper:** `OptunaSearchCV` class mimics `RandomizedSearchCV` API
 4. **Graceful fallback:** If Optuna not installed but enabled, fall back to RandomizedSearchCV with warning
-5. **Persistence:** Optuna studies saved to `cv/optuna/` with trial metadata
+5. **Persistence:** Optuna studies saved flat in `cv/` directory with trial metadata
 
 **OptunaConfig Parameters:**
 ```yaml

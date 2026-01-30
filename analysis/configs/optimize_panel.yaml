@@ -1,28 +1,11 @@
 # Panel Optimization Configuration
+# Aggregated RFE to find optimal panel size trade-offs for clinical deployment
 #
-# Aggregated RFE to find optimal panel size trade-offs for clinical deployment.
-# CLI args always override config values.
-#
-# USAGE:
-#
-# Recommended workflow (with run-id - auto-detects paths):
-#   ced optimize-panel --config configs/optimize_panel.yaml
-#   ced optimize-panel --config configs/optimize_panel.yaml --run-id 20260128_120000  # Override run-id
-#   ced optimize-panel --config configs/optimize_panel.yaml --model LR_EN            # Filter single model
-#
-# Alternative workflow (explicit paths):
-#   ced optimize-panel --config configs/optimize_panel.yaml --results-dir ../results/LR_EN/run_X
-#
-# Without config file:
-#   ced optimize-panel --run-id 20260127_104409  # Auto-detects infile and split-dir
+# USAGE (auto-detects paths from run metadata):
+#   ced optimize-panel --run-id 20260127_104409                # All models (RECOMMENDED)
+#   ced optimize-panel --run-id 20260127_104409 --model LR_EN  # Single model
 #
 # Reference: docs/reference/FEATURE_SELECTION.md#aggregated-rfe-deployment-optimization
-
-# ==============================================================================
-# Model Selection
-# ==============================================================================
-
-run_id: 20260127_104409
 
 # ==============================================================================
 # RFE Algorithm Parameters
@@ -35,8 +18,7 @@ cv_folds: 5                  # CV folds for OOF AUROC estimation (default: 5)
 step_strategy: fine          # Feature elimination: geometric, linear, fine (default: geometric)
 
 # ==============================================================================
-# Output Settings
+# HPC Parallelization (only used with --hpc flag)
 # ==============================================================================
 
-# outdir: ../results/custom_output  # Default: {results_dir}/aggregated/optimize_panel/
-verbose: 2                           # Verbosity: 0=warnings, 1=info, 2=debug (default: 0)
+n_jobs_hpc: -1                       # Number of parallel jobs per model (-1 = all CPUs, only with --hpc)

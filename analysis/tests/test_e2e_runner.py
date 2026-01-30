@@ -813,10 +813,9 @@ class TestE2ETemporalValidation:
             "scenarios": ["IncidentOnly"],
             "n_splits": 1,
             "temporal_split": True,
-            "temporal_column": "sample_date",
-            "train_frac": 0.7,
-            "val_frac": 0.15,
-            "test_frac": 0.15,
+            "temporal_col": "sample_date",  # Fixed: was temporal_column
+            "val_size": 0.15,  # Fixed: was train_frac, val_frac, test_frac
+            "test_size": 0.15,
         }
 
         config_path = tmp_path / "temporal_config.yaml"
@@ -837,10 +836,9 @@ class TestE2ETemporalValidation:
             ],
         )
 
-        # Note: Current implementation may not fully support temporal splits in CLI
-        # This test documents expected behavior
+        # Temporal splits should work now
         if result.exit_code != 0:
-            pytest.skip(f"Temporal splits not fully implemented in CLI: {result.output[:200]}")
+            pytest.fail(f"Temporal splits failed: {result.output}")
 
         # If implemented, verify chronological ordering
         df = pd.read_parquet(temporal_proteomics_data)
@@ -1354,7 +1352,8 @@ class TestE2EAggregationWorkflow:
         )
         assert result_splits.exit_code == 0
 
-        # Step 2: Train on both splits
+        # Step 2: Train on both splits (use shared run_id)
+        test_run_id = "test_agg_run"
         for seed in [42, 43]:
             result_train = runner.invoke(
                 cli,
@@ -1372,6 +1371,8 @@ class TestE2EAggregationWorkflow:
                     "LR_EN",
                     "--split-seed",
                     str(seed),
+                    "--run-id",
+                    test_run_id,
                 ],
                 catch_exceptions=False,
             )
@@ -1379,25 +1380,18 @@ class TestE2EAggregationWorkflow:
             if result_train.exit_code != 0:
                 pytest.skip(f"Training on seed {seed} failed: {result_train.output[:200]}")
 
-        # Step 3: Create aggregation config
-        agg_config = {
-            "model": "LR_EN",
-            "split_seeds": [42, 43],
-            "n_bootstrap": 100,
-        }
-        agg_config_path = tmp_path / "agg_config.yaml"
-        with open(agg_config_path, "w") as f:
-            yaml.dump(agg_config, f)
-
-        # Step 4: Run aggregation
+        # Step 3: Run aggregation (no config file needed anymore)
+        # The aggregate-splits command now auto-discovers split_seedX directories
+        # Use the run-id path: results_dir/run_{run_id}/{model}
+        model_results_dir = results_dir / f"run_{test_run_id}" / "LR_EN"
         result_agg = runner.invoke(
             cli,
             [
                 "aggregate-splits",
                 "--results-dir",
-                str(results_dir),
-                "--config",
-                str(agg_config_path),
+                str(model_results_dir),
+                "--n-boot",
+                "100",
             ],
             catch_exceptions=False,
         )

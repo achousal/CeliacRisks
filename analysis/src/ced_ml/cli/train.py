@@ -331,11 +331,6 @@ def load_split_indices(
 
     Raises:
         FileNotFoundError: If any split file is missing
-
-    Notes:
-        Supports both old format (train_idx_seed{seed}.csv) and new format
-        (train_idx_{scenario}_seed{seed}.csv) for backward compatibility.
-        Auto-detection: If scenario=None, scans for files matching train_idx_*_seed{seed}.csv
     """
     split_path = Path(split_dir)
 
@@ -351,39 +346,17 @@ def load_split_indices(
             scenario = filename.replace("train_idx_", "").replace(f"_seed{seed}.csv", "")
             logger.info(f"Auto-detected scenario from split files: {scenario}")
         else:
-            # Try legacy format without scenario
-            legacy_file = split_path / f"train_idx_seed{seed}.csv"
-            if legacy_file.exists():
-                logger.info("Using legacy split format (no scenario in filename)")
-                scenario = "legacy"
-            else:
-                raise FileNotFoundError(
-                    f"No split files found for seed={seed} in {split_dir}. "
-                    f"Run 'ced save-splits' first."
-                )
+            raise FileNotFoundError(
+                f"No split files found for seed={seed} in {split_dir}.\n"
+                f"Run 'ced save-splits' first."
+            )
 
-    # Try new format first (with scenario)
-    if scenario != "legacy":
-        train_file_new = split_path / f"train_idx_{scenario}_seed{seed}.csv"
-        val_file_new = split_path / f"val_idx_{scenario}_seed{seed}.csv"
-        test_file_new = split_path / f"test_idx_{scenario}_seed{seed}.csv"
-    else:
-        train_file_new = val_file_new = test_file_new = None
+    # Load split files (new format with scenario)
+    train_file = split_path / f"train_idx_{scenario}_seed{seed}.csv"
+    val_file = split_path / f"val_idx_{scenario}_seed{seed}.csv"
+    test_file = split_path / f"test_idx_{scenario}_seed{seed}.csv"
 
-    # Try old format (without scenario) as fallback
-    train_file_old = split_path / f"train_idx_seed{seed}.csv"
-    val_file_old = split_path / f"val_idx_seed{seed}.csv"
-    test_file_old = split_path / f"test_idx_seed{seed}.csv"
-
-    # Select format that exists
-    if train_file_new and train_file_new.exists():
-        logger.debug(f"Using new format: {train_file_new}")
-        train_file, val_file, test_file = train_file_new, val_file_new, test_file_new
-    else:
-        logger.debug(f"Using old format: {train_file_old}")
-        train_file, val_file, test_file = train_file_old, val_file_old, test_file_old
-
-    # Validate all files exist (val is optional for val_size=0 case)
+    # Validate required files exist
     missing_files = []
     if not train_file.exists():
         missing_files.append(str(train_file))
@@ -391,25 +364,9 @@ def load_split_indices(
         missing_files.append(str(test_file))
 
     if missing_files:
-        attempted_paths = []
-        if train_file_new:
-            attempted_paths.extend(
-                [
-                    str(train_file_new),
-                    str(val_file_new),
-                    str(test_file_new),
-                ]
-            )
-        attempted_paths.extend(
-            [
-                str(train_file_old),
-                str(val_file_old),
-                str(test_file_old),
-            ]
-        )
         raise FileNotFoundError(
-            f"Split files not found. Missing: {missing_files}\n"
-            f"Attempted paths:\n  " + "\n  ".join(attempted_paths)
+            f"Split files not found: {', '.join(missing_files)}\n"
+            f"Run 'ced save-splits' to generate splits with scenario={scenario}"
         )
 
     train_idx = pd.read_csv(train_file)["idx"].values
@@ -1009,8 +966,7 @@ def run_train(
     if final_selected_proteins:
         logger.info(f"Test evaluation using {len(final_selected_proteins)} selected proteins")
 
-    # For backward compatibility, use test_target_prev as the canonical target_prev
-    # (used in later sections for logging)
+    # Use test prevalence for downstream logging
     target_prev = test_target_prev
 
     # Step 13: Save outputs
@@ -1135,8 +1091,8 @@ def run_train(
 
     # Save Optuna artifacts if enabled
     if config.optuna.enabled:
-        optuna_dir = Path(outdirs.cv) / "optuna"
-        optuna_dir.mkdir(parents=True, exist_ok=True)
+        # Save artifacts flat at cv level (no optuna subdirectory)
+        cv_dir = Path(outdirs.cv)
 
         # Check if Optuna metadata was collected
         if "optuna_n_trials" in best_params_df.columns:
@@ -1150,13 +1106,13 @@ def run_train(
                 "direction": config.optuna.direction or "maximize",
                 "total_folds": len(best_params_df),
             }
-            optuna_summary_path = optuna_dir / "optuna_config.json"
+            optuna_summary_path = cv_dir / "optuna_config.json"
             with open(optuna_summary_path, "w") as f:
                 json.dump(optuna_summary, f, indent=2)
             logger.info(f"Optuna config saved: {optuna_summary_path}")
 
             # Save best params with Optuna metadata
-            optuna_params_path = optuna_dir / "best_params_optuna.csv"
+            optuna_params_path = cv_dir / "best_params_optuna.csv"
             best_params_df.to_csv(optuna_params_path, index=False)
             logger.info(f"Optuna best params saved: {optuna_params_path}")
 
@@ -1226,11 +1182,11 @@ def run_train(
                 if study is not None:
                     save_optuna_plots(
                         study=study,
-                        out_dir=optuna_dir,
+                        out_dir=cv_dir,
                         prefix=f"{config.model}__",
                         plot_format=config.output.plot_format,
                     )
-                    logger.info(f"Optuna plots saved to: {optuna_dir}")
+                    logger.info(f"Optuna plots saved to: {cv_dir}")
 
                     # Generate Pareto frontier plot if multi-objective
                     # Note: Pareto plot needs the search_cv object, not just the study
@@ -1246,11 +1202,11 @@ def run_train(
                         try:
                             plot_pareto_frontier(
                                 search_cv=optuna_search,
-                                outdir=optuna_dir,
+                                outdir=cv_dir,
                                 plot_format=config.output.plot_format,
                                 dpi=config.output.plot_dpi,
                             )
-                            logger.info(f"Pareto frontier plot saved to: {optuna_dir}")
+                            logger.info(f"Pareto frontier plot saved to: {cv_dir}")
                         except Exception as e:
                             logger.warning(f"Failed to generate Pareto frontier plot: {e}")
                     elif (
@@ -1542,6 +1498,15 @@ def run_train(
         controls_oof_df.to_csv(controls_oof_path, index=False)
         logger.info(f"Controls OOF predictions saved: {controls_oof_path}")
 
+    # Extract category breakdowns from splits (needed for plots AND learning curve metadata)
+    train_cat_df = pd.DataFrame({"category": cat_train})
+    val_cat_df = pd.DataFrame({"category": cat_val})
+    test_cat_df = pd.DataFrame({"category": cat_test})
+
+    train_breakdown = count_category_breakdown(train_cat_df)
+    val_breakdown = count_category_breakdown(val_cat_df)
+    test_breakdown = count_category_breakdown(test_cat_df)
+
     # Step 15: Generate plots (if enabled and within max_plot_splits limit)
     should_plot = config.output.save_plots and (
         config.output.max_plot_splits == 0 or seed < config.output.max_plot_splits
@@ -1550,15 +1515,6 @@ def run_train(
         log_section(logger, "Generating Plots")
         plots_dir = Path(outdirs.plots)
         plots_dir.mkdir(parents=True, exist_ok=True)
-
-        # Extract category breakdowns from splits
-        train_cat_df = pd.DataFrame({"category": cat_train})
-        val_cat_df = pd.DataFrame({"category": cat_val})
-        test_cat_df = pd.DataFrame({"category": cat_test})
-
-        train_breakdown = count_category_breakdown(train_cat_df)
-        val_breakdown = count_category_breakdown(val_cat_df)
-        test_breakdown = count_category_breakdown(test_cat_df)
 
         # Common metadata for plots (enriched with run context)
         meta_lines = build_plot_metadata(
@@ -2039,10 +1995,21 @@ def run_train(
                 writer.save_stable_panel_report(stable_panel_df, panel_type="KBest")
 
             # Panel manifests (multiple sizes)
-            panel_sizes = getattr(config.panels, "panel_sizes", [10, 25, 50])
+            panels_config = getattr(config, "panels", None)
+            panel_sizes = (
+                getattr(panels_config, "panel_sizes", [10, 25, 50])
+                if panels_config
+                else [10, 25, 50]
+            )
             if panel_sizes and len(selection_freq) >= min(panel_sizes):
-                corr_threshold = getattr(config.panels, "panel_corr_thresh", 0.80)
-                corr_method = getattr(config.panels, "panel_corr_method", "spearman")
+                corr_threshold = (
+                    getattr(panels_config, "panel_corr_thresh", 0.80) if panels_config else 0.80
+                )
+                corr_method = (
+                    getattr(panels_config, "panel_corr_method", "spearman")
+                    if panels_config
+                    else "spearman"
+                )
                 panels = build_multi_size_panels(
                     df=X_train,
                     y=y_train,

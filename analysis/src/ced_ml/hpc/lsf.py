@@ -200,8 +200,9 @@ def _build_training_command(
 ) -> str:
     """Build ced run-pipeline command for a single split seed (training only).
 
-    Each per-seed job trains all models for that seed but skips aggregation
-    and post-processing (handled by the dependency job).
+    Each per-seed job trains all models for that seed but skips aggregation,
+    ensemble training, panel optimization, and consensus (all handled by
+    separate downstream jobs with proper dependencies).
     """
     models_str = ",".join(models)
     parts = [
@@ -232,17 +233,17 @@ def _build_postprocessing_command(
     models: list[str],
     split_seeds: list[int],
     enable_ensemble: bool,
-    enable_consensus: bool,
-    enable_optimize_panel: bool,
 ) -> str:
-    """Build post-processing commands (aggregation, ensemble, panel optimization).
+    """Build post-processing commands (aggregation and ensemble training only).
+
+    Panel optimization and consensus are now handled by separate parallel jobs.
 
     Returns a multi-line bash script fragment that runs each step sequentially.
     """
     lines = [
         "set -euo pipefail",
         "",
-        f'echo "Post-processing for run {run_id}"',
+        f'echo "Post-processing (aggregation + ensemble) for run {run_id}"',
         "",
     ]
 
@@ -262,21 +263,32 @@ def _build_postprocessing_command(
         lines.append(f"ced aggregate-splits --run-id {run_id} --model ENSEMBLE")
         lines.append("")
 
-    # Optimize panel
-    if enable_optimize_panel:
-        lines.append('echo "Optimizing panels..."')
-        lines.append(f"ced optimize-panel --run-id {run_id}")
-        lines.append("")
-
-    # Consensus panel
-    if enable_consensus:
-        lines.append('echo "Generating consensus panel..."')
-        lines.append(f"ced consensus-panel --run-id {run_id}")
-        lines.append("")
-
-    lines.append(f'echo "Post-processing complete for run {run_id}"')
+    lines.append(f'echo "Aggregation and ensemble training complete for run {run_id}"')
 
     return "\n".join(lines)
+
+
+def _build_panel_optimization_command(
+    *,
+    run_id: str,
+    model: str,
+) -> str:
+    """Build panel optimization command for a single model.
+
+    Returns a bash command string for optimizing panel size via RFE.
+    """
+    return f"ced optimize-panel --run-id {run_id} --model {model}"
+
+
+def _build_consensus_panel_command(
+    *,
+    run_id: str,
+) -> str:
+    """Build consensus panel command.
+
+    Returns a bash command string for generating cross-model consensus panel.
+    """
+    return f"ced consensus-panel --run-id {run_id}"
 
 
 def submit_hpc_pipeline(
@@ -298,9 +310,11 @@ def submit_hpc_pipeline(
 ) -> dict:
     """Submit complete HPC pipeline with dependency chains.
 
-    Submits:
-    1. N training jobs (one per split seed, all models)
-    2. 1 post-processing job (depends on all training jobs)
+    Job dependency architecture:
+    1. Training jobs (per seed, parallel)
+    2. Post-processing job (aggregation + ensemble, depends on training)
+    3. Panel optimization jobs (per model, parallel, depends on post-processing)
+    4. Consensus panel job (depends on post-processing + panel optimization)
 
     Args:
         config_file: Path to training config YAML.
@@ -311,15 +325,15 @@ def submit_hpc_pipeline(
         split_seeds: List of split seeds.
         run_id: Shared run identifier.
         enable_ensemble: Enable ensemble training in post-processing.
-        enable_consensus: Enable consensus panel in post-processing.
-        enable_optimize_panel: Enable panel optimization in post-processing.
+        enable_consensus: Enable consensus panel generation.
+        enable_optimize_panel: Enable parallel panel optimization jobs.
         hpc_config: Parsed pipeline_hpc.yaml config dict.
         logs_dir: Directory for job logs.
         dry_run: Preview without submitting.
         pipeline_logger: Logger instance.
 
     Returns:
-        Dict with run_id, training_jobs, postprocessing_job, logs_dir.
+        Dict with run_id, training_jobs, postprocessing_job, panel_jobs, consensus_job, logs_dir.
     """
     hpc = hpc_config["hpc"]
     base_dir = Path.cwd()
@@ -379,7 +393,8 @@ def submit_hpc_pipeline(
         else:
             pipeline_logger.error(f"  Seed {seed}: Submission failed")
 
-    # Submit post-processing job with dependency
+    # Submit post-processing job (aggregation + ensemble) with dependency on training
+    pipeline_logger.info("Submitting post-processing job (aggregation + ensemble)...")
     post_job_name = f"CeD_{run_id}_post"
     dependency_expr = f"done(CeD_{run_id}_seed*)"
 
@@ -392,8 +407,6 @@ def submit_hpc_pipeline(
         models=models,
         split_seeds=split_seeds,
         enable_ensemble=enable_ensemble,
-        enable_consensus=enable_consensus,
-        enable_optimize_panel=enable_optimize_panel,
     )
 
     post_script = build_job_script(
@@ -409,9 +422,71 @@ def submit_hpc_pipeline(
     elif dry_run:
         pipeline_logger.info(f"  [DRY RUN] Post-processing: {post_job_name}")
 
+    # Submit panel optimization jobs (one per model) with dependency on post-processing
+    panel_job_ids = []
+    if enable_optimize_panel:
+        pipeline_logger.info(f"Submitting {len(models)} panel optimization jobs (parallel)...")
+        for model in models:
+            panel_job_name = f"CeD_{run_id}_panel_{model}"
+            panel_dependency = f"done({post_job_name})"
+
+            panel_command = _build_panel_optimization_command(
+                run_id=run_id,
+                model=model,
+            )
+
+            panel_script = build_job_script(
+                job_name=panel_job_name,
+                command=panel_command,
+                dependency=panel_dependency,
+                **bsub_params,
+            )
+
+            panel_job_id = submit_job(panel_script, dry_run=dry_run)
+            if panel_job_id:
+                pipeline_logger.info(f"  Panel optimization ({model}): Job {panel_job_id}")
+                panel_job_ids.append(panel_job_id)
+            elif dry_run:
+                pipeline_logger.info(f"  [DRY RUN] Panel optimization ({model}): {panel_job_name}")
+                panel_job_ids.append(f"DRYRUN_{panel_job_name}")
+            else:
+                pipeline_logger.error(f"  Panel optimization ({model}): Submission failed")
+
+    # Submit consensus panel job with dependency on post-processing + all panel optimization jobs
+    consensus_job_id = None
+    if enable_consensus:
+        pipeline_logger.info("Submitting consensus panel job...")
+        consensus_job_name = f"CeD_{run_id}_consensus"
+
+        # Consensus depends on post-processing (for aggregation) AND panel optimization jobs (if enabled)
+        if enable_optimize_panel and panel_job_ids:
+            # Wait for both post-processing and all panel optimization jobs
+            consensus_dependency = f"done({post_job_name}) && done(CeD_{run_id}_panel_*)"
+        else:
+            # Only wait for post-processing (aggregation must be done)
+            consensus_dependency = f"done({post_job_name})"
+
+        consensus_command = _build_consensus_panel_command(run_id=run_id)
+
+        consensus_script = build_job_script(
+            job_name=consensus_job_name,
+            command=consensus_command,
+            dependency=consensus_dependency,
+            **bsub_params,
+        )
+
+        consensus_job_id = submit_job(consensus_script, dry_run=dry_run)
+        if consensus_job_id:
+            pipeline_logger.info(f"  Consensus panel: Job {consensus_job_id}")
+        elif dry_run:
+            pipeline_logger.info(f"  [DRY RUN] Consensus panel: {consensus_job_name}")
+
     return {
         "run_id": run_id,
         "training_jobs": training_job_ids,
         "postprocessing_job": post_job_id or f"DRYRUN_{post_job_name}",
+        "panel_optimization_jobs": panel_job_ids,
+        "consensus_job": consensus_job_id
+        or (f"DRYRUN_{consensus_job_name}" if enable_consensus else None),
         "logs_dir": run_logs_dir,
     }

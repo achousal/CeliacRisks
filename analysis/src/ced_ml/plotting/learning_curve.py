@@ -11,6 +11,7 @@ Functions:
     plot_learning_curve_summary: Plot aggregated learning curve with CIs
 """
 
+import logging
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -18,10 +19,9 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold, learning_curve
 
-from ..utils.logging import get_logger
 from .dca import apply_plot_metadata
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def compute_learning_curve(

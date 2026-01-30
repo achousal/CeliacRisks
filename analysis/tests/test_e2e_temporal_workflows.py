@@ -151,7 +151,7 @@ def temporal_splits_config(tmp_path):
         "train_control_per_case": 3.0,  # Lower ratio for temporal splits
         "prevalent_train_only": False,
         "temporal_split": True,
-        "temporal_column": "sample_date",
+        "temporal_col": "sample_date",  # Fixed: was temporal_column
     }
 
     config_path = tmp_path / "temporal_splits_config.yaml"
@@ -684,9 +684,6 @@ class TestTemporalAggregation:
 class TestTemporalVsRandomComparison:
     """Compare temporal vs random split behavior."""
 
-    @pytest.mark.xfail(
-        reason="Temporal splits with downsampling needs adjustment for small datasets"
-    )
     def test_temporal_and_random_splits_differ(self, temporal_proteomics_data, tmp_path):
         """
         Test: Temporal splits produce different sample assignments than random splits.

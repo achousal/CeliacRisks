@@ -19,21 +19,33 @@ def setup_logger(
     """
     Setup a logger with console and optional file output.
 
+    USAGE PATTERN:
+        - CLI entrypoints: Call this function to create a logger with handlers
+        - Library modules: Use logging.getLogger(__name__) directly (no handlers)
+        - Child loggers automatically propagate to parent logger with handlers
+
     Args:
-        name: Logger name
+        name: Logger name (typically "ced_ml" for main CLI)
         level: Logging level (default: INFO)
         log_file: Optional path to log file
         format_string: Custom format string (default: timestamp + level + message)
         use_live_log: If True, log to .live file and rename on completion
 
     Returns:
-        Configured logger instance
+        Configured logger instance with handlers attached
     """
     logger = logging.getLogger(name)
     logger.setLevel(level)
 
     # Remove existing handlers to avoid duplicates
     logger.handlers.clear()
+
+    # Design: Only CLI entrypoints call setup_logger() which adds handlers.
+    # All library modules use logging.getLogger(__name__) with no handlers.
+    # To prevent duplicate output, disable propagation on loggers with handlers.
+    # Child loggers (from library modules) keep propagate=True by default,
+    # so they bubble up to their parent logger which has the handlers.
+    logger.propagate = False
 
     # Default format
     if format_string is None:
@@ -69,15 +81,8 @@ def setup_logger(
     return logger
 
 
-def get_logger(name: str = "ced_ml") -> logging.Logger:
-    """Get existing logger or create a basic one."""
-    logger = logging.getLogger(name)
-
-    # If no handlers, setup a basic console logger
-    if not logger.handlers:
-        logger = setup_logger(name)
-
-    return logger
+# Removed get_logger() - modules should use logging.getLogger(__name__) directly
+# Only CLI entrypoints should call setup_logger() to configure the root "ced_ml" logger
 
 
 def finalize_live_log(logger: logging.Logger) -> None:

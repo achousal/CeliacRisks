@@ -1,11 +1,10 @@
 # Consensus Panel Configuration
-# ==============================
-# Configuration for cross-model consensus panel generation via RRA.
+# Configuration for cross-model consensus panel generation via Robust Rank Aggregation
 #
-# Usage:
-#   ced consensus-panel --run-id 20260127_115115 --config configs/consensus_panel.yaml
+# USAGE (auto-detects paths from run metadata):
+#   ced consensus-panel --run-id 20260127_115115  # All models (RECOMMENDED)
 #
-# All parameters can be overridden via CLI flags.
+# All parameters can be overridden via CLI flags
 
 # Stability threshold: minimum selection fraction to include a protein
 # Proteins must be selected in >= this fraction of CV folds to be considered "stable"
@@ -18,7 +17,7 @@ corr_threshold: 0.85
 
 # Target panel size after correlation pruning
 # This is the final number of proteins in the consensus panel
-target_size: 50
+target_size: 100
 
 # Weight for RFE rank vs stability frequency in per-model composite scoring
 # 0.0 = stability only, 1.0 = RFE only, 0.5 = equal weight (default)
@@ -31,10 +30,3 @@ rfe_weight: 0.5
 #   - borda: Borda count (sum of (N - rank + 1) across models)
 #   - median: Median rank across models
 rra_method: geometric_mean
-
-# Output directory (optional)
-# If not specified, uses: results/consensus_panel/run_<RUN_ID>/
-# outdir: null
-
-# Verbosity level (0=warnings, 1=info, 2=debug)
-# verbose: 1

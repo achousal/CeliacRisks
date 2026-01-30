@@ -1,7 +1,8 @@
 """CLI implementation for holdout evaluation command."""
 
+import logging
+
 from ced_ml.evaluation import evaluate_holdout
-from ced_ml.utils.logging import get_logger
 
 
 def run_eval_holdout(
@@ -43,7 +44,7 @@ def run_eval_holdout(
         clinical_threshold_points: Comma-separated clinical thresholds
         subgroup_min_n: Minimum sample size for subgroup reporting
     """
-    logger = get_logger()
+    logger = logging.getLogger("ced_ml")
     logger.info("Starting holdout evaluation")
 
     try:

@@ -28,9 +28,8 @@ def plot_pareto_curve(
     thresholds_to_show: list[float] | None = None,
     show_ci: bool = True,
     ci_alpha: float = 0.2,
-    pareto_points: list[dict] | None = None,
 ) -> None:
-    """Plot AUROC vs panel size curve with Pareto frontier and confidence intervals.
+    """Plot AUROC vs panel size curve with recommended panel annotations and confidence intervals.
 
     Args:
         curve: List of dicts with keys "size", "auroc_val", "auroc_cv", "auroc_cv_std".
@@ -41,7 +40,6 @@ def plot_pareto_curve(
         thresholds_to_show: AUROC fraction thresholds to annotate (default: [0.95, 0.90]).
         show_ci: Whether to show confidence intervals (default: True).
         ci_alpha: Transparency for CI shaded region (default: 0.2).
-        pareto_points: Optional list of Pareto-optimal points. If None, computed from curve.
 
     Returns:
         None. Saves plot to out_path.
@@ -113,48 +111,6 @@ def plot_pareto_curve(
             alpha=ci_alpha,
             label="95% CI",
             zorder=1,
-        )
-
-    # Plot Pareto frontier
-    if pareto_points is None:
-        # Compute Pareto frontier from curve if not provided
-        from ced_ml.features.rfe import extract_pareto_frontier
-
-        pareto_points = extract_pareto_frontier(curve)
-
-    if pareto_points and len(pareto_points) > 1:
-        # Extract Pareto sizes and AUROCs (sorted by size descending)
-        pareto_sizes = np.array([p["size"] for p in pareto_points])
-        pareto_aurocs = np.array([p["auroc_val"] for p in pareto_points])
-
-        # Sort by size descending
-        sort_idx = np.argsort(pareto_sizes)[::-1]
-        pareto_sizes = pareto_sizes[sort_idx]
-        pareto_aurocs = pareto_aurocs[sort_idx]
-
-        # Plot Pareto frontier as a step function (connecting non-dominated points)
-        ax.plot(
-            pareto_sizes,
-            pareto_aurocs,
-            color="#dc2626",  # red
-            linewidth=2.5,
-            linestyle="-",
-            alpha=0.8,
-            label="Pareto Frontier",
-            zorder=6,
-        )
-
-        # Highlight Pareto-optimal points
-        ax.scatter(
-            pareto_sizes,
-            pareto_aurocs,
-            s=80,
-            c="#dc2626",
-            marker="^",
-            zorder=8,
-            edgecolors="white",
-            linewidths=1.5,
-            alpha=0.9,
         )
 
     # Threshold lines
@@ -273,7 +229,15 @@ def plot_pareto_curve(
     y_max = min(1.0, y_max)  # Don't go above 1.0
     ax.set_ylim(y_min, y_max)
 
-    ax.legend(loc="lower right", fontsize=9)
+    # Place legend outside plot area (to the right)
+    ax.legend(
+        loc="center left",
+        bbox_to_anchor=(1.02, 0.5),
+        fontsize=9,
+        frameon=True,
+        fancybox=False,
+        shadow=False,
+    )
     ax.grid(True, alpha=0.3, zorder=0)
 
     # Title
@@ -290,10 +254,6 @@ def plot_pareto_curve(
     ]
     if "knee_point" in recommended:
         summary_lines.append(f"Knee point: {recommended['knee_point']}")
-
-    # Add Pareto frontier summary
-    if pareto_points and len(pareto_points) > 1:
-        summary_lines.append(f"Pareto points: {len(pareto_points)}")
 
     summary_text = "\n".join(summary_lines)
     ax.text(

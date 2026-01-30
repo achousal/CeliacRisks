@@ -13,6 +13,7 @@ Design:
 """
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,9 +22,7 @@ from typing import Any
 import joblib
 import pandas as pd
 
-from ..utils.logging import get_logger
-
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass

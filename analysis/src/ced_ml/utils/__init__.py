@@ -1,6 +1,6 @@
 """Utility functions for CeD-ML."""
 
-from ced_ml.utils.logging import get_logger, log_section, setup_logger
+from ced_ml.utils.logging import log_section, setup_logger
 from ced_ml.utils.metadata import (
     build_aggregated_metadata,
     build_oof_metadata,
@@ -12,7 +12,6 @@ from ced_ml.utils.serialization import load_joblib, load_json, save_joblib, save
 
 __all__ = [
     "setup_logger",
-    "get_logger",
     "log_section",
     "build_plot_metadata",
     "build_oof_metadata",
