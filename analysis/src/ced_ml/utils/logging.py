@@ -156,9 +156,10 @@ def auto_log_path(
             break
 
     if project_root is None:
-        raise RuntimeError(f"Cannot locate CeliacRisks project root. " f"Started from: {outdir}")
-
-    logs_root = project_root / "logs"
+        # Fallback: place logs as sibling to outdir (works in test environments)
+        logs_root = outdir.parent / "logs"
+    else:
+        logs_root = project_root / "logs"
     rid = run_id or "unknown"
 
     if command == "train":

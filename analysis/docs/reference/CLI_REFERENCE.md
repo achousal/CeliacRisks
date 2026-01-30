@@ -183,6 +183,10 @@ ced run-pipeline \
 - `--overwrite-splits`: Regenerate splits even if they exist
 - `--log-file PATH`: Save pipeline logs to file (in addition to console output)
 - `--override KEY=VALUE`: Override config values (repeatable)
+- `--pipeline-config PATH`: Pipeline config file (auto-detected: pipeline_local.yaml or pipeline_hpc.yaml)
+- `--hpc`: Submit LSF jobs to HPC cluster instead of running locally
+- `--hpc-config PATH`: HPC pipeline config (default: configs/pipeline_hpc.yaml)
+- `--dry-run`: Preview HPC job submission without executing (--hpc mode only)
 
 **Data File Auto-Discovery:**
 When `--infile` is not provided, the command searches for data files in this order:
@@ -190,9 +194,21 @@ When `--infile` is not provided, the command searches for data files in this ord
 2. Training config file → `infile` key
 3. Common locations: `../data/Celiac_dataset_proteomics_w_demo.parquet`, `data/celiac.parquet`, etc.
 
+**HPC mode** (submit LSF jobs with dependency chains):
+```bash
+# Submit to HPC cluster
+ced run-pipeline --hpc
+
+# Preview without submitting
+ced run-pipeline --hpc --dry-run
+
+# With custom HPC config
+ced run-pipeline --hpc --hpc-config configs/pipeline_custom.yaml
+```
+
 **Notes:**
 - This command is equivalent to running all individual commands in sequence
-- **Zero configuration required** - just run `ced run-pipeline` from analysis/ directory
+- **Zero configuration required** - just run `ced run-pipeline` from the project root
 - Progress is logged to stdout with timestamps (optionally save to file with `--log-file`)
 - Failed steps will halt the pipeline with an error message
 - Use `--no-ensemble --no-consensus --no-optimize-panel` for faster testing
@@ -216,7 +232,7 @@ When `--infile` is not provided, the command searches for data files in this ord
 - Split configuration (sizes, downsampling ratio, number of splits)
 
 **Outputs:**
-- Pickled split indices (train/val/test row indices per split)
+- CSV split indices (train/val/test row indices per split per scenario per seed)
 
 ### `ced train`
 
@@ -348,7 +364,7 @@ ced optimize-panel \
 - Aggregated results from multiple models (must run `ced aggregate-splits` first)
 - Run ID to auto-discover all models with stability results
 
-**Outputs (saved in `results/consensus_panel/run_<RUN_ID>/`):**
+**Outputs (saved in `results/run_<RUN_ID>/consensus/`):**
 - `final_panel.txt` - One protein per line (for `--fixed-panel` training)
 - `final_panel.csv` - Panel with consensus scores
 - `consensus_ranking.csv` - All proteins with RRA scores
@@ -374,7 +390,8 @@ ced consensus-panel --run-id 20260127_115115 \
 
 # Validate the resulting panel (use NEW split seed)
 ced train --model LR_EN \
-  --fixed-panel results/consensus_panel/run_20260127_115115/final_panel.txt \
+  --infile data/input.parquet \
+  --fixed-panel results/run_20260127_115115/consensus/final_panel.txt \
   --split-seed 10
 ```
 
@@ -410,14 +427,11 @@ ced train --model LR_EN \
 # Auto-detection with run-id (RECOMMENDED) - specific model
 ced aggregate-splits --run-id 20260127_115115 --model LR_EN
 
-# Auto-detection - latest run for model
-ced aggregate-splits --model LR_EN
-
-# Config-based (legacy)
-ced aggregate-splits --config configs/aggregate_config.yaml
+# Auto-detection with run-id - all models for a run
+ced aggregate-splits --run-id 20260127_115115
 
 # Explicit path (alternative)
-ced aggregate-splits --results-dir results/LR_EN/run_20260127_115115/
+ced aggregate-splits --results-dir results/run_20260127_115115/LR_EN/
 ```
 
 **Notes:**
@@ -581,17 +595,17 @@ logs/
 ## Environment Notes
 
 ### Working Directory
-Always run commands from the `analysis/` directory:
+Always run commands from the project root (`CeliacRisks/`):
 ```bash
-cd analysis/
+cd CeliacRisks/
 ced <command> [options]
 ```
 
 ### Installation
 ```bash
-cd analysis/
-pip install -e .          # Standard install
-pip install -e ".[dev]"   # With development tools
+cd CeliacRisks/
+pip install -e analysis/          # Standard install
+pip install -e "analysis/[dev]"   # With development tools
 ```
 
 ### HPC Setup
@@ -619,26 +633,29 @@ ls results/<MODEL>/run_*/split_seed*/            # Check outputs
 
 ### Minimal Example (Local Testing)
 ```bash
-cd analysis/
-ced save-splits --config configs/splits_config.yaml --infile ../data/input.parquet
-ced train --config configs/training_config.yaml --model LR_EN --split-seed 0
+cd CeliacRisks/
+ced save-splits --config configs/splits_config.yaml --infile data/input.parquet
+ced train --config configs/training_config.yaml --model LR_EN --infile data/input.parquet --split-seed 0
 ```
 
 ### Production Example (HPC Multi-Split)
 ```bash
-cd analysis/
-bash scripts/hpc_setup.sh
-./run_hpc.sh  # Submits job array for all models x all splits
-# Wait for jobs to complete
-bash scripts/post_training_pipeline.sh --run-id <RUN_ID>
+cd CeliacRisks/
+bash analysis/scripts/hpc_setup.sh
+
+# Submit HPC pipeline (auto-manages job dependencies)
+ced run-pipeline --hpc
+
+# Monitor jobs
+bjobs -w | grep CeD_
 ```
 
 ### Ensemble Example
 ```bash
 # Train base models
-ced train --model LR_EN --split-seed 0
-ced train --model RF --split-seed 0
-ced train --model XGBoost --split-seed 0
+ced train --model LR_EN --infile data/input.parquet --split-seed 0
+ced train --model RF --infile data/input.parquet --split-seed 0
+ced train --model XGBoost --infile data/input.parquet --split-seed 0
 
 # Train ensemble (auto-detects base models from run-id)
 ced train-ensemble --run-id 20260127_115115 --split-seed 0
@@ -654,5 +671,5 @@ ced consensus-panel --run-id 20260127_115115
 
 ---
 
-**Last Updated:** 2026-01-28
-**Pipeline Version:** ced_ml v1.3.0 (complete `--run-id` auto-detection)
+**Last Updated:** 2026-01-30
+**Pipeline Version:** ced_ml v1.3.0 (complete `--run-id` auto-detection, `--hpc` mode)

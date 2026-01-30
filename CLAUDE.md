@@ -2,7 +2,7 @@
 
 **Project**: Machine Learning Pipeline for Incident Celiac Disease Risk Prediction
 **Version**: 1.0.0
-**Updated**: 2026-01-29
+**Updated**: 2026-01-30
 **Primary Package**: ced-ml
 **Python**: 3.10+
 **Project Owner**: Andres Chousal (Chowell Lab)
@@ -159,7 +159,7 @@ Creates stratified train/val/test splits with configurable:
 - `train_control_per_case` (downsampling ratio, default: 5.0)
 - `seed_start` (reproducibility)
 
-Output: `../splits/splits_*.pkl`
+Output: `splits/train_idx_*_seed*.csv`, `splits/val_idx_*_seed*.csv`, `splits/test_idx_*_seed*.csv`
 
 ### 2. Train Models
 ```bash
@@ -263,9 +263,6 @@ Output: `../results/run_{RUN_ID}/{MODEL}/aggregated/`
 ```bash
 # NEW: Auto-detection with run-id (RECOMMENDED)
 ced aggregate-splits --run-id 20260127_115115 --model LR_EN
-
-# Legacy: Config-based (explicit path)
-ced aggregate-splits --config configs/aggregate_config.yaml
 
 # Alternative: Explicit path
 ced aggregate-splits --results-dir results/run_20260127_115115/LR_EN/
@@ -387,6 +384,7 @@ For complete CLI documentation, see [analysis/docs/reference/CLI_REFERENCE.md](a
 | `ced aggregate-splits` | `cli/aggregate_splits.py` | Results aggregation |
 | `ced eval-holdout` | `cli/eval_holdout.py` | Holdout evaluation |
 | `ced config` | `cli/config_tools.py` | Config validation and diff |
+| `ced convert-to-parquet` | `cli/main.py` | Convert CSV to Parquet format |
 
 ## Testing
 
@@ -484,21 +482,24 @@ source venv/bin/activate
 # 3. Edit HPC config
 nano analysis/configs/pipeline_hpc.yaml
 
-# 4. Dry run
-DRY_RUN=1 bash analysis/run_hpc.sh
+# 4. Dry run (preview HPC job submission without executing)
+ced run-pipeline --hpc --dry-run
 
-# 5. Submit production jobs
-bash analysis/run_hpc.sh
+# 5. Submit production jobs via LSF
+ced run-pipeline --hpc
 
 # 6. Monitor
 bjobs -w | grep CeD_
+
+# Legacy: bash script wrapper (still works)
+# bash analysis/run_hpc.sh
 ```
 
 ---
 
 ## Enhanced Testing Info
 
-**Test suite**: 1,271 tests covering data I/O, feature selection, models, metrics, evaluation, plotting, and CLI integration.
+**Test suite**: 1,422 test items (2,610 test functions) covering data I/O, feature selection, models, metrics, evaluation, plotting, and CLI integration.
 
 ```bash
 # With coverage
@@ -528,14 +529,19 @@ pytest tests/ -m "not slow"
 2. Add param grid and model factory
 3. Add tests
 4. Update configs
-5. Run `./run_local.sh`
+5. Run `ced run-pipeline`
 
 ### Train stacking ensemble
 ```bash
-ced train --model LR_EN --split-seed 0
-ced train --model RF --split-seed 0
-ced train --model XGBoost --split-seed 0
-ced train-ensemble --base-models LR_EN,RF,XGBoost --split-seed 0
+ced train --model LR_EN --infile data/input.parquet --split-seed 0
+ced train --model RF --infile data/input.parquet --split-seed 0
+ced train --model XGBoost --infile data/input.parquet --split-seed 0
+
+# Auto-detection (RECOMMENDED)
+ced train-ensemble --run-id 20260127_115115 --split-seed 0
+
+# Manual specification (legacy)
+ced train-ensemble --results-dir results/ --base-models LR_EN,RF,XGBoost --split-seed 0
 ```
 
 ### Optimize panel size for clinical deployment
@@ -569,12 +575,13 @@ Validate a specific panel with unbiased AUROC estimate:
 ```bash
 # Step 1: Extract consensus panel from previous training
 awk -F',' 'NR==1 || $2 >= 0.70 {print $1}' \
-  results/LR_EN/aggregated/feature_stability.csv \
+  results/run_20260127_115115/LR_EN/aggregated/panels/feature_stability_summary.csv \
   > deployment_panel.csv
 
 # Step 2: Validate with NEW split seed (critical for unbiased estimate)
 ced train \
   --model LR_EN \
+  --infile data/input.parquet \
   --fixed-panel deployment_panel.csv \
   --split-seed 10 \
   --config configs/training_config.yaml
@@ -641,7 +648,7 @@ bash scripts/post_training_pipeline.sh --run-id <RUN_ID>
 ### Ensemble training fails
 Check base model outputs exist:
 ```bash
-ls results/run_{RUN_ID}/{MODEL}/splits/split_seed*/preds/train_oof/
+ls results/run_{RUN_ID}/{MODEL}/splits/split_seed*/preds/train_oof__*.csv
 ```
 
 ---
