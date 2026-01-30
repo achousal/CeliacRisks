@@ -361,6 +361,14 @@ def collect_predictions(
     subdir = pred_subdir_map[pred_type]
     all_preds = []
 
+    # Define file patterns for each prediction type to avoid collecting auxiliary files
+    pred_file_patterns = {
+        "test": "test_preds__*.csv",
+        "val": "val_preds__*.csv",
+        "train_oof": "train_oof__*.csv",
+    }
+    file_pattern = pred_file_patterns[pred_type]
+
     for split_dir in split_dirs:
         seed = int(split_dir.name.replace("split_seed", ""))
         pred_dir = split_dir / subdir
@@ -370,10 +378,10 @@ def collect_predictions(
                 logger.debug(f"No {pred_type} predictions dir in {split_dir.name}")
             continue
 
-        csv_files = list(pred_dir.glob("*.csv"))
+        csv_files = list(pred_dir.glob(file_pattern))
         if not csv_files:
             if logger:
-                logger.debug(f"No CSV files in {pred_dir}")
+                logger.debug(f"No {file_pattern} files in {pred_dir}")
             continue
 
         for csv_path in csv_files:

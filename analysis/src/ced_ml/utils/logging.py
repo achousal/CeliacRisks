@@ -165,6 +165,70 @@ class LoggerContext:
             self.logger.addHandler(handler)
 
 
+def auto_log_path(
+    command: str,
+    outdir: Path | str = "results",
+    run_id: str | None = None,
+    model: str | None = None,
+    split_seed: int | None = None,
+) -> Path:
+    """Build an automatic log file path based on command context.
+
+    Log directory structure:
+        logs/
+          training/run_{ID}/{model}_seed{N}.log
+          ensemble/run_{ID}/ENSEMBLE_seed{N}.log
+          aggregation/run_{ID}/{model}.log
+          optimization/run_{ID}/{model}.log
+          consensus/run_{ID}/consensus.log
+          pipeline/run_{ID}.log
+
+    Args:
+        command: CLI command name (train, train-ensemble, aggregate-splits,
+                 optimize-panel, consensus-panel, run-pipeline).
+        outdir: Results output directory (used to resolve logs/ sibling).
+        run_id: Run identifier (falls back to "unknown" if None).
+        model: Model name (used for per-model log files).
+        split_seed: Split seed (used for per-seed log files).
+
+    Returns:
+        Absolute Path for the log file. Parent directories are NOT created
+        here -- callers should use ``setup_logger(log_file=...)`` which
+        handles that.
+    """
+    outdir = Path(outdir).resolve()
+    # Place logs/ as a sibling of the results directory
+    logs_root = outdir.parent / "logs" if outdir.name != "logs" else outdir
+
+    rid = run_id or "unknown"
+
+    if command == "train":
+        model_part = model or "unknown"
+        seed_part = f"_seed{split_seed}" if split_seed is not None else ""
+        return logs_root / "training" / f"run_{rid}" / f"{model_part}{seed_part}.log"
+
+    if command == "train-ensemble":
+        seed_part = f"_seed{split_seed}" if split_seed is not None else ""
+        return logs_root / "ensemble" / f"run_{rid}" / f"ENSEMBLE{seed_part}.log"
+
+    if command == "aggregate-splits":
+        model_part = model or "all"
+        return logs_root / "aggregation" / f"run_{rid}" / f"{model_part}.log"
+
+    if command == "optimize-panel":
+        model_part = model or "all"
+        return logs_root / "optimization" / f"run_{rid}" / f"{model_part}.log"
+
+    if command == "consensus-panel":
+        return logs_root / "consensus" / f"run_{rid}" / "consensus.log"
+
+    if command == "run-pipeline":
+        return logs_root / "pipeline" / f"run_{rid}.log"
+
+    # Fallback
+    return logs_root / "misc" / f"{command}_{rid}.log"
+
+
 def log_section(logger: logging.Logger, title: str, width: int = 80, char: str = "="):
     """Log a section header."""
     logger.info(char * width)

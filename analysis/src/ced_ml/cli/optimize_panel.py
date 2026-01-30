@@ -52,8 +52,7 @@ def find_model_paths_for_run(
 ) -> list[str]:
     """Auto-detect model paths from run_id.
 
-    If run_id is None, auto-detects the latest run.
-    If model is None, returns ALL base models (excluding ENSEMBLE if skip_ensemble=True).
+    Directory layout: results/run_{RUN_ID}/{MODEL}/splits/split_seed{N}/core/
 
     Args:
         run_id: Run ID (e.g., "20260127_104409"). If None, auto-detects latest.
@@ -66,9 +65,7 @@ def find_model_paths_for_run(
 
     Raises:
         FileNotFoundError: If no models found
-        ValueError: If configuration is invalid
     """
-    # Determine results directory (CED_RESULTS_DIR env var for testability)
     import os
     from pathlib import Path
 
@@ -81,71 +78,56 @@ def find_model_paths_for_run(
     if not results_dir.exists():
         raise FileNotFoundError(f"Results directory not found: {results_dir}")
 
-    # Auto-detect run_id if not provided
+    # Auto-detect run_id: scan results/run_*/
     if not run_id:
-        run_ids = []
-        for model_dir in results_dir.glob("*/"):
-            if model_dir.name.startswith(".") or model_dir.name == "investigations":
-                continue
-            for run_dir in model_dir.glob("run_*"):
-                if run_dir.is_dir():
-                    rid = run_dir.name.replace("run_", "")
-                    run_ids.append(rid)
-
+        run_ids = [d.name.replace("run_", "") for d in results_dir.glob("run_*") if d.is_dir()]
         if not run_ids:
             raise FileNotFoundError("No runs found in results directory")
-
-        # Sort by timestamp (format: YYYYMMDD_HHMMSS)
         run_ids.sort(reverse=True)
         run_id = run_ids[0]
 
-    # Find all models for this run
-    model_paths = []
+    run_path = results_dir / f"run_{run_id}"
 
+    # Find models under results/run_{id}/
     if model:
-        # Single model specified
         models_to_check = [model]
     else:
-        # Find all models for this run
         models_to_check = []
-        for model_dir in sorted(results_dir.glob("*/")):
-            if model_dir.name.startswith(".") or model_dir.name == "investigations":
-                continue
-
-            # Skip ENSEMBLE if requested
-            if skip_ensemble and model_dir.name == "ENSEMBLE":
-                continue
-
-            run_path = model_dir / f"run_{run_id}"
-            if run_path.exists():
+        if run_path.exists():
+            for model_dir in sorted(run_path.glob("*/")):
+                if model_dir.name.startswith(".") or model_dir.name in (
+                    "investigations",
+                    "consensus",
+                ):
+                    continue
+                if skip_ensemble and model_dir.name == "ENSEMBLE":
+                    continue
                 models_to_check.append(model_dir.name)
 
         if not models_to_check:
+            msg = f"No base models found for run {run_id}"
             if skip_ensemble:
-                raise FileNotFoundError(
-                    f"No base models found for run {run_id} (ENSEMBLE excluded).\n"
-                    f"Use --model to specify a model explicitly."
-                )
-            else:
-                raise FileNotFoundError(f"No models found for run {run_id}")
+                msg += " (ENSEMBLE excluded)"
+            raise FileNotFoundError(msg)
 
-    # Build paths for each model
+    # Build paths: results/run_{id}/{model}/splits/split_seed{N}/core/{model}__final_model.joblib
+    model_paths = []
     for model_name in models_to_check:
-        model_path = (
-            results_dir
+        model_file = (
+            run_path
             / model_name
-            / f"run_{run_id}"
+            / "splits"
             / f"split_seed{split_seed}"
             / "core"
             / f"{model_name}__final_model.joblib"
         )
 
-        if model_path.exists():
-            model_paths.append(str(model_path))
+        if model_file.exists():
+            model_paths.append(str(model_file))
         else:
-            if model:  # Only warn if user explicitly requested this model
+            if model:
                 raise FileNotFoundError(
-                    f"Model not found: {model_path}\n"
+                    f"Model not found: {model_file}\n"
                     f"Run: {run_id}, Model: {model_name}, Split: {split_seed}"
                 )
 
@@ -543,24 +525,24 @@ def discover_models_by_run_id(
 
     model_dirs = {}
 
-    for model_dir in sorted(results_root.glob("*/")):
+    # New layout: results/run_{RUN_ID}/{MODEL}/aggregated/
+    run_dir = results_root / f"run_{run_id}"
+    if not run_dir.exists():
+        return model_dirs
+
+    for model_dir in sorted(run_dir.glob("*/")):
         model_name = model_dir.name
 
         # Skip hidden/special directories and ensemble models
-        if model_name.startswith(".") or model_name in ("investigations", "ENSEMBLE"):
+        if model_name.startswith(".") or model_name in ("investigations", "ENSEMBLE", "consensus"):
             continue
 
         # Apply model filter if specified
         if model_filter and model_name != model_filter:
             continue
 
-        # Check for run directory
-        run_dir = model_dir / f"run_{run_id}"
-        if not run_dir.exists():
-            continue
-
         # Check for aggregated results
-        aggregated_dir = run_dir / "aggregated"
+        aggregated_dir = model_dir / "aggregated"
         if not aggregated_dir.exists():
             continue
 
@@ -623,11 +605,13 @@ def run_optimize_panel_aggregated(
     """
     import logging
 
+    from ced_ml.utils.logging import auto_log_path, setup_logger
+
     results_path = Path(results_dir)
 
     # Auto-detect model name from path if not provided
     if not model_name:
-        # results_dir is typically: ../results/LR_EN/run_20260127_115115/aggregated
+        # results_dir is typically: ../results/run_20260127/LR_EN/aggregated
         model_name = results_path.parent.parent.name
 
     # Setup logging
@@ -637,38 +621,26 @@ def run_optimize_panel_aggregated(
     elif verbose >= 1:
         log_level = logging.INFO
 
-    # Use unique logger per model to avoid handler accumulation
-    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-    logger_name = f"{__name__}.aggregated.{model_name}_{timestamp}"
-    logger = logging.getLogger(logger_name)
-    logger.setLevel(log_level)
-    logger.propagate = False  # Prevent propagation to root logger
+    # Derive run_id from path (pattern: .../run_{ID}/...)
+    _run_id = None
+    for parent in [results_path] + list(results_path.parents):
+        if parent.name.startswith("run_"):
+            _run_id = parent.name[4:]
+            break
 
-    # Create logs directory
-    log_dir = Path(__file__).parent.parent.parent.parent.parent / "logs" / "features"
-    log_dir.mkdir(parents=True, exist_ok=True)
-
-    log_file = log_dir / f"optimize_panel_aggregated_{model_name}_{timestamp}.log"
-
-    # File handler
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(log_level)
-    file_formatter = logging.Formatter(
-        "[%(asctime)s] %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+    # Auto-file-logging
+    log_file = auto_log_path(
+        command="optimize-panel",
+        outdir=results_path.parent.parent if _run_id else results_path,
+        run_id=_run_id,
+        model=model_name,
     )
-    file_handler.setFormatter(file_formatter)
-
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(log_level)
-    console_formatter = logging.Formatter("%(levelname)s - %(message)s")
-    console_handler.setFormatter(console_formatter)
-
-    # Always add handlers (unique logger per invocation)
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-
+    logger = setup_logger(
+        f"ced_ml.optimize_panel.{model_name}",
+        level=log_level,
+        log_file=log_file,
+    )
+    logger.info(f"Logging to file: {log_file}")
     logger.info(f"Aggregated panel optimization started for {model_name}")
     logger.info(f"Results dir: {results_dir}")
 

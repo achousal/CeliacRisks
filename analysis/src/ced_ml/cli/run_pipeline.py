@@ -1,0 +1,714 @@
+"""
+Full pipeline orchestration: train, aggregate, ensemble, consensus, optimize.
+
+This module provides a single command to run the complete ML workflow from
+training through panel optimization and consensus generation.
+"""
+
+import logging
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from ced_ml.cli.aggregate_splits import run_aggregate_splits
+from ced_ml.cli.consensus_panel import run_consensus_panel
+from ced_ml.cli.optimize_panel import discover_models_by_run_id, run_optimize_panel_aggregated
+from ced_ml.cli.save_splits import run_save_splits
+from ced_ml.cli.train import run_train
+from ced_ml.cli.train_ensemble import run_train_ensemble
+from ced_ml.utils.logging import auto_log_path, setup_logger
+
+
+def _ensure_splits_exist(
+    split_dir: Path,
+    infile: Path,
+    config_file: Path | None,
+    overwrite: bool,
+    overrides: list[str] | None = None,
+    verbose: int = 1,
+    log_level: str = "INFO",
+    logger: logging.Logger | None = None,
+) -> None:
+    """Generate splits if needed, otherwise use existing.
+
+    Args:
+        split_dir: Directory for split files
+        infile: Input data file path
+        config_file: Optional splits config file
+        overwrite: Force regeneration even if splits exist
+        overrides: Optional config overrides
+        verbose: Verbosity level
+        log_level: Logging level
+        logger: Optional logger instance
+
+    Note:
+        This is the single source for split generation logic used by both
+        local and HPC pipeline modes. Scenario is determined by splits_config.yaml.
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    # Check if splits need to be generated
+    needs_generation = overwrite or not any(split_dir.glob("train_idx_*_seed*.csv"))
+
+    if needs_generation:
+        logger.info("Generating splits...")
+        splits_cli_args = {
+            "infile": str(infile),
+            "outdir": str(split_dir),
+            "overwrite": overwrite,
+        }
+        run_save_splits(
+            config_file=config_file,
+            cli_args=splits_cli_args,
+            overrides=overrides or [],
+            verbose=verbose,
+            log_level=log_level,
+        )
+        logger.info("Splits generated.")
+    else:
+        logger.info(f"Using existing splits from: {split_dir}")
+
+
+# Hardcoded fallback defaults (used when no config and no CLI override)
+_PIPELINE_DEFAULTS: dict[str, Any] = {
+    "models": ["LR_EN", "RF", "XGBoost"],
+    "split_seeds": [0, 1, 2],
+    "ensemble": True,
+    "consensus": True,
+    "optimize_panel": True,
+    "overwrite_splits": False,
+    "n_boot": 500,
+    "dry_run": False,
+}
+
+
+def load_pipeline_config(config_path: Path) -> dict[str, Any]:
+    """Load a pipeline YAML config and return a flat dict of resolved values.
+
+    Merges ``paths``, ``configs``, ``pipeline``, and ``hpc`` sections into a
+    single namespace.  Paths are resolved relative to the config file's parent
+    directory (assumed to be ``analysis/configs/``), making them root-aware.
+
+    Args:
+        config_path: Absolute or relative path to a ``pipeline_*.yaml`` file.
+
+    Returns:
+        Dict with keys like ``infile``, ``splits_dir``, ``results_dir``,
+        ``training_config``, ``models``, ``split_seeds``, ``ensemble``, etc.
+    """
+    from ced_ml.utils.paths import get_project_root
+
+    config_path = Path(config_path)
+    with open(config_path) as fh:
+        raw = yaml.safe_load(fh) or {}
+
+    # Determine base directory for path resolution
+    # If config is in analysis/configs/, base is analysis/ (config.parent.parent)
+    # Otherwise use project root
+    try:
+        project_root = get_project_root()
+        if "analysis" in config_path.parts and "configs" in config_path.parts:
+            # Config is in analysis/configs/, resolve relative to analysis/
+            base_dir = config_path.parent.parent
+        else:
+            # Fallback: use project root
+            base_dir = project_root
+    except Exception:
+        # Ultimate fallback: assume config is in configs/ and go up two levels
+        base_dir = config_path.parent.parent
+
+    result: dict[str, Any] = {}
+
+    # -- paths ---------------------------------------------------------------
+    paths = raw.get("paths", {})
+    for key in ("infile", "splits_dir", "results_dir", "logs_dir"):
+        val = paths.get(key)
+        if val is not None:
+            result[key] = (base_dir / val).resolve()
+
+    # -- configs (resolve to absolute paths) ---------------------------------
+    configs = raw.get("configs", {})
+    if configs.get("training"):
+        result["training_config"] = (base_dir / configs["training"]).resolve()
+    if configs.get("splits"):
+        result["splits_config"] = (base_dir / configs["splits"]).resolve()
+
+    # -- pipeline section (flat copy) ----------------------------------------
+    pipeline = raw.get("pipeline", {})
+    for key in (
+        "models",
+        "split_seeds",
+        "ensemble",
+        "consensus",
+        "optimize_panel",
+        "overwrite_splits",
+        "n_boot",
+        "dry_run",
+    ):
+        if key in pipeline:
+            result[key] = pipeline[key]
+
+    # -- hpc section (pass through) ------------------------------------------
+    if "hpc" in raw:
+        result["hpc"] = raw["hpc"]
+
+    result["environment"] = raw.get("environment", "local")
+    return result
+
+
+def resolve_pipeline_config_path(hpc: bool = False) -> Path | None:
+    """Return the default pipeline config path based on mode.
+
+    Looks for ``configs/pipeline_hpc.yaml`` (if *hpc*) or
+    ``configs/pipeline_local.yaml`` relative to either cwd or analysis/.
+    Returns ``None`` if the file does not exist.
+    """
+    from ced_ml.utils.paths import get_default_paths
+
+    name = "pipeline_hpc.yaml" if hpc else "pipeline_local.yaml"
+
+    # Try multiple locations
+    try:
+        defaults = get_default_paths()
+        # 1. From analysis/configs/
+        candidate = defaults["configs"] / name
+        if candidate.exists():
+            return candidate
+
+        # 2. From cwd/configs/
+        candidate = Path("configs") / name
+        if candidate.exists():
+            return candidate.resolve()
+    except Exception:
+        # Fallback: try cwd/configs/
+        candidate = Path("configs") / name
+        if candidate.exists():
+            return candidate.resolve()
+
+    return None
+
+
+def _discover_input_file(
+    config_file: Path | None,
+    outdir: Path | None,
+    logger: logging.Logger,
+) -> Path:
+    """
+    Auto-discover input data file from common locations.
+
+    Search order:
+    1. From pipeline config (configs/pipeline_local.yaml or pipeline_hpc.yaml)
+    2. From training config (if provided)
+    3. Common data locations (data/, ../data/)
+    4. Raise error if not found
+
+    Args:
+        config_file: Optional training config path
+        outdir: Results output directory (used to find project root)
+        logger: Logger instance
+
+    Returns:
+        Path to discovered input file
+
+    Raises:
+        FileNotFoundError: If no input file can be discovered
+    """
+    from pathlib import Path
+
+    import yaml
+
+    from ced_ml.utils.paths import get_default_paths, get_project_root
+
+    # Get project root and default paths
+    try:
+        root = get_project_root()
+        defaults = get_default_paths()
+        logger.debug(f"Project root: {root}")
+    except Exception as e:
+        logger.warning(f"Could not determine project root: {e}. Using cwd.")
+        root = Path.cwd()
+        defaults = {
+            "project_root": root,
+            "analysis": root / "analysis",
+            "data": root / "data",
+        }
+
+    # 1. Check pipeline configs (most likely source)
+    for pipeline_config in ["configs/pipeline_local.yaml", "configs/pipeline_hpc.yaml"]:
+        # Try both from root and from analysis/
+        for base in [defaults["project_root"], defaults.get("analysis", root / "analysis")]:
+            pipeline_path = base / pipeline_config
+            if pipeline_path.exists():
+                try:
+                    with open(pipeline_path) as f:
+                        config = yaml.safe_load(f)
+                        if "paths" in config and "infile" in config["paths"]:
+                            rel_path = config["paths"]["infile"]
+                            # Resolve relative to config file's parent.parent (analysis/ -> root/)
+                            infile = (pipeline_path.parent.parent / rel_path).resolve()
+                            if infile.exists():
+                                logger.info(f"Discovered from {pipeline_config}: {infile}")
+                                return infile
+                except Exception as e:
+                    logger.debug(f"Could not load {pipeline_config}: {e}")
+
+    # 2. Check training config
+    if config_file and config_file.exists():
+        try:
+            with open(config_file) as f:
+                config = yaml.safe_load(f)
+                if "infile" in config:
+                    infile = Path(config["infile"])
+                    if not infile.is_absolute():
+                        infile = (config_file.parent / infile).resolve()
+                    if infile.exists():
+                        logger.info(f"Discovered from training config: {infile}")
+                        return infile
+        except Exception as e:
+            logger.debug(f"Could not load training config: {e}")
+
+    # 3. Check common data locations
+    data_dir = defaults.get("data", root / "data")
+    common_locations = [
+        data_dir / "Celiac_dataset_proteomics_w_demo.parquet",
+        data_dir / "celiac.parquet",
+        data_dir / "Celiac_dataset_proteomics_w_demo.csv",
+    ]
+
+    for location in common_locations:
+        if location.exists():
+            logger.info(f"Discovered from common location: {location}")
+            return location
+
+    # 4. Not found - provide helpful error
+    raise FileNotFoundError(
+        "Could not auto-discover input data file. Tried:\n"
+        f"  - Pipeline configs: {defaults.get('analysis', root / 'analysis')}/configs/pipeline_*.yaml\n"
+        f"  - Training config: {config_file}\n"
+        f"  - Common locations: {data_dir}/\n"
+        "\nPlease provide --infile explicitly or ensure data file exists in expected location."
+    )
+
+
+def _run_hpc_mode(
+    *,
+    config_file: Path | None,
+    infile: Path | None,
+    split_dir: Path | None,
+    models: list[str],
+    split_seeds: list[int],
+    run_id: str | None,
+    outdir: Path | None,
+    enable_ensemble: bool,
+    enable_consensus: bool,
+    enable_optimize_panel: bool,
+    overwrite_splits: bool,
+    hpc_config_file: Path | None,
+    dry_run: bool,
+    log_level: int,
+) -> None:
+    """Submit pipeline to HPC via LSF job dependency chains.
+
+    Generates splits locally, then submits per-seed training jobs and a
+    post-processing job that depends on all training jobs completing.
+    """
+    from datetime import datetime
+
+    from ced_ml.hpc.lsf import (
+        load_hpc_config,
+        submit_hpc_pipeline,
+    )
+
+    hpc_logger = setup_logger("ced_ml.hpc", level=log_level)
+
+    # Load HPC config
+    if hpc_config_file is None:
+        hpc_config_file = Path("configs/pipeline_hpc.yaml")
+    hpc_config = load_hpc_config(hpc_config_file)
+
+    # Auto-discover infile from HPC config if not provided
+    if infile is None:
+        hpc_logger.info("Auto-discovering input data file...")
+        infile = _discover_input_file(config_file, outdir, hpc_logger)
+    infile = infile.resolve()
+
+    # Resolve paths
+    if outdir is None:
+        outdir_str = hpc_config.get("paths", {}).get("results_dir", "results")
+        outdir = (hpc_config_file.parent.parent / outdir_str).resolve()
+    else:
+        outdir = outdir.resolve()
+
+    if split_dir is None:
+        split_dir_str = hpc_config.get("paths", {}).get("splits_dir")
+        if split_dir_str:
+            split_dir = (hpc_config_file.parent.parent / split_dir_str).resolve()
+        else:
+            split_dir = outdir.parent / "splits"
+    split_dir = split_dir.resolve()
+
+    if config_file is None:
+        training_cfg = hpc_config.get("configs", {}).get("training")
+        if training_cfg:
+            config_file = (hpc_config_file.parent.parent / training_cfg).resolve()
+
+    logs_dir_str = hpc_config.get("paths", {}).get("logs_dir", "../logs")
+    logs_dir = (hpc_config_file.parent.parent / logs_dir_str).resolve()
+
+    # Generate run_id
+    if run_id is None:
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Create directories
+    outdir.mkdir(parents=True, exist_ok=True)
+    split_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate splits locally (fast, no HPC job needed)
+    _ensure_splits_exist(
+        split_dir=split_dir,
+        infile=infile,
+        config_file=config_file,
+        overwrite=overwrite_splits,
+        overrides=[],
+        verbose=0,
+        log_level=log_level,
+        logger=hpc_logger,
+    )
+
+    # Log summary
+    hpc = hpc_config["hpc"]
+    hpc_logger.info("=" * 70)
+    hpc_logger.info("CeD-ML HPC Pipeline Submission")
+    hpc_logger.info("=" * 70)
+    hpc_logger.info(f"Run ID: {run_id}")
+    hpc_logger.info(f"Models: {', '.join(models)}")
+    hpc_logger.info(f"Split seeds: {split_seeds}")
+    hpc_logger.info(
+        f"HPC: {hpc['project']} / {hpc['queue']} / "
+        f"{hpc['walltime']} / {hpc['cores']}c / {hpc['mem_per_core']}MB"
+    )
+    hpc_logger.info(f"Dry run: {dry_run}")
+    hpc_logger.info("=" * 70)
+
+    # Submit jobs
+    result = submit_hpc_pipeline(
+        config_file=config_file,
+        infile=infile,
+        split_dir=split_dir,
+        outdir=outdir,
+        models=models,
+        split_seeds=split_seeds,
+        run_id=run_id,
+        enable_ensemble=enable_ensemble,
+        enable_consensus=enable_consensus,
+        enable_optimize_panel=enable_optimize_panel,
+        hpc_config=hpc_config,
+        logs_dir=logs_dir,
+        dry_run=dry_run,
+        pipeline_logger=hpc_logger,
+    )
+
+    # Print monitoring instructions
+    hpc_logger.info("")
+    hpc_logger.info("=" * 70)
+    hpc_logger.info("Pipeline Submission Complete")
+    hpc_logger.info("=" * 70)
+    hpc_logger.info(f"Run ID: {result['run_id']}")
+    hpc_logger.info(f"Training jobs: {len(result['training_jobs'])}")
+    hpc_logger.info(f"Post-processing job: {result['postprocessing_job']}")
+    hpc_logger.info("")
+    hpc_logger.info("Monitor jobs:")
+    hpc_logger.info("  bjobs -w | grep CeD_")
+    hpc_logger.info("")
+    hpc_logger.info("Live logs:")
+    hpc_logger.info(f"  tail -f {result['logs_dir']}/*.live.log")
+    hpc_logger.info("")
+    hpc_logger.info("Error logs:")
+    hpc_logger.info(f"  cat {result['logs_dir']}/*.err")
+    hpc_logger.info("")
+    hpc_logger.info(f"Results: {outdir}/run_{result['run_id']}/")
+    hpc_logger.info("=" * 70)
+
+
+def run_pipeline(
+    config_file: Path | None,
+    infile: Path | None,
+    split_dir: Path | None,
+    models: list[str],
+    split_seeds: list[int],
+    run_id: str | None,
+    outdir: Path | None,
+    enable_ensemble: bool,
+    enable_consensus: bool,
+    enable_optimize_panel: bool,
+    overwrite_splits: bool,
+    log_file: Path | None,
+    cli_args: dict,
+    overrides: list[str],
+    verbose: int,
+    log_level: int,
+    hpc: bool = False,
+    hpc_config_file: Path | None = None,
+    dry_run: bool = False,
+):
+    """
+    Run the complete ML pipeline end-to-end.
+
+    Workflow:
+    1. Generate splits (if needed)
+    2. Train base models (all specified models x all seeds)
+    3. Aggregate results per model
+    4. Train ensemble (if enabled)
+    5. Aggregate ensemble results
+    6. Optimize panel per model (if enabled)
+    7. Generate consensus panel (if enabled)
+
+    Args:
+        config_file: Path to training config YAML
+        infile: Input data file (Parquet/CSV, auto-discovered if None)
+        split_dir: Directory for split indices
+        models: List of model names to train
+        split_seeds: List of split seeds to train
+        run_id: Shared run identifier (auto-generated if None)
+        outdir: Results output directory
+        enable_ensemble: Train stacking ensemble
+        enable_consensus: Generate cross-model consensus panel
+        enable_optimize_panel: Run panel optimization
+        overwrite_splits: Regenerate splits if they exist
+        log_file: Path to save pipeline logs (None for console only)
+        cli_args: Additional CLI arguments for training
+        overrides: Config override strings
+        verbose: Verbosity level
+        log_level: Logging level constant
+    """
+    # HPC mode: submit LSF jobs and exit
+    if hpc:
+        _run_hpc_mode(
+            config_file=config_file,
+            infile=infile,
+            split_dir=split_dir,
+            models=models,
+            split_seeds=split_seeds,
+            run_id=run_id,
+            outdir=outdir,
+            enable_ensemble=enable_ensemble,
+            enable_consensus=enable_consensus,
+            enable_optimize_panel=enable_optimize_panel,
+            overwrite_splits=overwrite_splits,
+            hpc_config_file=hpc_config_file,
+            dry_run=dry_run,
+            log_level=log_level,
+        )
+        return
+
+    # Auto-file-logging: use explicit log_file if provided, otherwise auto-generate
+    if log_file is None:
+        log_file = auto_log_path(
+            command="run-pipeline",
+            outdir=outdir,
+            run_id=run_id,
+        )
+    logger = setup_logger("ced_ml.pipeline", level=log_level, log_file=log_file)
+    logger.info(f"Logging to file: {log_file}")
+
+    # Auto-discover input file if not provided
+    if infile is None:
+        logger.info("Auto-discovering input data file...")
+        infile = _discover_input_file(config_file, outdir, logger)
+        logger.info(f"Using input file: {infile}")
+
+    logger.info("=" * 70)
+    logger.info("CeD-ML Full Pipeline")
+    logger.info("=" * 70)
+    logger.info(f"Models: {', '.join(models)}")
+    logger.info(f"Split seeds: {split_seeds}")
+    logger.info(f"Run ID: {run_id or 'auto-generated'}")
+    logger.info(f"Ensemble: {'enabled' if enable_ensemble else 'disabled'}")
+    logger.info(f"Consensus panel: {'enabled' if enable_consensus else 'disabled'}")
+    logger.info(f"Panel optimization: {'enabled' if enable_optimize_panel else 'disabled'}")
+    logger.info("=" * 70)
+
+    # Step 1: Generate splits (if needed)
+    if split_dir is None:
+        split_dir = outdir.parent / "splits"
+
+    logger.info("\n" + "=" * 70)
+    logger.info("Step 1: Generate Splits")
+    logger.info("=" * 70)
+
+    _ensure_splits_exist(
+        split_dir=split_dir,
+        infile=infile,
+        config_file=config_file,
+        overwrite=overwrite_splits,
+        overrides=overrides,
+        verbose=verbose,
+        log_level=log_level,
+        logger=logger,
+    )
+
+    # Step 2: Train base models
+    logger.info("\n" + "=" * 70)
+    logger.info("Step 2: Train Base Models")
+    logger.info("=" * 70)
+
+    shared_run_id = run_id  # Preserve for all models
+
+    for model_name in models:
+        for split_seed in split_seeds:
+            logger.info(f"\nTraining {model_name} with split_seed={split_seed}")
+
+            train_cli_args = {
+                "infile": str(infile),
+                "split_dir": str(split_dir),
+                "model": model_name,
+                "split_seed": split_seed,
+                "outdir": str(outdir),
+                "run_id": shared_run_id,
+                **cli_args,
+            }
+
+            run_train(
+                config_file=config_file,
+                cli_args=train_cli_args,
+                overrides=overrides,
+                verbose=verbose,
+                log_level=log_level,
+            )
+
+            # Extract run_id from first training run (if auto-generated)
+            if shared_run_id is None:
+                # Read run_metadata.json to get the auto-generated run_id
+                import json
+
+                metadata_pattern = list(
+                    outdir.glob(f"run_*/*/splits/split_seed{split_seed}/run_metadata.json")
+                )
+                if metadata_pattern:
+                    with open(metadata_pattern[0]) as f:
+                        metadata = json.load(f)
+                        shared_run_id = metadata.get("run_id")
+                        logger.info(f"Using auto-generated run_id: {shared_run_id}")
+
+    if shared_run_id is None:
+        raise RuntimeError("Failed to determine run_id after training")
+
+    # Step 3: Aggregate base models
+    logger.info("\n" + "=" * 70)
+    logger.info("Step 3: Aggregate Base Model Results")
+    logger.info("=" * 70)
+
+    for model_name in models:
+        logger.info(f"\nAggregating {model_name}")
+
+        model_dir = outdir / f"run_{shared_run_id}" / model_name
+
+        run_aggregate_splits(
+            results_dir=str(model_dir),
+            stability_threshold=0.75,
+            target_specificity=0.95,
+            plot_formats=["png"],
+            n_boot=500,
+            verbose=verbose,
+            log_level=log_level,
+        )
+
+    # Step 4: Train ensemble (if enabled)
+    if enable_ensemble:
+        logger.info("\n" + "=" * 70)
+        logger.info("Step 4: Train Ensemble Meta-Learner")
+        logger.info("=" * 70)
+
+        for split_seed in split_seeds:
+            logger.info(f"\nTraining ensemble with split_seed={split_seed}")
+
+            run_train_ensemble(
+                config_file=config_file,
+                run_id=shared_run_id,
+                split_seed=split_seed,
+                base_models=None,  # Auto-detect from run_id
+                results_dir=None,  # Auto-detect from run_id
+                outdir=None,  # Use default
+                meta_penalty=None,
+                meta_C=None,
+                verbose=verbose,
+                log_level=log_level,
+            )
+
+        # Step 5: Aggregate ensemble
+        logger.info("\n" + "=" * 70)
+        logger.info("Step 5: Aggregate Ensemble Results")
+        logger.info("=" * 70)
+
+        ensemble_dir = outdir / f"run_{shared_run_id}" / "ENSEMBLE"
+
+        run_aggregate_splits(
+            results_dir=str(ensemble_dir),
+            stability_threshold=0.75,
+            target_specificity=0.95,
+            plot_formats=["png"],
+            n_boot=500,
+            verbose=verbose,
+            log_level=log_level,
+        )
+
+    # Step 6: Optimize panel (if enabled)
+    if enable_optimize_panel:
+        logger.info("\n" + "=" * 70)
+        logger.info("Step 6: Optimize Panel Sizes")
+        logger.info("=" * 70)
+
+        # Auto-discover models with aggregated results
+        results_root = outdir
+        model_dirs = discover_models_by_run_id(
+            run_id=shared_run_id,
+            results_root=results_root,
+            model_filter=None,
+        )
+
+        for model_name, results_dir in model_dirs.items():
+            logger.info(f"\nOptimizing panel for {model_name}")
+
+            run_optimize_panel_aggregated(
+                results_dir=results_dir,
+                infile=str(infile),
+                split_dir=str(split_dir),
+                model_name=model_name,
+                stability_threshold=0.75,
+                min_size=5,
+                min_auroc_frac=0.90,
+                cv_folds=5,
+                step_strategy="geometric",
+                outdir=None,
+                verbose=verbose,
+            )
+
+    # Step 7: Generate consensus panel (if enabled)
+    if enable_consensus:
+        logger.info("\n" + "=" * 70)
+        logger.info("Step 7: Generate Consensus Panel")
+        logger.info("=" * 70)
+
+        run_consensus_panel(
+            run_id=shared_run_id,
+            infile=str(infile),
+            split_dir=str(split_dir),
+            stability_threshold=0.75,
+            corr_threshold=0.85,
+            target_size=25,
+            rfe_weight=0.5,
+            rra_method="geometric_mean",
+            outdir=None,
+            verbose=verbose,
+        )
+
+    # Final summary
+    logger.info("\n" + "=" * 70)
+    logger.info("Pipeline Complete")
+    logger.info("=" * 70)
+    logger.info(f"Run ID: {shared_run_id}")
+    logger.info(f"Results: {outdir / f'run_{shared_run_id}'}")
+    logger.info("=" * 70)

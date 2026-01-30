@@ -7,29 +7,40 @@ High-level command-line interface reference for the Celiac Disease risk predicti
 - [Typical Workflow Order](#typical-workflow-order)
 - [Command Descriptions](#command-descriptions)
 - [Configuration System](#configuration-system)
+- [Automatic Logging](#automatic-logging)
 - [Environment Notes](#environment-notes)
 
 ---
 
 ## Available Commands
 
-The CLI provides nine main commands accessed via `ced <command>`:
+The CLI provides ten main commands accessed via `ced <command>`:
 
-1. `save-splits` - Generate stratified train/val/test splits
-2. `train` - Train single model on one split (supports fixed-panel validation)
-3. `train-ensemble` - Train stacking meta-learner on base model predictions
-4. `optimize-panel` - Post-hoc RFE panel size optimization for single models
-5. `consensus-panel` - Cross-model consensus panel via Robust Rank Aggregation
-6. `aggregate-splits` - Aggregate results across multiple splits with bootstrap CIs
-7. `eval-holdout` - Evaluate trained model on external holdout data
-8. `config` - Validate and compare configuration files
-9. `convert-to-parquet` - Convert proteomics CSV to Parquet format
+1. `run-pipeline` - **Run complete end-to-end workflow (RECOMMENDED)**
+2. `save-splits` - Generate stratified train/val/test splits
+3. `train` - Train single model on one split (supports fixed-panel validation)
+4. `train-ensemble` - Train stacking meta-learner on base model predictions
+5. `optimize-panel` - Post-hoc RFE panel size optimization for single models
+6. `consensus-panel` - Cross-model consensus panel via Robust Rank Aggregation
+7. `aggregate-splits` - Aggregate results across multiple splits with bootstrap CIs
+8. `eval-holdout` - Evaluate trained model on external holdout data
+9. `config` - Validate and compare configuration files
+10. `convert-to-parquet` - Convert proteomics CSV to Parquet format
 
 Run `ced --help` or `ced <command> --help` for detailed usage.
 
 ---
 
 ## Typical Workflow Order
+
+### Recommended: One-Command Pipeline
+**NEW: Run the entire workflow with a single command:**
+```bash
+ced run-pipeline --infile data/celiac.parquet
+```
+This automatically orchestrates all steps: splits → train → aggregate → ensemble → optimize panel → consensus.
+
+See [`ced run-pipeline`](#ced-run-pipeline) for details and customization options.
 
 ### Standard Pipeline (Single Split)
 1. **Generate splits** - Create reproducible train/val/test splits from input data
@@ -42,7 +53,9 @@ Run `ced --help` or `ced <command> --help` for detailed usage.
 2. **Train models** - Train on each split independently (parallelizable on HPC)
 3. **Train ensembles** (optional) - Train stacking ensemble per split
 4. **Aggregate** - Pool results across splits, compute bootstrap confidence intervals
-5. **Compare** - Visualize multi-model performance comparisons
+5. **Optimize panels** - Determine minimum viable panel sizes per model
+6. **Generate consensus** - Create cross-model consensus panel via RRA
+7. **Compare** - Visualize multi-model performance comparisons
 
 ### Holdout Validation
 1. **Train on primary dataset** - Complete standard pipeline
@@ -51,6 +64,141 @@ Run `ced --help` or `ced <command> --help` for detailed usage.
 ---
 
 ## Command Descriptions
+
+### `ced run-pipeline`
+
+**Purpose:** Run the complete ML pipeline end-to-end with a single command (RECOMMENDED).
+
+**Key Capabilities:**
+- **Auto-discovers input data file** from config or common locations
+- Orchestrates the full workflow from data splitting to panel optimization
+- Auto-generates splits if not provided
+- Trains all specified models across all split seeds
+- Automatically aggregates results per model
+- Optionally trains ensemble meta-learner
+- Optionally optimizes panel sizes for each model
+- Optionally generates cross-model consensus panel
+- Maintains consistent run_id across all models for easy tracking
+
+**Workflow Steps:**
+1. Generate splits (if needed or `--overwrite-splits`)
+2. Train base models (all models × all seeds)
+3. Aggregate results per model
+4. Train ensemble meta-learner (if `--ensemble`, default: enabled)
+5. Aggregate ensemble results
+6. Optimize panel sizes (if `--optimize-panel`, default: enabled)
+7. Generate consensus panel (if `--consensus`, default: enabled)
+
+**Required Inputs:**
+- None (fully auto-discovered!)
+
+**Optional Inputs:**
+- Input data file (auto-discovered from config or common locations if not provided)
+- Configuration file (training settings, feature selection, calibration)
+- Models list (default: LR_EN,RF,XGBoost)
+- Split seeds list (default: 0,1,2)
+- Custom run ID (default: auto-generated timestamp)
+
+**Outputs:**
+```
+results/
+  run_<RUN_ID>/
+    LR_EN/
+      splits/split_seed0/, split_seed1/, ...
+      aggregated/
+        optimize_panel/
+    RF/
+      splits/...
+      aggregated/
+        optimize_panel/
+    XGBoost/
+      splits/...
+      aggregated/
+        optimize_panel/
+    ENSEMBLE/  (if --ensemble)
+      splits/...
+      aggregated/
+    consensus/  (if --consensus)
+      final_panel.txt
+      consensus_ranking.csv
+```
+
+**Examples:**
+
+**Quick start - auto-discover everything** (SIMPLEST):
+```bash
+ced run-pipeline
+```
+
+**Or specify data file explicitly:**
+```bash
+ced run-pipeline --infile data/celiac.parquet
+```
+
+**Custom models and seeds:**
+```bash
+ced run-pipeline \
+  --models LR_EN,RF,LinSVM_cal \
+  --split-seeds 0,1,2,3,4
+```
+
+**Disable optional features** (faster for testing):
+```bash
+ced run-pipeline \
+  --no-ensemble \
+  --no-consensus \
+  --no-optimize-panel
+```
+
+**Custom run ID and output:**
+```bash
+ced run-pipeline \
+  --run-id production_v1 \
+  --outdir ../results_production
+```
+
+**With config file:**
+```bash
+ced run-pipeline \
+  --config configs/training_config.yaml
+```
+
+**Save logs to file:**
+```bash
+ced run-pipeline \
+  --log-file logs/run_$(date +%Y%m%d_%H%M%S).log
+```
+
+**Options:**
+- `--config, -c PATH`: Path to YAML configuration file
+- `--infile PATH`: Input data file (Parquet/CSV, auto-discovered if not provided)
+- `--split-dir PATH`: Directory for split indices (auto-generated if not provided)
+- `--models TEXT`: Comma-separated list of models (default: LR_EN,RF,XGBoost)
+- `--split-seeds TEXT`: Comma-separated list of split seeds (default: 0,1,2)
+- `--run-id TEXT`: Shared run ID for all models (default: auto-generated)
+- `--outdir PATH`: Output directory (default: results/)
+- `--ensemble/--no-ensemble`: Train ensemble meta-learner (default: enabled)
+- `--consensus/--no-consensus`: Generate consensus panel (default: enabled)
+- `--optimize-panel/--no-optimize-panel`: Optimize panel sizes (default: enabled)
+- `--overwrite-splits`: Regenerate splits even if they exist
+- `--log-file PATH`: Save pipeline logs to file (in addition to console output)
+- `--override KEY=VALUE`: Override config values (repeatable)
+
+**Data File Auto-Discovery:**
+When `--infile` is not provided, the command searches for data files in this order:
+1. `configs/pipeline_local.yaml` or `configs/pipeline_hpc.yaml` → `paths.infile`
+2. Training config file → `infile` key
+3. Common locations: `../data/Celiac_dataset_proteomics_w_demo.parquet`, `data/celiac.parquet`, etc.
+
+**Notes:**
+- This command is equivalent to running all individual commands in sequence
+- **Zero configuration required** - just run `ced run-pipeline` from analysis/ directory
+- Progress is logged to stdout with timestamps (optionally save to file with `--log-file`)
+- Failed steps will halt the pipeline with an error message
+- Use `--no-ensemble --no-consensus --no-optimize-panel` for faster testing
+- All models share the same run_id for easy aggregation and comparison
+
+---
 
 ### `ced save-splits`
 
@@ -377,6 +525,56 @@ Override paths follow YAML nesting (e.g., `cv.folds=10`, `optuna.enabled=true`).
 - Adjust feature selection thresholds
 - Enable/disable bootstrap CIs
 - Change threshold optimization strategy
+
+---
+
+## Automatic Logging
+
+All CLI commands automatically write log files to structured subdirectories under `logs/`, alongside `results/`. No extra flags are needed -- logs are created on every invocation.
+
+### Log directory structure
+
+```
+logs/
+  training/
+    run_{ID}/
+      LR_EN_seed0.log
+      RF_seed0.log
+      XGBoost_seed1.log
+  ensemble/
+    run_{ID}/
+      ENSEMBLE_seed0.log
+  aggregation/
+    run_{ID}/
+      LR_EN.log
+      RF.log
+  optimization/
+    run_{ID}/
+      LR_EN.log
+  consensus/
+    run_{ID}/
+      consensus.log
+  pipeline/
+    run_{ID}.log
+```
+
+### Command-to-log mapping
+
+| Command | Log path |
+|---------|----------|
+| `ced train` | `logs/training/run_{ID}/{model}_seed{N}.log` |
+| `ced train-ensemble` | `logs/ensemble/run_{ID}/ENSEMBLE_seed{N}.log` |
+| `ced aggregate-splits` | `logs/aggregation/run_{ID}/{model}.log` |
+| `ced optimize-panel` | `logs/optimization/run_{ID}/{model}.log` |
+| `ced consensus-panel` | `logs/consensus/run_{ID}/consensus.log` |
+| `ced run-pipeline` | `logs/pipeline/run_{ID}.log` |
+
+### Notes
+
+- Logs are written in addition to console output (both always active).
+- The `--log-file` flag on `ced run-pipeline` overrides the auto-generated path.
+- Log files use the same format: `[YYYY-MM-DD HH:MM:SS] LEVEL - message`.
+- The `logs/` directory is created as a sibling of the `results/` output directory.
 
 ---
 

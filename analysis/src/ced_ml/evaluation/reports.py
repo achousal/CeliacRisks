@@ -80,17 +80,19 @@ class OutputDirectories:
         exist_ok: bool = True,
         split_seed: int | None = None,
         run_id: str | None = None,
+        model: str | None = None,
     ) -> "OutputDirectories":
         """
         Create output directory structure.
 
+        Directory layout: root/run_{run_id}/{model}/splits/split_seed{N}/
+
         Args:
-            root: Base output directory path
+            root: Base output directory path (e.g., ../results)
             exist_ok: If True, do not raise if directories exist
             split_seed: If provided, creates a split-specific subdirectory
-                        (e.g., root/run_20260121_143022/splits/split_seed0/)
             run_id: If provided, creates a run-specific subdirectory
-                    (e.g., root/run_20260121_143022/splits/split_seed0/)
+            model: If provided, creates a model-specific subdirectory under the run
 
         Returns:
             OutputDirectories instance with all paths created
@@ -100,9 +102,12 @@ class OutputDirectories:
         """
         root_path = Path(root)
 
-        # If run_id is provided, nest under a run-specific subdirectory
+        # Run-first layout: root/run_{run_id}/{model}/splits/split_seed{N}/
         if run_id is not None:
             root_path = root_path / f"run_{run_id}"
+
+        if model is not None:
+            root_path = root_path / model
 
         # If split_seed is provided, nest under splits/ parent folder
         if split_seed is not None:

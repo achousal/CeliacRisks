@@ -80,7 +80,7 @@ from ced_ml.plotting import (
 )
 from ced_ml.plotting.dca import plot_dca_curve
 from ced_ml.plotting.learning_curve import save_learning_curve_csv
-from ced_ml.utils.logging import log_section, setup_logger
+from ced_ml.utils.logging import auto_log_path, log_section, setup_logger
 from ced_ml.utils.metadata import build_oof_metadata, build_plot_metadata, count_category_breakdown
 
 logger = logging.getLogger(__name__)
@@ -173,6 +173,7 @@ def build_training_pipeline(
     classifier: Any,
     protein_cols: list[str],
     cat_cols: list[str],
+    model_name: str | None = None,
 ) -> Pipeline:
     """Build complete training pipeline with preprocessing, feature selection, and classifier.
 
@@ -265,6 +266,28 @@ def build_training_pipeline(
     elif strategy == "none":
         logger.debug("Feature selection: none")
 
+    # Stage 2b: Model-specific selector (hybrid_stability only, opt-in)
+    if (
+        strategy == "hybrid_stability"
+        and getattr(config.features, "model_selector", False)
+        and model_name is not None
+    ):
+        from ced_ml.features.model_selector import ModelSpecificSelector
+
+        model_sel = ModelSpecificSelector(
+            model_name=model_name,
+            threshold=getattr(config.features, "model_selector_threshold", "median"),
+            max_features=getattr(config.features, "model_selector_max_features", None),
+            min_features=getattr(config.features, "model_selector_min_features", 10),
+        )
+        steps.append(("model_sel", model_sel))
+        logger.debug(
+            "Model-specific selector: %s (threshold=%s, min=%d)",
+            model_name,
+            config.features.model_selector_threshold,
+            config.features.model_selector_min_features,
+        )
+
     # Stage 3: Classifier
     steps.append(("clf", classifier))
 
@@ -293,18 +316,18 @@ def _log_unwired_feature_selection_settings(config: Any, logger: logging.Logger)
 
 
 def load_split_indices(
-    split_dir: str, scenario: str, seed: int
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    split_dir: str, scenario: str | None, seed: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, str]:
     """
     Load train/val/test split indices from CSVs.
 
     Args:
         split_dir: Directory containing split CSV files
-        scenario: Scenario name (e.g., IncidentOnly)
+        scenario: Scenario name (e.g., IncidentOnly). If None, auto-detect from files.
         seed: Random seed used for splits
 
     Returns:
-        (train_idx, val_idx, test_idx) as numpy arrays
+        (train_idx, val_idx, test_idx, detected_scenario) as tuple
 
     Raises:
         FileNotFoundError: If any split file is missing
@@ -312,13 +335,40 @@ def load_split_indices(
     Notes:
         Supports both old format (train_idx_seed{seed}.csv) and new format
         (train_idx_{scenario}_seed{seed}.csv) for backward compatibility.
+        Auto-detection: If scenario=None, scans for files matching train_idx_*_seed{seed}.csv
     """
     split_path = Path(split_dir)
 
+    # Auto-detect scenario if not provided
+    if scenario is None:
+        import glob
+
+        pattern = str(split_path / f"train_idx_*_seed{seed}.csv")
+        matches = glob.glob(pattern)
+        if matches:
+            # Extract scenario from filename: train_idx_{scenario}_seed{seed}.csv
+            filename = Path(matches[0]).name
+            scenario = filename.replace("train_idx_", "").replace(f"_seed{seed}.csv", "")
+            logger.info(f"Auto-detected scenario from split files: {scenario}")
+        else:
+            # Try legacy format without scenario
+            legacy_file = split_path / f"train_idx_seed{seed}.csv"
+            if legacy_file.exists():
+                logger.info("Using legacy split format (no scenario in filename)")
+                scenario = "legacy"
+            else:
+                raise FileNotFoundError(
+                    f"No split files found for seed={seed} in {split_dir}. "
+                    f"Run 'ced save-splits' first."
+                )
+
     # Try new format first (with scenario)
-    train_file_new = split_path / f"train_idx_{scenario}_seed{seed}.csv"
-    val_file_new = split_path / f"val_idx_{scenario}_seed{seed}.csv"
-    test_file_new = split_path / f"test_idx_{scenario}_seed{seed}.csv"
+    if scenario != "legacy":
+        train_file_new = split_path / f"train_idx_{scenario}_seed{seed}.csv"
+        val_file_new = split_path / f"val_idx_{scenario}_seed{seed}.csv"
+        test_file_new = split_path / f"test_idx_{scenario}_seed{seed}.csv"
+    else:
+        train_file_new = val_file_new = test_file_new = None
 
     # Try old format (without scenario) as fallback
     train_file_old = split_path / f"train_idx_seed{seed}.csv"
@@ -326,11 +376,11 @@ def load_split_indices(
     test_file_old = split_path / f"test_idx_seed{seed}.csv"
 
     # Select format that exists
-    logger.debug(f"Trying new format: {train_file_new}")
-    if train_file_new.exists():
+    if train_file_new and train_file_new.exists():
+        logger.debug(f"Using new format: {train_file_new}")
         train_file, val_file, test_file = train_file_new, val_file_new, test_file_new
     else:
-        logger.debug(f"New format not found, trying old format: {train_file_old}")
+        logger.debug(f"Using old format: {train_file_old}")
         train_file, val_file, test_file = train_file_old, val_file_old, test_file_old
 
     # Validate all files exist (val is optional for val_size=0 case)
@@ -341,14 +391,22 @@ def load_split_indices(
         missing_files.append(str(test_file))
 
     if missing_files:
-        attempted_paths = [
-            str(train_file_new),
-            str(val_file_new),
-            str(test_file_new),
-            str(train_file_old),
-            str(val_file_old),
-            str(test_file_old),
-        ]
+        attempted_paths = []
+        if train_file_new:
+            attempted_paths.extend(
+                [
+                    str(train_file_new),
+                    str(val_file_new),
+                    str(test_file_new),
+                ]
+            )
+        attempted_paths.extend(
+            [
+                str(train_file_old),
+                str(val_file_old),
+                str(test_file_old),
+            ]
+        )
         raise FileNotFoundError(
             f"Split files not found. Missing: {missing_files}\n"
             f"Attempted paths:\n  " + "\n  ".join(attempted_paths)
@@ -376,7 +434,7 @@ def load_split_indices(
     if not is_valid:
         raise ValueError(f"Split index validation failed: {error_msg}")
 
-    return train_idx, val_idx, test_idx
+    return train_idx, val_idx, test_idx, scenario
 
 
 def evaluate_on_split(
@@ -558,31 +616,23 @@ def run_train(
 
     # Step 4: Create output directories (with run-specific and split-specific subdirs)
     log_section(logger, "Setting Up Output Structure")
-    outdirs = OutputDirectories.create(config.outdir, exist_ok=True, split_seed=seed, run_id=run_id)
+    outdirs = OutputDirectories.create(
+        config.outdir, exist_ok=True, split_seed=seed, run_id=run_id, model=config.model
+    )
     logger.info(f"Output root: {outdirs.root}")
     logger.info(f"Split seed: {seed}")
     logger.info(f"Run ID: {run_id}")
 
-    # File logging disabled - using shell tee instead for live log streaming
-    # (see run_hpc.sh: stdout → tee → .live.log)
-    # outdir_path = Path(config.outdir).resolve()
-    # logs_base = outdir_path.parent.parent / "logs"
-    # logs_dir = logs_base / run_id
-    # logs_dir.mkdir(parents=True, exist_ok=True)
-    #
-    # log_filename = f"CeD_{config.model}_seed{seed}.log"
-    # log_file = logs_dir / log_filename
-    #
-    # live_log_file = log_file.with_suffix(".live")
-    # file_handler = logging.FileHandler(live_log_file, mode="a")
-    # file_handler.setLevel(log_level)
-    # file_handler.setFormatter(
-    #     logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
-    # )
-    # file_handler._final_log_path = log_file
-    # file_handler._live_log_path = live_log_file
-    # logger.addHandler(file_handler)
-    # logger.info(f"Logging to: {live_log_file} (will become {log_file} on completion)")
+    # Auto-file-logging: write to logs/training/run_{ID}/{model}_seed{N}.log
+    log_file = auto_log_path(
+        command="train",
+        outdir=config.outdir,
+        run_id=run_id,
+        model=config.model,
+        split_seed=seed,
+    )
+    logger = setup_logger("ced_ml", level=log_level, log_file=log_file)
+    logger.info(f"Logging to file: {log_file}")
 
     # Save resolved config to run-specific directory
     config_path = Path(outdirs.root) / "training_config.yaml"
@@ -591,16 +641,19 @@ def run_train(
 
     # Log config summary
     logger.info(f"Model: {config.model}")
-    logger.info(f"Scenario: {config.scenario}")
     logger.info(f"CV: {config.cv.folds} folds × {config.cv.repeats} repeats")
     logger.info(f"Scoring: {config.cv.scoring}")
 
-    # Step 5: Load split indices
+    # Step 5: Load split indices (auto-detect scenario from split files)
     log_section(logger, "Loading Splits")
     try:
-        train_idx, val_idx, test_idx = load_split_indices(
-            str(config.split_dir), config.scenario, seed
+        # Auto-detect scenario from split files (or use config if provided)
+        scenario = getattr(config, "scenario", None)
+        train_idx, val_idx, test_idx, detected_scenario = load_split_indices(
+            str(config.split_dir), scenario, seed
         )
+        scenario = detected_scenario  # Use detected scenario for all subsequent operations
+        logger.info(f"Scenario: {scenario}")
         logger.info(f"Loaded splits for seed {seed}:")
         logger.info(f"  Train: {len(train_idx):,} samples")
         logger.info(f"  Val:   {len(val_idx):,} samples")
@@ -613,7 +666,7 @@ def run_train(
                 "split": (
                     ["train"] * len(train_idx) + ["val"] * len(val_idx) + ["test"] * len(test_idx)
                 ),
-                "scenario": config.scenario,
+                "scenario": scenario,
                 "seed": seed,
             }
         )
@@ -625,7 +678,7 @@ def run_train(
         # Load split metadata and check that meta_num_cols_used matches current config
         from ced_ml.data.persistence import load_split_metadata
 
-        split_meta = load_split_metadata(str(config.split_dir), config.scenario, seed)
+        split_meta = load_split_metadata(str(config.split_dir), scenario, seed)
         if split_meta is not None:
             row_filters = split_meta.get("row_filters", {})
             split_meta_num_cols = set(row_filters.get("meta_num_cols_used", []))
@@ -654,7 +707,7 @@ def run_train(
         raise
 
     # Step 6: Prepare X, y for each split
-    scenario_def = SCENARIO_DEFINITIONS[config.scenario]
+    scenario_def = SCENARIO_DEFINITIONS[scenario]
     target_labels = scenario_def["labels"]
     scenario_def["positive_label"]
 
@@ -676,9 +729,7 @@ def run_train(
     mask_scenario = df_filtered[TARGET_COL].isin(target_labels)
     n_filtered = (~mask_scenario).sum()
     if n_filtered > 0:
-        logger.info(
-            f"Filtered out {n_filtered:,} samples with labels not in scenario {config.scenario}"
-        )
+        logger.info(f"Filtered out {n_filtered:,} samples with labels not in scenario {scenario}")
 
     df_scenario = df_filtered[mask_scenario].copy()
     df_scenario["y"] = (df_scenario[TARGET_COL] != CONTROL_LABEL).astype(int)
@@ -780,6 +831,7 @@ def run_train(
         classifier,
         protein_cols,
         resolved.categorical_metadata,
+        model_name=config.model,
     )
     logger.info(f"Pipeline steps: {[name for name, _ in pipeline.steps]}")
 
@@ -821,6 +873,7 @@ def run_train(
         classifier,
         protein_cols,
         resolved.categorical_metadata,
+        model_name=config.model,
     )
 
     # Determine best k value for final model (if using hybrid_stability with k_grid)
@@ -980,7 +1033,7 @@ def run_train(
 
     model_bundle = {
         "model": final_pipeline,
-        "scenario": config.scenario,
+        "scenario": scenario,
         "model_name": config.model,
         "thresholds": {
             "val_threshold": val_threshold,
@@ -1031,8 +1084,8 @@ def run_train(
 
     # Save metrics (using ResultsWriter with append mode)
     if val_metrics is not None:
-        writer.save_val_metrics(val_metrics, config.scenario, config.model)
-    writer.save_test_metrics(test_metrics, config.scenario, config.model)
+        writer.save_val_metrics(val_metrics, scenario, config.model)
+    writer.save_test_metrics(test_metrics, scenario, config.model)
 
     # Save CV artifacts
     best_params_path = Path(outdirs.cv) / "best_params_per_split.csv"
@@ -1077,7 +1130,7 @@ def run_train(
         }
         writer.save_final_test_panel(
             panel_proteins=final_selected_proteins,
-            scenario=config.scenario,
+            scenario=scenario,
             model=config.model,
             metadata=panel_metadata,
         )
@@ -1149,6 +1202,7 @@ def run_train(
                         classifier,
                         protein_cols,
                         resolved.categorical_metadata,
+                        model_name=config.model,
                     )
 
                     xgb_spw = None
@@ -1238,7 +1292,7 @@ def run_train(
             brier = float(np.mean((y_repeat - p_repeat) ** 2))
             cv_repeat_rows.append(
                 {
-                    "scenario": config.scenario,
+                    "scenario": scenario,
                     "model": config.model,
                     "repeat": repeat,
                     "folds": config.cv.folds,
@@ -1255,12 +1309,12 @@ def run_train(
             )
     if cv_repeat_rows:
         # Use ResultsWriter with append mode
-        writer.save_cv_repeat_metrics(cv_repeat_rows, config.scenario, config.model)
+        writer.save_cv_repeat_metrics(cv_repeat_rows, scenario, config.model)
 
     # Save run settings
     run_settings = {
         "model": config.model,
-        "scenario": config.scenario,
+        "scenario": scenario,
         "seed": seed,
         "train_prevalence": float(train_prev),
         "target_prevalence": float(target_prev),
@@ -1283,7 +1337,7 @@ def run_train(
     # Save config_metadata.json at root (comprehensive run configuration)
     config_metadata = {
         "pipeline_version": "ced_ml_v2",
-        "scenario": config.scenario,
+        "scenario": scenario,
         "model": config.model,
         "folds": config.cv.folds,
         "repeats": config.cv.repeats,
@@ -1316,24 +1370,76 @@ def run_train(
         json.dump(config_metadata, f, indent=2, sort_keys=True)
     logger.info(f"Config metadata saved: {config_metadata_path}")
 
-    # Save run_metadata.json (for CLI auto-detection)
-    # Save at run level (not split level) for consistent discovery across splits
-    # With new structure: root = .../run_{id}/splits/split_seed{N}/
-    # Go up 2 levels (past splits/) to reach run-level dir
-    run_level_dir = Path(outdirs.root).parent.parent if seed is not None else Path(outdirs.root)
-    run_metadata = {
-        "run_id": run_id,
-        "model": config.model,
-        "scenario": config.scenario,
+    # Save run_metadata.json (shared across models, at run level)
+    # New layout: root = .../run_{id}/{model}/splits/split_seed{N}/
+    # Go up 3 levels (split_seed -> splits -> model) to reach run-level dir
+    if seed is not None:
+        run_level_dir = Path(outdirs.root).parent.parent.parent
+    else:
+        # No split seed: root = .../run_{id}/{model}/
+        run_level_dir = Path(outdirs.root).parent
+
+    # Infer seed_start and n_splits from available split files
+    seed_start = None
+    n_splits = None
+    if config.split_dir:
+        split_dir_path = Path(config.split_dir)
+        if split_dir_path.exists():
+            meta_pattern = f"split_meta_{scenario}_seed*.json"
+            meta_files = list(split_dir_path.glob(meta_pattern))
+
+            if not meta_files:
+                meta_files = list(split_dir_path.glob("split_meta_seed*.json"))
+
+            if meta_files:
+                seeds = []
+                for meta_file in meta_files:
+                    seed_match = meta_file.stem.split("seed")[-1]
+                    try:
+                        seeds.append(int(seed_match))
+                    except ValueError:
+                        continue
+
+                if seeds:
+                    seed_start = min(seeds)
+                    n_splits = len(seeds)
+                    logger.info(
+                        f"Inferred split config: seed_start={seed_start}, n_splits={n_splits}"
+                    )
+
+    # Shared run_metadata.json: read-merge-write for HPC safety
+    run_metadata_path = run_level_dir / "run_metadata.json"
+    run_metadata_path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing_metadata: dict = {}
+    if run_metadata_path.exists():
+        try:
+            with open(run_metadata_path) as f:
+                existing_metadata = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            existing_metadata = {}
+
+    model_entry = {
+        "scenario": scenario,
         "infile": str(config.infile),
         "split_dir": str(config.split_dir),
         "split_seed": seed,
+        "seed_start": seed_start,
+        "n_splits": n_splits,
         "timestamp": datetime.now().isoformat(),
     }
-    run_metadata_path = run_level_dir / "run_metadata.json"
-    run_metadata_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(run_metadata_path, "w") as f:
-        json.dump(run_metadata, f, indent=2)
+
+    existing_metadata.setdefault("run_id", run_id)
+    existing_metadata.setdefault("infile", str(config.infile))
+    existing_metadata.setdefault("split_dir", str(config.split_dir))
+    existing_metadata.setdefault("models", {})
+    existing_metadata["models"][config.model] = model_entry
+
+    # Atomic write: temp file + rename
+    tmp_path = run_metadata_path.with_suffix(".tmp")
+    with open(tmp_path, "w") as f:
+        json.dump(existing_metadata, f, indent=2)
+    tmp_path.rename(run_metadata_path)
     logger.info(f"Run metadata saved: {run_metadata_path}")
 
     # Save predictions
@@ -1439,8 +1545,11 @@ def run_train(
         controls_oof_df.to_csv(controls_oof_path, index=False)
         logger.info(f"Controls OOF predictions saved: {controls_oof_path}")
 
-    # Step 15: Generate plots (if enabled)
-    if config.output.save_plots:
+    # Step 15: Generate plots (if enabled and within max_plot_splits limit)
+    should_plot = config.output.save_plots and (
+        config.output.max_plot_splits == 0 or seed < config.output.max_plot_splits
+    )
+    if should_plot:
         log_section(logger, "Generating Plots")
         plots_dir = Path(outdirs.plots)
         plots_dir.mkdir(parents=True, exist_ok=True)
@@ -1457,7 +1566,7 @@ def run_train(
         # Common metadata for plots (enriched with run context)
         meta_lines = build_plot_metadata(
             model=config.model,
-            scenario=config.scenario,
+            scenario=scenario,
             seed=seed,
             train_prev=train_prev,
             target_prev=target_prev,
@@ -1622,7 +1731,7 @@ def run_train(
         # Combined OOF plots across CV repeats
         oof_meta = build_oof_metadata(
             model=config.model,
-            scenario=config.scenario,
+            scenario=scenario,
             seed=seed,
             cv_folds=config.cv.folds,
             cv_repeats=config.cv.repeats,
@@ -1722,7 +1831,7 @@ def run_train(
                 "bin_center": prob_pred_test,
                 "observed_freq": prob_true_test,
                 "split": "test",
-                "scenario": config.scenario,
+                "scenario": scenario,
                 "model": config.model,
             }
         )
@@ -1737,7 +1846,7 @@ def run_train(
                 "bin_center": prob_pred_val,
                 "observed_freq": prob_true_val,
                 "split": "val",
-                "scenario": config.scenario,
+                "scenario": scenario,
                 "model": config.model,
             }
         )
@@ -1790,7 +1899,7 @@ def run_train(
             )
             lc_meta = build_plot_metadata(
                 model=config.model,
-                scenario=config.scenario,
+                scenario=scenario,
                 seed=seed,
                 train_prev=train_prev,
                 cv_folds=min(config.cv.folds, 5),  # Matches actual CV used in learning curve
@@ -1811,6 +1920,7 @@ def run_train(
                 build_models(config.model, config, seed, config.n_jobs),
                 protein_cols,
                 resolved.categorical_metadata,
+                model_name=config.model,
             )
             save_learning_curve_csv(
                 estimator=lc_pipeline,
@@ -1843,7 +1953,7 @@ def run_train(
                 top_n=0,  # Get all proteins (reuses cache from feature report)
             )
             if not screening_stats.empty:
-                screening_stats["scenario"] = config.scenario
+                screening_stats["scenario"] = scenario
                 screening_stats["model"] = config.model
                 screening_path = (
                     Path(outdirs.diag_screening) / f"{config.model}__screening_results.csv"
@@ -1900,7 +2010,7 @@ def run_train(
                 "selection_freq", ascending=False
             ).reset_index(drop=True)
             feature_report["rank"] = range(1, len(feature_report) + 1)
-            feature_report["scenario"] = config.scenario
+            feature_report["scenario"] = scenario
             feature_report["model"] = config.model
 
             # Reorder columns for readability
@@ -1927,7 +2037,7 @@ def run_train(
                 fallback_top_n=20,
             )
             if not stable_panel_df.empty:
-                stable_panel_df["scenario"] = config.scenario
+                stable_panel_df["scenario"] = scenario
                 # Use ResultsWriter to save
                 writer.save_stable_panel_report(stable_panel_df, panel_type="KBest")
 
@@ -1947,7 +2057,7 @@ def run_train(
                 )
                 for size, (_comp_map, panel_proteins) in panels.items():
                     manifest = {
-                        "scenario": config.scenario,
+                        "scenario": scenario,
                         "model": config.model,
                         "panel_size": size,
                         "actual_size": len(panel_proteins),
@@ -1987,7 +2097,7 @@ def run_train(
             bootstrap_ci_df = pd.DataFrame(
                 [
                     {
-                        "scenario": config.scenario,
+                        "scenario": scenario,
                         "model": config.model,
                         "n_test": len(y_test),
                         "n_boot": 1000,

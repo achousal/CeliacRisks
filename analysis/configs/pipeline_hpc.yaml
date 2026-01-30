@@ -1,7 +1,6 @@
 # Pipeline Configuration - HPC Environment
-# Single source of truth for paths, models, and execution settings
+# Single source of truth for ced run-pipeline --hpc
 
-# Environment
 environment: hpc
 
 # Paths (relative to analysis/)
@@ -11,31 +10,31 @@ paths:
   results_dir: ../results
   logs_dir: ../logs
 
-# Configs
+# Config files (relative to analysis/)
 configs:
   splits: configs/splits_config.yaml
-  training: configs/training_config_production.yaml
+  training: configs/training_config_hpc.yaml
 
-# Execution
-execution:
+# Pipeline orchestration settings (used by ced run-pipeline)
+pipeline:
   models:
     - LR_EN
     - LinSVM_cal
     - RF
     - XGBoost
-  n_boot: 1000  # Bootstrap iterations for publication-ready CIs
+  split_seeds: [0, 1, 2]
+  ensemble: true
+  consensus: true
+  optimize_panel: true
   overwrite_splits: false
+  n_boot: 1000  # Bootstrap iterations for publication-ready CIs
   dry_run: false
-
 
 # HPC Settings (LSF/Slurm)
 hpc:
   scheduler: lsf  # lsf or slurm
   project: acc_Chipuk_Laboratory  # Required: update before use
   queue: premium
-  walltime: "100:00"  # hours:minutes (100 trials x 10 repeats needs headroom)
+  walltime: "100:00"  # hours:minutes
   cores: 8
   mem_per_core: 8000  # MB
-
-# The splits config controls n_splits and seed_start
-# Edit configs/splits_config.yaml to change those settings

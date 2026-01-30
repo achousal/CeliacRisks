@@ -12,6 +12,7 @@ optuna:
   n_trials: 100
   sampler: tpe
   pruner: median
+  n_jobs: 4  # Parallelize trials (4x speedup)
 
 features:
   # CRITICAL: No feature selection - use fixed panel

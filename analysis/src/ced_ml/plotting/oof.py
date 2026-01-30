@@ -74,6 +74,13 @@ def plot_oof_combined(
         p_stacked = p_stacked[valid_mask]
         split_ids = split_ids[valid_mask]
 
+    # Validate we have valid data after filtering NaNs
+    if len(y_stacked) == 0 or len(p_stacked) == 0:
+        raise ValueError(
+            f"Cannot generate OOF plots for {model_name}: all predictions are NaN. "
+            f"This usually indicates a data collection bug in the aggregation pipeline."
+        )
+
     # Validate metadata is provided
     if meta_lines is None:
         raise ValueError(

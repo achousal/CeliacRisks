@@ -18,7 +18,7 @@ corr_threshold: 0.85
 
 # Target panel size after correlation pruning
 # This is the final number of proteins in the consensus panel
-target_size: 25
+target_size: 50
 
 # Weight for RFE rank vs stability frequency in per-model composite scoring
 # 0.0 = stability only, 1.0 = RFE only, 0.5 = equal weight (default)

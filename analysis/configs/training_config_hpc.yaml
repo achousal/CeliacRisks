@@ -2,7 +2,7 @@
 # Model training for Celiac Disease risk prediction
 # Optimized for XGBoost regularization based on run_20260125_122411 analysis
 
-scenario: IncidentPlusPrevalent
+# NOTE: scenario is auto-detected from split files (set in splits_config.yaml)
 
 # Cross-validation - PRODUCTION SETTINGS
 cv:
@@ -45,20 +45,26 @@ features:
   screen_top_n: 1000  # Stage 1: Mann-Whitney → keep top 1200
 
   # Strategy 1: Hybrid Stability parameters (used if strategy=hybrid_stability)
-  # Uncomment these if switching to hybrid_stability strategy
-  k_grid: [100]  # K-best tuning grid
+  k_grid: [25, 50, 100, 150, 200, 300, 400]  # K-best tuning grid
   stability_thresh: 0.70  # Stability selection threshold
   stable_corr_thresh: 0.85  # Remove features with r > 0.85
 
-
   # Strategy 2: RFECV parameters (used if strategy=rfecv)
-  # rfe_kbest_prefilter: false  # Enable k-best pre-filter (5× speedup)
-  # rfe_kbest_k: 100  # Reduces ~300 → ~100 proteins before RFECV
-  # rfe_target_size: 50  # Minimum features (stops at 50//2 = 25)
-  # rfe_step_strategy: adaptive  # Options: adaptive, fixed
-  # rfe_cv_folds: 3  # Inner CV folds for RFE
-  # rfe_consensus_thresh: 0.80  # Consensus threshold across CV repeats
-  # stable_corr_thresh: 0.85  # Remove features with r > 0.85
+  rfe_kbest_prefilter: false  # Enable k-best pre-filter (5× speedup)
+  rfe_kbest_k: 100  # Reduces ~300 → ~100 proteins before RFECV
+  rfe_target_size: 50  # Minimum features (stops at 50//2 = 25)
+  rfe_step_strategy: adaptive  # Options: adaptive, fixed
+  rfe_cv_folds: 3  # Inner CV folds for RFE
+  rfe_consensus_thresh: 0.80  # Consensus threshold across CV repeats
+
+  # Model-Specific Selector (optional, hybrid_stability only)
+  # Adds a model-specific feature selection step between k-best and classifier
+  # Each model type uses its own inductive bias (L1 coefficients, tree importances)
+  # to produce genuinely model-specific feature subsets for meaningful consensus
+  model_selector: true  # Set to true to enable (opt-in, backward compatible)
+  model_selector_threshold: "median"  # Threshold for SelectFromModel (median, mean, or numeric)
+  model_selector_max_features: null  # Max features to keep (null = no limit)
+  model_selector_min_features: 10  # Minimum features floor (prevents empty selection)
 
 # Model-specific hyperparameter search spaces
 # These define the ranges for RandomizedSearchCV or Optuna optimization
@@ -219,6 +225,7 @@ output:
   plot_format: png  # Options: png, pdf, svg
   plot_dpi: 300
   save_plots: true
+  max_plot_splits: 1  # Only first 3 splits generate plots
 
   # Individual plot type controls
   plot_roc: true

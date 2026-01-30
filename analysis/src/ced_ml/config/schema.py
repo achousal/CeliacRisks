@@ -185,6 +185,30 @@ class FeatureConfig(BaseModel):
     rf_perm_min_importance: float = Field(default=0.0, ge=0.0)
     rf_perm_top_n: int = Field(default=100, ge=1)
 
+    # Model-specific selector (hybrid_stability only, opt-in)
+    model_selector: bool = Field(
+        default=False,
+        description=(
+            "Enable model-specific feature selection step between KBest and classifier. "
+            "Only active under hybrid_stability strategy. Each model type uses its own "
+            "inductive bias (L1 coefs, tree importances) to further prune features."
+        ),
+    )
+    model_selector_threshold: str = Field(
+        default="median",
+        description="Importance threshold for SelectFromModel (e.g. 'median', 'mean', or float).",
+    )
+    model_selector_max_features: int | None = Field(
+        default=None,
+        ge=1,
+        description="Maximum features to retain from model selector. None means no cap.",
+    )
+    model_selector_min_features: int = Field(
+        default=10,
+        ge=1,
+        description="Minimum features to retain (floor to prevent empty selection).",
+    )
+
     # Coefficient threshold for linear model feature extraction
     coef_threshold: float = Field(default=0.01, ge=0.0)
 
@@ -535,6 +559,7 @@ class OutputConfig(BaseModel):
     save_feature_importance: bool = True
     feature_reports: bool = True
     save_plots: bool = True
+    max_plot_splits: int = Field(default=0, ge=0)
     plot_format: str = "png"
     plot_dpi: int = 300
 
@@ -688,6 +713,8 @@ class PanelOptimizeConfig(BaseModel):
     through Recursive Feature Elimination after training.
     """
 
+    model_config = {"protected_namespaces": ()}
+
     # Required paths
     infile: Path | None = Field(
         default=None,
@@ -777,6 +804,8 @@ class PanelOptimizeConfig(BaseModel):
 
 class HoldoutEvalConfig(BaseModel):
     """Configuration for holdout evaluation."""
+
+    model_config = {"protected_namespaces": ()}
 
     # Data paths
     infile: Path

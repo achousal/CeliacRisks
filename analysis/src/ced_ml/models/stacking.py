@@ -457,13 +457,13 @@ def _find_model_split_dir(
     split_seed: int,
     run_id: str | None = None,
 ) -> Path:
-    """Find the split directory for a model, handling multiple layout conventions.
+    """Find the split directory for a model.
 
-    Searches for model outputs in order of preference:
-    1. results_dir / model_name / run_{run_id} / split_seed{split_seed} (new layout with run_id)
-    2. results_dir / model_name / run_* / split_seed{split_seed} (new layout, auto-discover run_id)
-    3. results_dir / run_* / split_seed{split_seed} (top-level run directories, filter by model name in config)
-    4. results_dir / model_name / split_{split_seed} (legacy layout)
+    Primary layout: results_dir/run_{run_id}/{model}/splits/split_seed{N}/
+
+    Searches in order of preference:
+    1. results_dir/run_{run_id}/{model}/splits/split_seed{N} (explicit run_id)
+    2. results_dir/run_*/{model}/splits/split_seed{N} (auto-discover run_id)
 
     Args:
         results_dir: Root results directory
@@ -477,58 +477,24 @@ def _find_model_split_dir(
     Raises:
         FileNotFoundError: If no matching directory found
     """
-    model_root = results_dir / model_name
-
-    # Pattern 1: Explicit run_id provided (model-specific subdirectory)
+    # Pattern 1: Explicit run_id
     if run_id is not None:
-        # Try new layout first: splits/split_seed{N}
-        candidate = model_root / f"run_{run_id}" / "splits" / f"split_seed{split_seed}"
-        if candidate.exists():
-            return candidate
-        # Legacy: split_seed{N} directly
-        candidate = model_root / f"run_{run_id}" / f"split_seed{split_seed}"
+        candidate = (
+            results_dir / f"run_{run_id}" / model_name / "splits" / f"split_seed{split_seed}"
+        )
         if candidate.exists():
             return candidate
 
-    # Pattern 2: Auto-discover run directories under model subdirectory (prefer most recent)
-    if model_root.exists():
-        run_dirs = sorted(model_root.glob("run_*"), reverse=True)
-        for run_dir in run_dirs:
-            # Try new layout first
-            candidate = run_dir / "splits" / f"split_seed{split_seed}"
-            if candidate.exists():
-                logger.debug(f"Auto-discovered run directory: {run_dir.name}")
-                return candidate
-            # Legacy
-            candidate = run_dir / f"split_seed{split_seed}"
-            if candidate.exists():
-                logger.debug(f"Auto-discovered run directory: {run_dir.name}")
-                return candidate
-
-    # Pattern 3: Top-level run directories (flat layout)
+    # Pattern 2: Auto-discover run directories (prefer most recent)
     run_dirs = sorted(results_dir.glob("run_*"), reverse=True)
     for run_dir in run_dirs:
-        for sub in ["splits", ""]:
-            parent = run_dir / sub if sub else run_dir
-            candidate = parent / f"split_seed{split_seed}"
-            if candidate.exists():
-                # Check for model file OR OOF predictions (more reliable indicator)
-                model_file = candidate / "core" / f"{model_name}__final_model.joblib"
-                oof_file = candidate / "preds" / f"train_oof__{model_name}.csv"
-                if model_file.exists() or oof_file.exists():
-                    logger.debug(f"Found {model_name} in top-level run directory: {run_dir.name}")
-                    return candidate
+        candidate = run_dir / model_name / "splits" / f"split_seed{split_seed}"
+        if candidate.exists():
+            logger.debug(f"Auto-discovered run directory: {run_dir.name}")
+            return candidate
 
-    # Pattern 4: Legacy layout (no run subdirectory)
-    legacy_candidate = model_root / f"split_{split_seed}"
-    if legacy_candidate.exists():
-        return legacy_candidate
-
-    # Not found - provide helpful error
     searched = [
-        f"{model_root}/run_*/split_seed{split_seed}",
-        f"{results_dir}/run_*/split_seed{split_seed} (filtered by model={model_name})",
-        f"{model_root}/split_{split_seed}",
+        f"{results_dir}/run_{run_id or '*'}/{model_name}/splits/split_seed{split_seed}",
     ]
     raise FileNotFoundError(
         f"Could not find split directory for {model_name} seed {split_seed}. "

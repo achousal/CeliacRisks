@@ -46,7 +46,95 @@ bash scripts/post_training_pipeline.sh --run-id <RUN_ID>
 
 **Pipeline flow:** Data → Split → Feature Selection → Model Training → Calibration → Ensemble → Evaluation
 
-For manual control over individual steps, see [CLI Reference](analysis/docs/reference/CLI_REFERENCE.md).
+---
+
+## What Can This Software Do?
+
+### 1. Train Models Locally
+Run the full pipeline on your machine with default configs:
+
+```bash
+cd analysis/
+./run_local.sh
+```
+
+**What happens:** Trains 4 models (LR, RF, SVM, XGBoost) on 10 splits with nested CV, hyperparameter tuning, and calibration. Results in `../results/`.
+
+### 2. Train Models on HPC
+Submit batch jobs with automated resource management:
+
+```bash
+cd analysis/
+./run_hpc.sh
+
+# Monitor jobs
+bjobs -w | grep CeD_
+```
+
+**Configure resources** in `configs/pipeline_hpc.yaml` (cores, memory, walltime, queue).
+
+### 3. Post-Training Pipeline (HPC)
+After HPC jobs complete, run automated aggregation and ensemble training:
+
+```bash
+bash scripts/post_training_pipeline.sh --run-id 20260127_115115 --train-ensemble
+```
+
+**What happens:**
+1. Validates all model outputs
+2. Trains stacking ensemble meta-learner
+3. Aggregates results across splits (metrics + bootstrap CIs)
+4. Generates validation reports and summary JSON
+
+**No manual steps needed** - auto-detects models and paths from run-id.
+
+### 4. Optimize Panel Size (Single Model)
+Find the minimal protein panel for clinical deployment:
+
+```bash
+ced optimize-panel --run-id 20260127_115115 --model LR_EN
+```
+
+**Output:** `panel_curve.png`, `recommended_panel_50.csv`, `rfe_results.csv` in `results/LR_EN/run_{RUN_ID}/aggregated/panel_optimization/`
+
+### 5. Cross-Model Consensus Panel
+Generate a robust panel via Robust Rank Aggregation across all models:
+
+```bash
+ced consensus-panel --run-id 20260127_115115
+```
+
+**Output:** `consensus_panel_50.csv`, `rra_scores.csv`, `model_comparison.png` in `results/consensus_panel/run_{RUN_ID}/`
+
+**Use this for deployment** when you want features that work well across multiple models.
+
+---
+
+### Configuration-Based Workflow
+
+All commands use YAML configs in `analysis/configs/`:
+
+- `pipeline_local.yaml` / `pipeline_hpc.yaml` - Models, paths, execution settings
+- `training_config.yaml` - Feature selection, calibration, ensemble
+- `splits_config.yaml` - Train/val/test ratios
+
+**Example:** Enable temporal validation and OOF-posthoc calibration:
+
+```yaml
+# training_config.yaml
+splits:
+  temporal_split: true
+  temporal_column: "sample_date"
+
+calibration:
+  strategy: oof_posthoc  # Unbiased calibration
+
+ensemble:
+  enabled: true
+  base_models: [LR_EN, RF, XGBoost]
+```
+
+Then just run `./run_local.sh` - configs are applied automatically.
 
 ---
 

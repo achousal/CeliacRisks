@@ -256,6 +256,11 @@ def _validate_unwired_feature_selection_config(config: TrainingConfig, issues: l
     strategy = config.features.feature_selection_strategy
     unwired_settings = []
 
+    # Default values for comparison (match schema.py defaults)
+    DEFAULT_K_GRID = [50, 100, 200, 500]
+    DEFAULT_STABILITY_THRESH = 0.70
+    DEFAULT_STABLE_CORR_THRESH = 0.80
+
     # Strategy-specific validation
     if strategy == "hybrid_stability":
         # All hybrid_stability parameters ARE wired into the pipeline
@@ -273,15 +278,16 @@ def _validate_unwired_feature_selection_config(config: TrainingConfig, issues: l
     elif strategy == "rfecv":
         # All RFECV parameters ARE wired into the pipeline
         # rfe_target_size, rfe_step_strategy, rfe_cv_folds, etc. are all used
-        # No validation needed - parameters are properly implemented
-        pass
+
+        # Warn if hybrid_stability-specific params are set (ignored during RFECV)
+        if config.features.k_grid != DEFAULT_K_GRID:
+            unwired_settings.append(
+                f"k_grid={config.features.k_grid} (ignored with feature_selection_strategy='rfecv')"
+            )
 
     elif strategy == "none":
         # Warn about unused feature selection parameters
-        DEFAULT_STABILITY_THRESH = 0.70
-        DEFAULT_STABLE_CORR_THRESH = 0.80
-
-        if config.features.k_grid:
+        if config.features.k_grid != DEFAULT_K_GRID:
             unwired_settings.append(
                 f"k_grid={config.features.k_grid} (not used with feature_selection_strategy='none')"
             )

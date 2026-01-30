@@ -323,7 +323,7 @@ def aggregate_splits(ctx, **kwargs):
 
     Usage:
         # Explicit path (original)
-        ced aggregate-splits --results-dir results/LR_EN/run_20260127_115115/
+        ced aggregate-splits --results-dir results/run_20260127_115115/LR_EN/
 
         # Auto-detection (new)
         ced aggregate-splits --run-id 20260127_115115 --model LR_EN
@@ -346,7 +346,7 @@ def aggregate_splits(ctx, **kwargs):
         raise click.UsageError(
             "Either --results-dir or --run-id must be provided.\n"
             "Examples:\n"
-            "  ced aggregate-splits --results-dir results/LR_EN/run_20260127_115115/\n"
+            "  ced aggregate-splits --results-dir results/run_20260127_115115/LR_EN/\n"
             "  ced aggregate-splits --run-id 20260127_115115 --model LR_EN"
         )
 
@@ -532,7 +532,7 @@ def train_ensemble(ctx, config, base_models, **kwargs):
     "-d",
     type=click.Path(exists=True),
     required=False,
-    help="Path to model results directory (e.g., results/LR_EN/run_20260127_115115/). Mutually exclusive with --run-id.",
+    help="Path to model results directory (e.g., results/run_20260127_115115/LR_EN/). Mutually exclusive with --run-id.",
 )
 @click.option(
     "--run-id",
@@ -613,7 +613,7 @@ def optimize_panel(ctx, config, **kwargs):
     4. Matches the aggregated analysis philosophy
 
     Requires prior aggregation:
-        ced aggregate-splits --results-dir results/LR_EN/run_X
+        ced aggregate-splits --results-dir results/run_X/LR_EN
 
     Examples:
 
@@ -625,7 +625,7 @@ def optimize_panel(ctx, config, **kwargs):
 
         # Optimize single model (explicit path)
         ced optimize-panel \\
-          --results-dir results/LR_EN/run_20260127_115115 \\
+          --results-dir results/run_20260127_115115/LR_EN \\
           --infile data/Celiac_dataset_proteomics_w_demo.parquet \\
           --split-dir splits/
 
@@ -729,17 +729,18 @@ def optimize_panel(ctx, config, **kwargs):
         # Auto-detect infile and split_dir from first model's run metadata
         # (they should be the same across all models in the same run)
         first_model_dir = next(iter(model_dirs.values()))
-        # model_dirs values are aggregated directories, go up one level for run_metadata.json
-        metadata_file = first_model_dir.parent / "run_metadata.json"
+        # model_dirs values are aggregated directories (run_{id}/MODEL/aggregated)
+        # Go up two levels to reach run-level dir for shared run_metadata.json
+        run_level_dir = first_model_dir.parent.parent
+        metadata_file = run_level_dir / "run_metadata.json"
 
-        # If not found at run level, search in split directories
+        # If not found at run level, search in split directories under model dir
         if not metadata_file.exists():
-            run_dir = first_model_dir.parent
-            split_dirs = list(run_dir.glob("splits/split_seed*"))
+            model_dir = first_model_dir.parent
+            split_dirs = list(model_dir.glob("splits/split_seed*"))
             if not split_dirs:
-                split_dirs = list(run_dir.glob("split_seed*"))
+                split_dirs = list(model_dir.glob("split_seed*"))
             if split_dirs:
-                # Check for run_metadata.json in the first split directory
                 metadata_file = split_dirs[0] / "run_metadata.json"
 
         if not metadata_file.exists():
@@ -756,10 +757,15 @@ def optimize_panel(ctx, config, **kwargs):
                 metadata = json.load(f)
 
             # Use metadata values, but allow CLI overrides
-            infile = kwargs.get("infile") or metadata.get("infile")
-            # Handle both "split_dir" (per-split metadata) and "splits_dir" (run-level metadata)
+            # Shared metadata format: top-level or under models/{model_name}
+            first_model_name = next(iter(model_dirs))
+            model_meta = metadata.get("models", {}).get(first_model_name, {})
+            infile = kwargs.get("infile") or model_meta.get("infile") or metadata.get("infile")
             split_dir = (
-                kwargs.get("split_dir") or metadata.get("split_dir") or metadata.get("splits_dir")
+                kwargs.get("split_dir")
+                or model_meta.get("split_dir")
+                or metadata.get("split_dir")
+                or metadata.get("splits_dir")
             )
 
             if not infile or not split_dir:
@@ -895,7 +901,7 @@ def optimize_panel(ctx, config, **kwargs):
     "--outdir",
     type=click.Path(),
     default=None,
-    help="Output directory (default: results/consensus_panel/run_<RUN_ID>)",
+    help="Output directory (default: results/run_<RUN_ID>/consensus)",
 )
 @click.option(
     "--verbose",
@@ -917,7 +923,7 @@ def consensus_panel(ctx, config, **kwargs):
     5. Outputs final panel for fixed-panel validation
 
     Requires prior aggregation:
-        ced aggregate-splits --results-dir results/*/run_<RUN_ID>
+        ced aggregate-splits --results-dir results/run_<RUN_ID>/<MODEL>
 
     Examples:
 
@@ -932,10 +938,10 @@ def consensus_panel(ctx, config, **kwargs):
 
         # Validate the resulting panel
         ced train --model LR_EN \\
-            --fixed-panel results/consensus_panel/run_20260127_115115/final_panel.txt \\
+            --fixed-panel results/run_20260127_115115/consensus/final_panel.txt \\
             --split-seed 10
 
-    Outputs (in results/consensus_panel/run_<RUN_ID>/):
+    Outputs (in results/run_<RUN_ID>/consensus/):
         - final_panel.txt: One protein per line (for --fixed-panel)
         - final_panel.csv: With consensus scores
         - consensus_ranking.csv: All proteins with RRA scores
@@ -1056,6 +1062,288 @@ def config_diff(ctx, config_file1, config_file2, output):
         output_file=Path(output) if output else None,
         verbose=ctx.obj.get("verbose", 0),
     )
+
+
+@cli.command("run-pipeline")
+@click.option(
+    "--pipeline-config",
+    type=click.Path(exists=True),
+    default=None,
+    help="Pipeline config file (auto-detected: pipeline_local.yaml or pipeline_hpc.yaml)",
+)
+@click.option(
+    "--config",
+    "-c",
+    type=click.Path(exists=True),
+    help="Path to YAML configuration file",
+)
+@click.option(
+    "--infile",
+    type=click.Path(exists=True),
+    required=False,
+    default=None,
+    help="Input data file (Parquet/CSV, auto-discovered if not provided)",
+)
+@click.option(
+    "--split-dir",
+    type=click.Path(),
+    default=None,
+    help="Directory for split indices (auto-generated if not provided)",
+)
+@click.option(
+    "--models",
+    type=str,
+    default=None,
+    help="Comma-separated list of models to train (default from pipeline config)",
+)
+@click.option(
+    "--split-seeds",
+    type=str,
+    default=None,
+    help="Comma-separated list of split seeds (default from pipeline config)",
+)
+@click.option(
+    "--run-id",
+    type=str,
+    default=None,
+    help="Shared run ID for all models (default: auto-generated timestamp)",
+)
+@click.option(
+    "--outdir",
+    type=click.Path(),
+    default=None,
+    help="Output directory for results (default from pipeline config or 'results/')",
+)
+@click.option(
+    "--ensemble/--no-ensemble",
+    default=None,
+    help="Train stacking ensemble meta-learner (default from pipeline config)",
+)
+@click.option(
+    "--consensus/--no-consensus",
+    default=None,
+    help="Generate cross-model consensus panel (default from pipeline config)",
+)
+@click.option(
+    "--optimize-panel/--no-optimize-panel",
+    default=None,
+    help="Run panel size optimization (default from pipeline config)",
+)
+@click.option(
+    "--overwrite-splits",
+    is_flag=True,
+    help="Regenerate splits even if they exist",
+)
+@click.option(
+    "--log-file",
+    type=click.Path(),
+    default=None,
+    help="Save pipeline logs to file (in addition to console output)",
+)
+@click.option(
+    "--override",
+    multiple=True,
+    help="Override config values (format: key=value or nested.key=value)",
+)
+@click.option(
+    "--hpc",
+    is_flag=True,
+    default=False,
+    help="Submit LSF jobs to HPC cluster instead of running locally",
+)
+@click.option(
+    "--hpc-config",
+    type=click.Path(exists=True),
+    default=None,
+    help="HPC pipeline config (default: configs/pipeline_hpc.yaml)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Preview HPC job submission without executing (--hpc mode only)",
+)
+@click.pass_context
+def run_pipeline(ctx, config, models, split_seeds, **kwargs):
+    """
+    Run the complete ML pipeline end-to-end.
+
+    This command orchestrates the full workflow from training to panel optimization:
+
+    1. Generate splits (if needed)
+    2. Train base models (all models x all seeds)
+    3. Aggregate results per model
+    4. Train ensemble meta-learner (if enabled)
+    5. Aggregate ensemble results
+    6. Optimize panel sizes per model (if enabled)
+    7. Generate cross-model consensus panel (if enabled)
+
+    This is equivalent to running:
+        ced save-splits (if needed)
+        ced train (for each model x seed)
+        ced aggregate-splits (for each model)
+        ced train-ensemble (if enabled, for each seed)
+        ced aggregate-splits --model ENSEMBLE (if ensemble enabled)
+        ced optimize-panel --run-id <ID> (if enabled)
+        ced consensus-panel --run-id <ID> (if enabled)
+
+    Examples:
+
+        # Quick start - auto-discover data file (SIMPLEST)
+        ced run-pipeline
+
+        # Or specify data file explicitly
+        ced run-pipeline --infile data/celiac.parquet
+
+        # Custom models and seeds
+        ced run-pipeline \\
+            --models LR_EN,RF \\
+            --split-seeds 0,1,2,3,4
+
+        # Skip ensemble and consensus (faster)
+        ced run-pipeline \\
+            --no-ensemble \\
+            --no-consensus
+
+        # Custom run ID and output directory
+        ced run-pipeline \\
+            --run-id production_v1 \\
+            --outdir ../results_production
+
+        # With config file
+        ced run-pipeline \\
+            --config configs/training_config.yaml
+
+        # Save logs to file
+        ced run-pipeline \\
+            --log-file logs/run_$(date +%Y%m%d_%H%M%S).log
+
+        # HPC mode - submit LSF jobs with dependency chains
+        ced run-pipeline --hpc
+
+        # HPC dry run - preview without submitting
+        ced run-pipeline --hpc --dry-run
+
+        # HPC with custom config
+        ced run-pipeline --hpc --hpc-config configs/pipeline_custom.yaml
+
+    Output structure:
+        results/
+          run_<RUN_ID>/
+            LR_EN/
+              splits/split_seed0/, split_seed1/, ...
+              aggregated/
+                optimize_panel/  (if enabled)
+            RF/
+              splits/split_seed0/, split_seed1/, ...
+              aggregated/
+                optimize_panel/  (if enabled)
+            XGBoost/
+              splits/...
+            ENSEMBLE/  (if enabled)
+              splits/...
+              aggregated/
+            consensus/  (if enabled)
+              final_panel.txt
+              consensus_ranking.csv
+    """
+    from pathlib import Path
+
+    from ced_ml.cli.run_pipeline import (
+        _PIPELINE_DEFAULTS,
+        load_pipeline_config,
+        resolve_pipeline_config_path,
+    )
+    from ced_ml.cli.run_pipeline import (
+        run_pipeline as run_pipeline_impl,
+    )
+
+    # --- Extract raw CLI values (None = not provided by user) ---------------
+    hpc_flag = kwargs.pop("hpc", False) or False
+    hpc_config_cli = kwargs.pop("hpc_config", None)
+    dry_run_cli = kwargs.pop("dry_run", None)
+    pipeline_config_cli = kwargs.pop("pipeline_config", None)
+
+    # --- Load pipeline config -----------------------------------------------
+    # Priority: --pipeline-config > auto-detect (local/hpc) > hardcoded defaults
+    pcfg_path = (
+        Path(pipeline_config_cli)
+        if pipeline_config_cli
+        else resolve_pipeline_config_path(hpc=hpc_flag)
+    )
+    pcfg = load_pipeline_config(pcfg_path) if pcfg_path else {}
+
+    # Helper: first non-None wins (CLI > config > fallback)
+    def _pick(cli_val, cfg_key, fallback=None):
+        if cli_val is not None:
+            return cli_val
+        if cfg_key in pcfg:
+            return pcfg[cfg_key]
+        return fallback
+
+    # --- Resolve every parameter --------------------------------------------
+    # Models & seeds (CLI is comma-string, config is list)
+    if models is not None:
+        model_list = [m.strip() for m in models.split(",")]
+    else:
+        model_list = pcfg.get("models", _PIPELINE_DEFAULTS["models"])
+
+    if split_seeds is not None:
+        seed_list = [int(s.strip()) for s in split_seeds.split(",")]
+    else:
+        seed_list = pcfg.get("split_seeds", _PIPELINE_DEFAULTS["split_seeds"])
+
+    # Paths
+    infile = Path(kwargs["infile"]) if kwargs.get("infile") else pcfg.get("infile")
+    split_dir = Path(kwargs["split_dir"]) if kwargs.get("split_dir") else pcfg.get("splits_dir")
+    outdir_raw = kwargs.get("outdir")
+    outdir = Path(outdir_raw) if outdir_raw else pcfg.get("results_dir", Path("results"))
+
+    config_path = Path(config) if config else pcfg.get("training_config")
+    log_file = Path(kwargs["log_file"]) if kwargs.get("log_file") else None
+
+    hpc_config_path = Path(hpc_config_cli) if hpc_config_cli else (pcfg_path if hpc_flag else None)
+    dry_run_flag = _pick(dry_run_cli, "dry_run", _PIPELINE_DEFAULTS["dry_run"])
+
+    # Boolean toggles
+    enable_ensemble = _pick(kwargs.get("ensemble"), "ensemble", _PIPELINE_DEFAULTS["ensemble"])
+    enable_consensus = _pick(kwargs.get("consensus"), "consensus", _PIPELINE_DEFAULTS["consensus"])
+    enable_optimize_panel = _pick(
+        kwargs.get("optimize_panel"), "optimize_panel", _PIPELINE_DEFAULTS["optimize_panel"]
+    )
+    overwrite_splits = _pick(
+        kwargs.get("overwrite_splits"), "overwrite_splits", _PIPELINE_DEFAULTS["overwrite_splits"]
+    )
+
+    # Collect remaining CLI args
+    cli_args = {}
+    overrides = list(kwargs.get("override", []))
+
+    try:
+        run_pipeline_impl(
+            config_file=config_path,
+            infile=infile,
+            split_dir=split_dir,
+            models=model_list,
+            split_seeds=seed_list,
+            run_id=kwargs.get("run_id"),
+            outdir=outdir,
+            enable_ensemble=enable_ensemble,
+            enable_consensus=enable_consensus,
+            enable_optimize_panel=enable_optimize_panel,
+            overwrite_splits=overwrite_splits,
+            log_file=log_file,
+            cli_args=cli_args,
+            overrides=overrides,
+            verbose=ctx.obj.get("verbose", 0),
+            log_level=ctx.obj.get("log_level"),
+            hpc=hpc_flag,
+            hpc_config_file=hpc_config_path,
+            dry_run=dry_run_flag,
+        )
+    except Exception as e:
+        click.echo(f"Pipeline failed: {e}", err=True)
+        ctx.exit(1)
 
 
 @cli.command("convert-to-parquet")

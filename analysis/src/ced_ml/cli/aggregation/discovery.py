@@ -11,23 +11,34 @@ def discover_split_dirs(
     """
     Discover all split_seedX subdirectories in results_dir.
 
+    Directory structure:
+    - results_dir/splits/split_seed*/
+
     Args:
-        results_dir: Base results directory
+        results_dir: Base results directory (typically MODEL/run_ID/)
         logger: Optional logger instance
 
     Returns:
         List of split subdirectory paths, sorted by seed number
     """
-    # Check both legacy (split_seed* directly) and new (splits/split_seed*) layouts
-    split_dirs = [d for d in results_dir.glob("split_seed*") if d.is_dir()]
-    if not split_dirs:
-        split_dirs = [d for d in results_dir.glob("splits/split_seed*") if d.is_dir()]
+    splits_subdir = results_dir / "splits"
+    if not splits_subdir.exists() or not splits_subdir.is_dir():
+        if logger:
+            logger.warning(f"Splits directory not found: {splits_subdir}")
+        return []
+
+    split_dirs = [
+        split_dir for split_dir in splits_subdir.glob("split_seed*") if split_dir.is_dir()
+    ]
+
+    if logger:
+        logger.debug(f"Found {len(split_dirs)} splits in {splits_subdir}")
+
     split_dirs = sorted(
         split_dirs,
         key=lambda p: int(p.name.replace("split_seed", "")),
     )
-    if logger:
-        logger.debug(f"Discovered {len(split_dirs)} split directories in {results_dir}")
+
     return split_dirs
 
 
@@ -38,11 +49,11 @@ def discover_ensemble_dirs(
     """
     Discover ENSEMBLE model split directories.
 
-    The ensemble model outputs to a model-specific directory structure:
-    results/ENSEMBLE/split_{seed}/ or results/ENSEMBLE/split_seed{seed}/
+    Directory layout: results_dir/ENSEMBLE/splits/split_seed*/
+    where results_dir is the run-level directory (e.g., results/run_{RUN_ID}/).
 
     Args:
-        results_dir: Base results directory
+        results_dir: Run-level directory containing model subdirectories
         logger: Optional logger instance
 
     Returns:
@@ -54,28 +65,21 @@ def discover_ensemble_dirs(
             logger.debug(f"No ENSEMBLE directory found at {ensemble_base}")
         return []
 
-    # Try both naming conventions: split_{seed} and split_seed{seed}
+    splits_subdir = ensemble_base / "splits"
+    if not splits_subdir.exists() or not splits_subdir.is_dir():
+        if logger:
+            logger.debug(f"No splits directory in ENSEMBLE: {splits_subdir}")
+        return []
+
     split_dirs = []
-
-    for d in ensemble_base.glob("split_*"):
+    for d in splits_subdir.glob("split_seed*"):
         if d.is_dir():
-            name = d.name
-            if name.startswith("split_seed"):
-                # split_seed{X} format
-                try:
-                    seed = int(name.replace("split_seed", ""))
-                    split_dirs.append((seed, d))
-                except ValueError:
-                    pass
-            elif name.startswith("split_"):
-                # split_{X} format
-                try:
-                    seed = int(name.replace("split_", ""))
-                    split_dirs.append((seed, d))
-                except ValueError:
-                    pass
+            try:
+                seed = int(d.name.replace("split_seed", ""))
+                split_dirs.append((seed, d))
+            except ValueError:
+                pass
 
-    # Sort by seed number
     split_dirs.sort(key=lambda x: x[0])
     dirs = [d for _, d in split_dirs]
 

@@ -53,8 +53,32 @@ from ced_ml.cli.aggregation.reporting import (
     build_consensus_panels,
 )
 from ced_ml.config.loader import load_aggregate_config
-from ced_ml.utils.logging import log_section, setup_logger
+from ced_ml.utils.logging import auto_log_path, log_section, setup_logger
 from ced_ml.utils.metadata import build_aggregated_metadata
+
+
+def _find_results_root() -> Path:
+    """Locate the results root directory.
+
+    Checks in order:
+    1. CED_RESULTS_DIR environment variable
+    2. Project root (relative to this file)
+    3. Current working directory
+    """
+    import os
+
+    results_dir_env = os.getenv("CED_RESULTS_DIR")
+    if results_dir_env:
+        return Path(results_dir_env)
+
+    # From src/ced_ml/cli/aggregate_splits.py, go up 4 levels to project root
+    project_root = Path(__file__).parent.parent.parent.parent.parent
+    results_dir = project_root / "results"
+
+    if not results_dir.exists() and (Path.cwd() / "results").exists():
+        results_dir = Path.cwd() / "results"
+
+    return results_dir
 
 
 def resolve_results_dir_from_run_id(
@@ -63,90 +87,69 @@ def resolve_results_dir_from_run_id(
 ) -> str:
     """Auto-detect results directory from run_id.
 
+    Directory layout: results/run_{RUN_ID}/{MODEL}/
+
     Args:
         run_id: Run ID (e.g., "20260127_115115"). If None, auto-detects latest.
         model: Model name (e.g., "LR_EN"). Required if run_id is provided.
 
     Returns:
-        Path to results directory (e.g., "results/LR_EN/run_20260127_115115/")
+        Path to model results directory (e.g., "results/run_20260127_115115/LR_EN/")
 
     Raises:
         FileNotFoundError: If no matching results found
         ValueError: If configuration is invalid
     """
-    import os
-    from pathlib import Path
-
-    # Determine results directory
-    # Try multiple locations in order:
-    # 1. Environment variable (for explicit override)
-    # 2. Current working directory (for tests)
-    # 3. Project root (for production)
-    results_dir_env = os.getenv("CED_RESULTS_DIR")
-    if results_dir_env:
-        results_dir = Path(results_dir_env)
-    elif (Path.cwd() / "results").exists():
-        results_dir = Path.cwd() / "results"
-    else:
-        # Try to find project root by looking for analysis/ directory
-        analysis_dir = Path(__file__).parent.parent.parent
-        project_root = analysis_dir.parent
-        results_dir = project_root / "results"
+    results_dir = _find_results_root()
 
     if not results_dir.exists():
         raise FileNotFoundError(f"Results directory not found: {results_dir}")
 
-    # Auto-detect run_id if not provided
+    # Auto-detect run_id if not provided: scan results/run_*/
     if not run_id:
         run_ids = []
-        for model_dir in results_dir.glob("*/"):
-            if model_dir.name.startswith(".") or model_dir.name == "investigations":
-                continue
-            for run_dir in model_dir.glob("run_*"):
-                if run_dir.is_dir():
-                    rid = run_dir.name.replace("run_", "")
-                    run_ids.append(rid)
+        for run_dir in results_dir.glob("run_*"):
+            if run_dir.is_dir():
+                rid = run_dir.name.replace("run_", "")
+                run_ids.append(rid)
 
         if not run_ids:
             raise FileNotFoundError("No runs found in results directory")
 
-        # Sort by timestamp (format: YYYYMMDD_HHMMSS)
         run_ids.sort(reverse=True)
         run_id = run_ids[0]
 
-    # If model is specified, look for that specific model
+    run_path = results_dir / f"run_{run_id}"
+
+    # If model is specified, return results/run_{id}/{model}/
     if model:
-        # Try model-prefixed path first (production structure)
-        model_path = results_dir / model / f"run_{run_id}"
+        model_path = run_path / model
         if model_path.exists():
             return str(model_path)
 
-        # Fall back to flat structure (e.g., when using --outdir in tests)
-        flat_path = results_dir / f"run_{run_id}"
-        if flat_path.exists():
-            return str(flat_path)
-
         raise FileNotFoundError(
-            f"Results directory not found for model {model}, run {run_id}.\n"
-            f"Tried:\n"
-            f"  - {model_path} (production structure)\n"
-            f"  - {flat_path} (flat structure)"
+            f"Results directory not found for model {model}, run {run_id}.\n" f"Tried: {model_path}"
         )
 
-    # If model is not specified, find any model with this run_id
-    matching_models = []
-    for model_dir in sorted(results_dir.glob("*/")):
-        if model_dir.name.startswith(".") or model_dir.name == "investigations":
-            continue
+    # If model is not specified, find models under results/run_{id}/
+    if not run_path.exists():
+        raise FileNotFoundError(
+            f"No results found for run {run_id}.\n" f"Searched in: {results_dir}"
+        )
 
-        run_path = model_dir / f"run_{run_id}"
-        if run_path.exists():
-            matching_models.append((model_dir.name, str(run_path)))
+    matching_models = []
+    for model_dir in sorted(run_path.glob("*/")):
+        if model_dir.name.startswith(".") or model_dir.name in (
+            "investigations",
+            "consensus",
+        ):
+            continue
+        matching_models.append((model_dir.name, str(model_dir)))
 
     if not matching_models:
         raise FileNotFoundError(
             f"No models found for run {run_id}.\n"
-            f"Searched in: {results_dir}\n"
+            f"Searched in: {run_path}\n"
             f"Tip: Specify --model to target a specific model."
         )
 
@@ -163,7 +166,6 @@ def resolve_results_dir_from_run_id(
             )
         )
 
-    # Single model found
     model_name, model_path = matching_models[0]
     return model_path
 
@@ -339,12 +341,27 @@ def run_aggregate_splits(
 
     if log_level is None:
         log_level = 20 - (verbose * 10)
-    # Use parent logger "ced_ml" so all child modules inherit the level
-    logger = setup_logger("ced_ml", level=log_level)
+
+    # Derive run_id and model from results_dir path (pattern: .../run_{ID}/{MODEL}/...)
+    results_path = Path(results_dir)
+    _model_name = results_path.name if results_path.name != "splits" else results_path.parent.name
+    _run_id = None
+    for parent in [results_path] + list(results_path.parents):
+        if parent.name.startswith("run_"):
+            _run_id = parent.name[4:]  # strip "run_" prefix
+            break
+
+    # Auto-file-logging
+    log_file = auto_log_path(
+        command="aggregate-splits",
+        outdir=results_path.parent.parent if _run_id else results_path,
+        run_id=_run_id,
+        model=_model_name,
+    )
+    logger = setup_logger("ced_ml", level=log_level, log_file=log_file)
+    logger.info(f"Logging to file: {log_file}")
 
     log_section(logger, "CeD-ML Split Aggregation")
-
-    results_path = Path(results_dir)
     if not results_path.exists():
         logger.error(f"Results directory not found: {results_dir}")
         raise FileNotFoundError(f"Results directory not found: {results_dir}")
@@ -352,8 +369,11 @@ def run_aggregate_splits(
     split_dirs = discover_split_dirs(results_path, logger=logger)
     logger.info(f"Found {len(split_dirs)} split directories")
 
-    # Also discover ENSEMBLE model directories (stored separately)
-    ensemble_dirs = discover_ensemble_dirs(results_path, logger=logger)
+    # Discover ENSEMBLE directories at the run level
+    # Layout: results/run_{id}/{MODEL}/ -> go up 1 level to run dir
+    run_level_dir = results_path.parent
+
+    ensemble_dirs = discover_ensemble_dirs(run_level_dir, logger=logger)
     if ensemble_dirs:
         logger.info(f"Found {len(ensemble_dirs)} ENSEMBLE split directories")
 

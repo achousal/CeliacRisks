@@ -1,7 +1,7 @@
 # CeliacRisks Output Artifacts
 
-**Version:** 2.1
-**Date:** 2026-01-28
+**Version:** 3.0
+**Date:** 2026-01-29
 **Status:** Reference documentation with `--run-id` auto-detection support
 
 ---
@@ -22,13 +22,13 @@
 
 ### 1.1 Overview
 
-All outputs follow a **three-level hierarchical structure**:
+All outputs follow a **run-first hierarchical structure**:
 
 ```
 results/
-  {model}/                        # Level 1: Model name (LR_EN, RF, XGBoost, ENSEMBLE)
-    run_{run_id}/                 # Level 2: Run ID (timestamped, e.g., 20260127_115115)
-      run_metadata.json           # Auto-detection metadata (NEW in v2.0)
+  run_{run_id}/                   # Level 1: Run ID (timestamped, e.g., 20260127_115115)
+    run_metadata.json             # Shared auto-detection metadata (all models)
+    {model}/                      # Level 2: Model name (LR_EN, RF, XGBoost)
       splits/                     # Split container directory
         split_seed{N}/            # Level 3: Split seed (0, 1, 2, ...)
           core/                   # Metrics and settings
@@ -44,11 +44,15 @@ results/
         cv/
         preds/
         diagnostics/
+    ENSEMBLE/                     # Ensemble meta-learner (if trained)
+      splits/
+        split_seed{N}/
+    consensus/                    # Cross-model consensus panel (if generated)
 ```
 
 **Key structural features:**
-1. **Model isolation** - Each model has its own top-level directory
-2. **Run grouping** - All splits from the same training run share a `run_id`
+1. **Run-first grouping** - Everything from one experiment lives under a single `run_{id}/` directory
+2. **Model isolation** - Each model has its own subdirectory within the run
 3. **Split separation** - Individual splits live under `splits/split_seed{N}/`
 4. **Flat predictions** - All prediction types (test, val, train_oof, controls) in single `preds/` directory (no subdirectories)
 5. **Flat diagnostics** - All diagnostic CSVs in single `diagnostics/` directory (no subdirectories)
@@ -72,12 +76,12 @@ ced train-ensemble --run-id 20260127_115115 --split-seed 0
 
 ### 1.2 Single Split Output
 
-**Path pattern:** `results/{model}/run_{run_id}/splits/split_seed{N}/`
+**Path pattern:** `results/run_{run_id}/{model}/splits/split_seed{N}/`
 
-**Example:** `results/LR_EN/run_20260127_115115/splits/split_seed0/`
+**Example:** `results/run_20260127_115115/LR_EN/splits/split_seed0/`
 
 ```
-results/{model}/run_{run_id}/splits/split_seed{N}/
+results/run_{run_id}/{model}/splits/split_seed{N}/
   core/
     final_model.pkl               # Trained sklearn model (pickled)
     run_settings.json             # Full config + metadata
@@ -121,33 +125,48 @@ results/{model}/run_{run_id}/splits/split_seed{N}/
 
 ### 1.3 Run-Level Metadata
 
-**New in v2.0:** All training runs now create `run_metadata.json` at the run level for CLI auto-detection.
+**Shared run_metadata.json:** All models in a run share a single metadata file at the run level.
 
-**Path pattern:** `results/{model}/run_{run_id}/`
+**Path pattern:** `results/run_{run_id}/`
 
-**Example:** `results/LR_EN/run_20260127_115115/`
+**Example:** `results/run_20260127_115115/`
 
 ```
-results/{model}/run_{run_id}/
-  run_metadata.json               # Run-level metadata (for CLI auto-detection)
-  splits/
-    split_seed0/                  # First split
-    split_seed1/                  # Second split
-    ...
+results/run_{run_id}/
+  run_metadata.json               # Shared metadata (all models in this run)
+  LR_EN/                          # Model outputs
+    splits/
+      split_seed0/
+      split_seed1/
+    aggregated/
+  RF/
+    splits/
+    aggregated/
+  ENSEMBLE/
+    splits/
+  consensus/
 ```
 
 **run_metadata.json contents:**
 ```json
 {
   "run_id": "20260127_115115",
-  "model": "LR_EN",
-  "infile": "../data/Celiac_dataset_proteomics_w_demo.parquet",
-  "split_dir": "../splits",
-  "results_dir": "../results/LR_EN/run_20260127_115115",
-  "config_path": "configs/training_config.yaml",
-  "timestamp": "2026-01-27T11:51:15",
-  "git_commit": "dee227b",
-  "split_seeds": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  "models": {
+    "LR_EN": {
+      "infile": "../data/Celiac_dataset_proteomics_w_demo.parquet",
+      "split_dir": "../splits",
+      "split_seed": 0,
+      "scenario": "IncidentOnly",
+      "timestamp": "2026-01-27T11:51:15"
+    },
+    "RF": {
+      "infile": "../data/Celiac_dataset_proteomics_w_demo.parquet",
+      "split_dir": "../splits",
+      "split_seed": 0,
+      "scenario": "IncidentOnly",
+      "timestamp": "2026-01-27T11:52:30"
+    }
+  }
 }
 ```
 
@@ -168,14 +187,14 @@ ced train-ensemble --run-id 20260127_115115 --split-seed 0
 
 ### 1.4 Aggregated Output (Multiple Splits)
 
-**Path pattern:** `results/{model}/run_{run_id}/aggregated/`
+**Path pattern:** `results/run_{run_id}/{model}/aggregated/`
 
-**Example:** `results/LR_EN/run_20260127_115115/aggregated/`
+**Example:** `results/run_20260127_115115/LR_EN/aggregated/`
 
 **Purpose:** Cross-split aggregation and model comparison.
 
 ```
-results/{model}/run_{run_id}/aggregated/
+results/run_{run_id}/{model}/aggregated/
   aggregation_metadata.json       # Full aggregation metadata
   all_test_metrics.csv            # Per-split test metrics (all splits)
   all_val_metrics.csv             # Per-split val metrics (all splits)
@@ -238,14 +257,14 @@ ced consensus-panel --run-id 20260127_115115
 
 ### 1.5 Consensus Panel Output (Cross-Model)
 
-**Path pattern:** `results/consensus/run_{run_id}/`
+**Path pattern:** `results/run_{run_id}/consensus/`
 
-**Example:** `results/consensus/run_20260127_115115/`
+**Example:** `results/run_20260127_115115/consensus/`
 
 **Purpose:** Cross-model consensus panels via Robust Rank Aggregation.
 
 ```
-results/consensus/run_{run_id}/
+results/run_{run_id}/consensus/
   consensus_panel_N{size}.json    # Consensus panel at specific size (e.g., N=25)
   consensus_panel_metadata.json   # Consensus aggregation statistics
   uncertainty_summary.csv         # Cross-model agreement metrics
@@ -258,11 +277,11 @@ results/consensus/run_{run_id}/
 ced consensus-panel --run-id 20260127_115115
 
 # Reads from:
-#   results/LR_EN/run_20260127_115115/aggregated/panels/feature_stability.csv
-#   results/RF/run_20260127_115115/aggregated/panels/feature_stability.csv
-#   results/XGBoost/run_20260127_115115/aggregated/panels/feature_stability.csv
+#   results/run_20260127_115115/LR_EN/aggregated/panels/feature_stability.csv
+#   results/run_20260127_115115/RF/aggregated/panels/feature_stability.csv
+#   results/run_20260127_115115/XGBoost/aggregated/panels/feature_stability.csv
 # Writes to:
-#   results/consensus/run_20260127_115115/
+#   results/run_20260127_115115/consensus/
 ```
 
 ---
@@ -448,7 +467,7 @@ Generated in `cv/optuna/` subdirectory:
 
 ### 5.2 Aggregated Metrics
 
-**Location:** `results/{model}/run_{run_id}/aggregated/metrics/`
+**Location:** `results/run_{run_id}/{model}/aggregated/metrics/`
 
 **Files:**
 - `pooled_test_metrics.csv` - Metrics computed on pooled predictions across all splits
@@ -457,7 +476,7 @@ Generated in `cv/optuna/` subdirectory:
 
 ### 5.3 Aggregated Panel Artifacts
 
-**Location:** `results/{model}/run_{run_id}/aggregated/panels/`
+**Location:** `results/run_{run_id}/{model}/aggregated/panels/`
 
 **Format:** CSV and JSON files (flat structure)
 
@@ -577,7 +596,7 @@ results/{base_model}/run_{run_id}/splits/split_seed{N}/preds/test_preds__*.csv #
 
 **Example:**
 ```
-results/LR_EN/run_20260127_115115/splits/split_seed0/preds/train_oof__LR_EN.csv
+results/run_20260127_115115/LR_EN/splits/split_seed0/preds/train_oof__LR_EN.csv
 results/RF/run_20260127_115115/splits/split_seed0/preds/train_oof__RF.csv
 results/XGBoost/run_20260127_115115/splits/split_seed0/preds/train_oof__XGBoost.csv
 ```
@@ -621,13 +640,13 @@ ced aggregate-splits --run-id 20260127_115115 --model ENSEMBLE
 ```bash
 # Step 1: Train with auto-generated run-id
 ced train --model LR_EN --split-seed 0
-# Creates: results/LR_EN/run_20260127_115115/splits/split_seed0/
+# Creates: results/run_20260127_115115/LR_EN/splits/split_seed0/
 #          results/LR_EN/run_20260127_115115/run_metadata.json
 
 # Step 2: Aggregate using run-id (auto-detects results directory)
 ced aggregate-splits --run-id 20260127_115115 --model LR_EN
 # Reads: results/LR_EN/run_20260127_115115/run_metadata.json
-# Creates: results/LR_EN/run_20260127_115115/aggregated/
+# Creates: results/run_20260127_115115/LR_EN/aggregated/
 
 # Step 3: Optimize panel (auto-detects infile, split-dir, aggregated/)
 ced optimize-panel --run-id 20260127_115115 --model LR_EN
@@ -651,8 +670,8 @@ ced aggregate-splits --run-id 20260127_115115 --model XGBoost
 
 # Step 3: Generate consensus panel (auto-detects all models)
 ced consensus-panel --run-id 20260127_115115
-# Scans: results/*/run_20260127_115115/aggregated/panels/feature_stability.csv
-# Creates: results/consensus/run_20260127_115115/consensus_panel_N*.json
+# Scans: results/run_20260127_115115/*/aggregated/panels/feature_stability.csv
+# Creates: results/run_20260127_115115/consensus/consensus_panel_N*.json
 ```
 
 ### 7.3 Ensemble Training Workflow

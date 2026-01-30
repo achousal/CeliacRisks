@@ -19,27 +19,10 @@
 # Reference: docs/reference/FEATURE_SELECTION.md#aggregated-rfe-deployment-optimization
 
 # ==============================================================================
-# Model Selection (choose ONE - REQUIRED)
+# Model Selection
 # ==============================================================================
 
-# Option A: Batch optimize all models with a run-id (RECOMMENDED)
-# When using run-id, infile and split-dir are auto-detected from run metadata.
-# You can optionally filter to a specific model.
 run_id: 20260127_104409
-# model: LR_EN  # Optional: filter to single model (omit to process all models)
-
-# Option B: Single model by explicit results directory path
-# When using results-dir, you MUST also specify infile and split-dir below.
-# results_dir: ../results/LR_EN/run_20260127_104409
-
-# ==============================================================================
-# Data Paths (OPTIONAL with run-id, REQUIRED with results-dir)
-# ==============================================================================
-
-# Auto-detected from run metadata when using run-id.
-# Specify here as fallback if metadata is missing, or when using results-dir.
-# infile: ../data/Celiac_dataset_proteomics_w_demo.parquet
-# split_dir: ../splits
 
 # ==============================================================================
 # RFE Algorithm Parameters

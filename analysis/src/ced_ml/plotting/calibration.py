@@ -243,17 +243,19 @@ def _plot_prob_calibration_panel(
 
         # Determine the actual sizing formula used in the scatter plot
         if unique_splits is not None and len(unique_splits) > 1:
-            # Multi-split case: uses sqrt(sum_counts) * 15
+            # Multi-split case: uses sqrt(sum_counts[valid]) * 15
             sqrt_multiplier = 15
             min_scatter = 30
             max_scatter = 350
-            actual_bin_sizes = sum_counts[sum_counts > 0]
+            # Use only valid bins (those actually plotted)
+            actual_bin_sizes = sum_counts[valid]
         else:
-            # Single-split case: uses sqrt(sizes) * 20
+            # Single-split case: uses sqrt(sizes[valid]) * 20
             sqrt_multiplier = 20
             min_scatter = 40
             max_scatter = 450
-            actual_bin_sizes = sizes[sizes > 0]
+            # Use only valid bins (those actually plotted)
+            actual_bin_sizes = sizes[valid]
 
         # Get legend reference sizes based on actual data
         reference_sizes = _get_legend_reference_sizes(actual_bin_sizes)

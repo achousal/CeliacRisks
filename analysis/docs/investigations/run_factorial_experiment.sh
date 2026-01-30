@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 
 ##########################################################################################
-# Consolidated Factorial Experiment Runner
+# Consolidated Factorial Experiment Runner (HPC Parallel Execution)
 ##########################################################################################
 #
-# Full-featured runner for factorial experiments testing prevalent fractions and
+# Full-featured HPC runner for factorial experiments testing prevalent fractions and
 # case:control ratios with:
+# - Parallel job submission (all runs execute simultaneously on HPC cluster)
 # - Multiple random seeds for robust statistics
 # - Fixed 100-protein panel (eliminates FS variability)
 # - Frozen hyperparameter/calibration config
@@ -13,7 +14,7 @@
 # - Comprehensive logging and progress tracking
 #
 # Usage:
-#   bash run_factorial_experiment.sh [options]
+#   bash run_factorial_experiment.sh --project acc_YourProject [options]
 #
 # Presets:
 #   --quick                             Quick test (1 seed, 2 models)
@@ -30,25 +31,37 @@
 #   --skip-panel                        Skip panel generation (use existing)
 #   --force-panel                       Force panel regeneration
 #   --dry-run                           Preview without executing
+#   --project PROJECT                   HPC project allocation
+#   --queue QUEUE                       HPC queue (default: premium)
+#   --walltime TIME                     Job walltime (default: 12:00)
+#   --cores N                           Cores per job (default: 4)
+#   --mem MB                            Memory per job in MB (default: 8000)
 #   --help                              Show this message
 #
 # Examples:
-#   # Quick test (12 runs: 6 configs × 1 seed × 2 models, ~30 min)
-#   bash run_factorial_experiment.sh --quick
+#   # Quick test (12 parallel jobs: 6 configs × 1 seed × 2 models)
+#   bash run_factorial_experiment.sh --quick --project acc_MyProject
 #
-#   # Overnight run (60 runs: 6 configs × 5 seeds × 2 models, ~6-8 hours)
-#   bash run_factorial_experiment.sh --overnight
+#   # Overnight run (60 parallel jobs: 6 configs × 5 seeds × 2 models)
+#   bash run_factorial_experiment.sh --overnight --project acc_MyProject
 #
-#   # Full experiment (240 runs: 6 configs × 10 seeds × 4 models, ~24-30 hours)
-#   bash run_factorial_experiment.sh --full
+#   # Full experiment (240 parallel jobs: 6 configs × 10 seeds × 4 models)
+#   bash run_factorial_experiment.sh --full --project acc_MyProject
 #
-#   # Custom configuration
+#   # Custom HPC configuration
 #   bash run_factorial_experiment.sh \
 #     --prevalent-fracs 0.5,1.0 \
 #     --case-control-ratios 1,5,10 \
 #     --models LR_EN,RF,XGBoost \
 #     --split-seeds 0,1,2,3,4,5,6,7,8,9 \
+#     --project acc_MyProject \
+#     --queue premium \
+#     --walltime 24:00 \
+#     --cores 8 \
 #     --skip-splits
+#
+#   # Re-run analysis only (after jobs complete)
+#   bash run_factorial_experiment.sh --skip-training --skip-splits --skip-panel
 #
 ##########################################################################################
 
@@ -75,6 +88,13 @@ SKIP_PANEL=false
 FORCE_PANEL=false
 DRY_RUN=false
 PRESET=""
+
+# HPC defaults
+PROJECT="${PROJECT:-acc_Chipuk_Laboratory}"
+QUEUE="${QUEUE:-premium}"
+WALLTIME="${WALLTIME:-48:00}"
+CORES="${CORES:-8}"
+MEM="${MEM:-8000}"
 
 # Experiment tracking
 EXPERIMENT_ID=$(date +%Y%m%d_%H%M%S)
@@ -178,6 +198,26 @@ while [[ $# -gt 0 ]]; do
         --dry-run)
             DRY_RUN=true
             shift
+            ;;
+        --project)
+            PROJECT="$2"
+            shift 2
+            ;;
+        --queue)
+            QUEUE="$2"
+            shift 2
+            ;;
+        --walltime)
+            WALLTIME="$2"
+            shift 2
+            ;;
+        --cores)
+            CORES="$2"
+            shift 2
+            ;;
+        --mem)
+            MEM="$2"
+            shift 2
             ;;
         --help)
             show_help
@@ -292,21 +332,20 @@ echo "  Models per seed:        ${#MODELS[@]}"
 echo "  Total runs:             $TOTAL_RUNS"
 echo ""
 
-# Estimate duration
-MINUTES_PER_RUN=5
-TOTAL_MINUTES=$((TOTAL_RUNS * MINUTES_PER_RUN))
-TOTAL_HOURS=$((TOTAL_MINUTES / 60))
-echo "Time estimate:"
-echo "  Minutes per run:        ~$MINUTES_PER_RUN"
-echo "  Total duration:         ~$TOTAL_HOURS hours ($TOTAL_MINUTES minutes)"
+echo "HPC Resources (per job):"
+echo "  Project:                $PROJECT"
+echo "  Queue:                  $QUEUE"
+echo "  Walltime:               $WALLTIME"
+echo "  Cores:                  $CORES"
+echo "  Memory:                 ${MEM}MB"
+echo ""
 
-# Use BSD date syntax for macOS
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    COMPLETION_TIME=$(date -v +${TOTAL_HOURS}H '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "N/A")
-else
-    COMPLETION_TIME=$(date -d "+${TOTAL_HOURS} hours" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "N/A")
-fi
-echo "  Expected completion:    $COMPLETION_TIME"
+# Estimate duration (parallel execution)
+MINUTES_PER_RUN=60  # Conservative estimate for single job
+echo "Time estimate (parallel execution):"
+echo "  Est. per job:           ~$MINUTES_PER_RUN min"
+echo "  Total jobs:             $TOTAL_RUNS (running in parallel)"
+echo "  Expected completion:    ~$MINUTES_PER_RUN min (all parallel)"
 echo ""
 
 echo "Flags:"
@@ -436,15 +475,28 @@ EOF
 fi
 
 ##########################################################################################
-# PHASE 2: Train Models for Each Configuration × Seed
+# PHASE 2: Submit Parallel HPC Training Jobs
 ##########################################################################################
 
 if [ "$SKIP_TRAINING" = false ]; then
-    print_header "PHASE 2: Model Training"
+    print_header "PHASE 2: Submit Parallel HPC Training Jobs"
+
+    # Check HPC project allocation
+    if [ "$PROJECT" == "YOUR_PROJECT_ALLOCATION" ]; then
+        print_error "HPC project not set. Use --project or set PROJECT environment variable"
+        exit 1
+    fi
+
+    # Check virtual environment
+    VENV_PATH="$ANALYSIS_DIR/venv/bin/activate"
+    if [ ! -f "$VENV_PATH" ]; then
+        print_error "Virtual environment not found at $VENV_PATH"
+        print_error "Run: cd analysis && bash scripts/hpc_setup.sh"
+        exit 1
+    fi
 
     RUN_ID=0
-    TRAINING_FAILURES=0
-    TRAINING_SUCCESSES=0
+    SUBMITTED_JOBS=()
 
     for pf in "${PREVALENT_FRACS[@]}"; do
         for ccr in "${CASE_CONTROL_RATIOS[@]}"; do
@@ -455,7 +507,6 @@ if [ "$SKIP_TRAINING" = false ]; then
                 TRAIN_IDX_FILE="$CONFIG_SPLITS_DIR/train_idx_IncidentPlusPrevalent_seed${seed}.csv"
                 if [ ! -f "$TRAIN_IDX_FILE" ]; then
                     print_error "Split files not found for seed $seed in: $CONFIG_SPLITS_DIR"
-                    TRAINING_FAILURES=$((TRAINING_FAILURES + 1))
                     continue
                 fi
 
@@ -463,35 +514,63 @@ if [ "$SKIP_TRAINING" = false ]; then
                     RUN_ID=$((RUN_ID + 1))
                     PROGRESS="[$RUN_ID/$TOTAL_RUNS]"
 
-                    print_status "$PROGRESS Training: $model, prevalent=$pf, ccr=$ccr, seed=$seed"
-
-                    RESULTS_SUBDIR="$INVEST_RESULTS_DIR/${pf}_${ccr}/${model}/split_seed${seed}"
+                    JOB_NAME="FACTORIAL_${model}_pf${pf}_ccr${ccr}_seed${seed}"
+                    RESULTS_SUBDIR="$INVEST_RESULTS_DIR/${pf}_${ccr}"
                     mkdir -p "$RESULTS_SUBDIR"
 
                     if [ "$DRY_RUN" = false ]; then
-                        TRAIN_LOG="$LOG_DIR/train_${model}_${pf}_${ccr}_seed${seed}_${EXPERIMENT_ID}.log"
+                        print_status "$PROGRESS Submitting: $model, prevalent=$pf, ccr=$ccr, seed=$seed"
 
-                        if (cd "$ANALYSIS_DIR" && ced train \
-                            --config "$FROZEN_CONFIG" \
-                            --model "$model" \
-                            --infile "$DATA_FILE" \
-                            --split-dir "$CONFIG_SPLITS_DIR" \
-                            --split-seed "$seed" \
-                            --outdir "$RESULTS_SUBDIR" \
-                            --fixed-panel docs/investigations/top100_panel.csv \
-                            --metadata experiment_id="$EXPERIMENT_ID" \
-                            --metadata prevalent_frac="$pf" \
-                            --metadata case_control_ratio="$ccr" \
-                            --metadata split_seed="$seed") > "$TRAIN_LOG" 2>&1; then
-                            print_success "$PROGRESS Training complete"
-                            TRAINING_SUCCESSES=$((TRAINING_SUCCESSES + 1))
+                        LOG_ERR="$LOG_DIR/${JOB_NAME}.%J.err"
+                        LIVE_LOG="$LOG_DIR/${JOB_NAME}.%J.live.log"
+
+                        BSUB_OUT=$(bsub \
+                            -P "$PROJECT" \
+                            -q "$QUEUE" \
+                            -J "$JOB_NAME" \
+                            -n $CORES \
+                            -W "$WALLTIME" \
+                            -R "span[hosts=1] rusage[mem=$MEM]" \
+                            -oo /dev/null \
+                            -eo "$LOG_ERR" \
+                            <<EOF
+#!/bin/bash
+set -euo pipefail
+
+# Force unbuffered output and colors for live logging
+export PYTHONUNBUFFERED=1
+export FORCE_COLOR=1
+
+source "$VENV_PATH"
+
+# Stream to both LSF logs and live log with line buffering
+stdbuf -oL -eL ced train \
+  --config "$FROZEN_CONFIG" \
+  --model "$model" \
+  --infile "$DATA_FILE" \
+  --split-dir "$CONFIG_SPLITS_DIR" \
+  --split-seed "$seed" \
+  --scenario IncidentPlusPrevalent \
+  --outdir "$RESULTS_SUBDIR" \
+  --fixed-panel docs/investigations/top100_panel.csv \
+  2>&1 | tee -a "$LIVE_LOG"
+
+exit \${PIPESTATUS[0]}
+EOF
+                        )
+
+                        JOB_ID=$(echo "$BSUB_OUT" | grep -oE 'Job <[0-9]+>' | head -n1 | tr -cd '0-9')
+
+                        if [ -n "$JOB_ID" ]; then
+                            print_success "$PROGRESS Job submitted: $JOB_ID"
+                            SUBMITTED_JOBS+=("$JOB_ID")
                         else
-                            print_error "$PROGRESS Training FAILED (log: ${TRAIN_LOG##*/})"
-                            TRAINING_FAILURES=$((TRAINING_FAILURES + 1))
+                            print_error "$PROGRESS Submission failed"
+                            echo "$BSUB_OUT"
                         fi
                     else
-                        print_status "[DRY RUN] Would train: $model (seed=$seed, pf=$pf, ccr=$ccr)"
-                        TRAINING_SUCCESSES=$((TRAINING_SUCCESSES + 1))
+                        print_status "[DRY RUN] Would submit: $model (seed=$seed, pf=$pf, ccr=$ccr)"
+                        SUBMITTED_JOBS+=("DRYRUN_${RUN_ID}")
                     fi
                 done
             done
@@ -499,43 +578,57 @@ if [ "$SKIP_TRAINING" = false ]; then
     done
 
     echo ""
-    print_status "Training summary:"
-    echo "  Successful runs:  $TRAINING_SUCCESSES / $TOTAL_RUNS"
-    echo "  Failed runs:      $TRAINING_FAILURES / $TOTAL_RUNS"
+    print_status "Submitted ${#SUBMITTED_JOBS[@]} parallel training jobs"
     echo ""
 
-    if [ $TRAINING_FAILURES -gt 0 ]; then
-        print_warning "Some training runs failed - check logs in $LOG_DIR"
+    if [ "$DRY_RUN" = false ]; then
+        print_info "Monitor jobs with: bjobs -w | grep FACTORIAL_"
+        print_info "Live logs: tail -f $LOG_DIR/FACTORIAL_*.live.log"
+        print_info "Error logs: cat $LOG_DIR/FACTORIAL_*.err"
     fi
 
     echo ""
 fi
 
 ##########################################################################################
-# PHASE 3: Statistical Analysis
+# PHASE 3: Post-Processing Instructions
 ##########################################################################################
 
-print_header "PHASE 3: Statistical Analysis"
+print_header "PHASE 3: Post-Processing Instructions"
 
-print_status "Analyzing results across configurations..."
+if [ "$DRY_RUN" = false ] && [ "$SKIP_TRAINING" = false ]; then
+    print_warning "Training jobs submitted to HPC cluster"
+    print_warning "Statistical analysis MUST be run AFTER all jobs complete"
+    echo ""
+    print_info "Monitor job completion with:"
+    echo "  bjobs -w | grep FACTORIAL_"
+    echo ""
+    print_info "When ALL jobs are DONE, run statistical analysis:"
+    echo "  python $SCRIPT_DIR/analyze_factorial_results.py \\"
+    echo "    --results-dir $INVEST_RESULTS_DIR \\"
+    echo "    --output-dir $EXPERIMENT_OUTPUT_DIR \\"
+    echo "    --experiment-id $EXPERIMENT_ID"
+    echo ""
+elif [ "$SKIP_TRAINING" = true ]; then
+    print_status "Training skipped - running statistical analysis now..."
 
-if [ "$DRY_RUN" = false ]; then
-    ANALYSIS_LOG="$LOG_DIR/analysis_${EXPERIMENT_ID}.log"
+    if [ "$DRY_RUN" = false ]; then
+        ANALYSIS_LOG="$LOG_DIR/analysis_${EXPERIMENT_ID}.log"
+        mkdir -p "$EXPERIMENT_OUTPUT_DIR"
 
-    mkdir -p "$EXPERIMENT_OUTPUT_DIR"
-
-    if python "$SCRIPT_DIR/analyze_factorial_results.py" \
-        --results-dir "$INVEST_RESULTS_DIR" \
-        --output-dir "$EXPERIMENT_OUTPUT_DIR" \
-        --experiment-id "$EXPERIMENT_ID" > "$ANALYSIS_LOG" 2>&1; then
-        print_success "Statistical analysis complete"
-        print_info "Results saved to: ${EXPERIMENT_OUTPUT_DIR##*/}"
+        if python "$SCRIPT_DIR/analyze_factorial_results.py" \
+            --results-dir "$INVEST_RESULTS_DIR" \
+            --output-dir "$EXPERIMENT_OUTPUT_DIR" \
+            --experiment-id "$EXPERIMENT_ID" > "$ANALYSIS_LOG" 2>&1; then
+            print_success "Statistical analysis complete"
+            print_info "Results saved to: ${EXPERIMENT_OUTPUT_DIR##*/}"
+        else
+            print_error "Statistical analysis FAILED"
+            print_error "Check log: $ANALYSIS_LOG"
+        fi
     else
-        print_error "Statistical analysis FAILED"
-        print_error "Check log: $ANALYSIS_LOG"
+        print_status "[DRY RUN] Would run statistical analysis"
     fi
-else
-    print_status "[DRY RUN] Would run statistical analysis"
 fi
 
 echo ""
@@ -544,7 +637,7 @@ echo ""
 # Summary
 ##########################################################################################
 
-print_header "EXPERIMENT COMPLETE"
+print_header "JOB SUBMISSION COMPLETE"
 
 END_TIME=$(date)
 print_status "End time: $END_TIME"
@@ -552,8 +645,21 @@ print_status "End time: $END_TIME"
 if [ "$DRY_RUN" = false ]; then
     echo ""
     print_info "Experiment ID: $EXPERIMENT_ID"
-    print_info "Results directory: $EXPERIMENT_OUTPUT_DIR"
     print_info "Full log: $EXPERIMENT_LOG"
+    echo ""
+
+    if [ "$SKIP_TRAINING" = false ]; then
+        print_info "Submitted ${#SUBMITTED_JOBS[@]} parallel training jobs to HPC"
+        echo ""
+        print_status "Next steps:"
+        echo "  1. Monitor jobs: bjobs -w | grep FACTORIAL_"
+        echo "  2. Check live logs: tail -f $LOG_DIR/FACTORIAL_*.live.log"
+        echo "  3. When all jobs complete, run statistical analysis:"
+        echo "     python $SCRIPT_DIR/analyze_factorial_results.py \\"
+        echo "       --results-dir $INVEST_RESULTS_DIR \\"
+        echo "       --output-dir $EXPERIMENT_OUTPUT_DIR \\"
+        echo "       --experiment-id $EXPERIMENT_ID"
+    fi
 
     if [ -f "$EXPERIMENT_OUTPUT_DIR/summary.md" ]; then
         echo ""
@@ -567,18 +673,12 @@ if [ "$DRY_RUN" = false ]; then
     if [ -d "$EXPERIMENT_OUTPUT_DIR" ]; then
         echo ""
         print_status "Generated files:"
-        ls -lh "$EXPERIMENT_OUTPUT_DIR"/*.{csv,md,json} 2>/dev/null || echo "  (checking...)"
+        ls -lh "$EXPERIMENT_OUTPUT_DIR"/*.{csv,md,json} 2>/dev/null || true
     fi
 else
-    print_info "Dry run complete - no files generated"
+    print_info "Dry run complete - no jobs submitted"
 fi
 
 echo ""
-
-if [ $TRAINING_FAILURES -gt 0 ]; then
-    print_warning "Experiment completed with $TRAINING_FAILURES training failures"
-    exit 1
-else
-    print_success "All operations completed successfully"
-    exit 0
-fi
+print_success "Script completed successfully"
+exit 0

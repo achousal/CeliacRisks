@@ -28,7 +28,7 @@ from ced_ml.models.stacking import (
     load_calibration_info_for_models,
 )
 from ced_ml.plotting.learning_curve import save_learning_curve_csv
-from ced_ml.utils.logging import log_section, setup_logger
+from ced_ml.utils.logging import auto_log_path, log_section, setup_logger
 
 logger = logging.getLogger(__name__)
 
@@ -206,65 +206,41 @@ def discover_base_models_for_run(
     if not results_dir_path.exists():
         raise FileNotFoundError(f"Results directory not found: {results_dir_path}")
 
-    # Auto-detect run_id if not provided
+    # Auto-detect run_id: scan results/run_*/
     if not run_id:
-        run_ids = []
-        for model_dir in results_dir_path.glob("*/"):
-            if model_dir.name.startswith(".") or model_dir.name == "investigations":
-                continue
-            for run_dir in model_dir.glob("run_*"):
-                if run_dir.is_dir():
-                    rid = run_dir.name.replace("run_", "")
-                    run_ids.append(rid)
-
+        run_ids = [d.name.replace("run_", "") for d in results_dir_path.glob("run_*") if d.is_dir()]
         if not run_ids:
             raise FileNotFoundError("No runs found in results directory")
-
-        # Sort by timestamp (format: YYYYMMDD_HHMMSS)
         run_ids.sort(reverse=True)
         run_id = run_ids[0]
 
-    # Find all models for this run with OOF predictions
+    # New layout: results/run_{id}/{MODEL}/splits/split_seed{N}/preds/
+    run_path = results_dir_path / f"run_{run_id}"
     base_models = []
 
-    for model_dir in sorted(results_dir_path.glob("*/")):
-        model_name = model_dir.name
+    if run_path.exists():
+        for model_dir in sorted(run_path.glob("*/")):
+            model_name = model_dir.name
 
-        # Skip hidden/special directories
-        if model_name.startswith(".") or model_name == "investigations":
-            continue
+            if model_name.startswith(".") or model_name in ("investigations", "consensus"):
+                continue
+            if skip_ensemble and model_name == "ENSEMBLE":
+                continue
 
-        # Skip ENSEMBLE if requested
-        if skip_ensemble and model_name == "ENSEMBLE":
-            continue
+            split_path = model_dir / "splits" / f"split_seed{split_seed}"
+            if not split_path.exists():
+                continue
 
-        # Check if run exists for this model
-        run_path = model_dir / f"run_{run_id}"
-        if not run_path.exists():
-            continue
-
-        # Check for split seed directory (new: splits/split_seed{N}, legacy: split_seed{N})
-        split_path = run_path / "splits" / f"split_seed{split_seed}"
-        if not split_path.exists():
-            split_path = run_path / f"split_seed{split_seed}"
-        if not split_path.exists():
-            continue
-
-        # Check for OOF predictions (flat preds directory)
-        oof_path = split_path / "preds" / f"train_oof__{model_name}.csv"
-        if oof_path.exists():
-            base_models.append(model_name)
+            oof_path = split_path / "preds" / f"train_oof__{model_name}.csv"
+            if oof_path.exists():
+                base_models.append(model_name)
 
     if not base_models:
+        msg = f"No base models found for run {run_id}, split {split_seed}"
         if skip_ensemble:
-            raise FileNotFoundError(
-                f"No base models found for run {run_id}, split {split_seed} (ENSEMBLE excluded).\n"
-                f"Base models must have OOF predictions in: results/{{MODEL}}/run_{run_id}/split_seed{split_seed}/preds/"
-            )
-        else:
-            raise FileNotFoundError(
-                f"No models found for run {run_id}, split {split_seed} with OOF predictions"
-            )
+            msg += " (ENSEMBLE excluded)"
+        msg += f"\nExpected OOF predictions at: results/run_{run_id}/{{MODEL}}/splits/split_seed{split_seed}/preds/"
+        raise FileNotFoundError(msg)
 
     return str(results_dir_path), base_models
 
@@ -306,11 +282,20 @@ def run_train_ensemble(
     Returns:
         Dict with ensemble results and metrics
     """
-    # Setup logger
+    # Setup logger with auto-file-logging
     if log_level is None:
         log_level = 20 - (verbose * 10)
-    # Use parent logger "ced_ml" so all child modules inherit the level
-    logger = setup_logger("ced_ml", level=log_level)
+
+    # Determine outdir for log path resolution
+    _log_outdir = outdir or results_dir or "results"
+    log_file = auto_log_path(
+        command="train-ensemble",
+        outdir=_log_outdir,
+        run_id=run_id,
+        split_seed=split_seed,
+    )
+    logger = setup_logger("ced_ml", level=log_level, log_file=log_file)
+    logger.info(f"Logging to file: {log_file}")
 
     log_section(logger, "CeD-ML Ensemble Training")
 
@@ -512,7 +497,35 @@ def run_train_ensemble(
     log_section(logger, "Saving Ensemble Results")
 
     if outdir is None:
-        outdir = results_path / "ENSEMBLE" / f"split_{split_seed}"
+        # Auto-detect run_id from base model metadata if available
+        run_id_dir = None
+        if run_id is not None:
+            run_id_dir = f"run_{run_id}"
+        else:
+            # Try to infer from base model directories
+            for model in available_models:
+                try:
+                    model_dir = _find_model_split_dir(results_path, model, split_seed)
+                    # Extract run_id from path (e.g., .../MODEL/run_20260128_214845/splits/split_seed0)
+                    parts = model_dir.parts
+                    for part in parts:
+                        if part.startswith("run_"):
+                            run_id_dir = part
+                            break
+                    if run_id_dir:
+                        break
+                except Exception:
+                    pass
+
+        if run_id_dir:
+            # New layout: results/run_{id}/ENSEMBLE/splits/split_seed{N}/
+            outdir = results_path / run_id_dir / "ENSEMBLE" / "splits" / f"split_seed{split_seed}"
+        else:
+            logger.warning(
+                "Could not auto-detect run_id for ensemble. Using flat structure. "
+                "Aggregation may fail. Consider using --run-id or --outdir."
+            )
+            outdir = results_path / "ENSEMBLE" / f"split_{split_seed}"
     else:
         outdir = Path(outdir)
 

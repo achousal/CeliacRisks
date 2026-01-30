@@ -1,8 +1,8 @@
 # CeliacRisks Project Documentation
 
 **Project**: Machine Learning Pipeline for Incident Celiac Disease Risk Prediction
-**Version**: 1.3.0
-**Updated**: 2026-01-28
+**Version**: 1.0.0
+**Updated**: 2026-01-29
 **Primary Package**: ced-ml
 **Python**: 3.10+
 **Project Owner**: Andres Chousal (Chowell Lab)
@@ -23,25 +23,50 @@ Blood proteomics panel → ML risk score → [High risk?] → Anti-tTG antibody 
 
 ## Quick Start
 
+**Important**: All `ced` commands must be run from the project root (`CeliacRisks/`).
+
 ### Local testing
 ```bash
-cd analysis/
-pip install -e .
-./run_local.sh
+cd CeliacRisks/
+pip install -e analysis/
+ced run-pipeline
 ```
 
 ### HPC production
 ```bash
-cd analysis/
-bash scripts/hpc_setup.sh
-./run_hpc.sh
+cd CeliacRisks/
+bash analysis/scripts/hpc_setup.sh
+bash analysis/run_hpc.sh  # Submits per-split jobs using ced run-pipeline
 ```
 
-### CLI reference
+### One-command workflow (RECOMMENDED)
+```bash
+# Run complete pipeline - auto-discovers data file (SIMPLEST)
+ced run-pipeline
+
+# Or specify data file explicitly
+ced run-pipeline --infile ../data/input.parquet
+
+# Custom models and seeds
+ced run-pipeline \
+  --models LR_EN,RF,XGBoost \
+  --split-seeds 0,1,2
+
+# Save logs to file
+ced run-pipeline \
+  --log-file logs/run_$(date +%Y%m%d_%H%M%S).log
+```
+
+### Individual CLI commands
+
+**Note**: All `ced` commands must be run from the project root (`CeliacRisks/`).
+
 ```bash
 ced --help
-ced save-splits --config configs/splits_config.yaml --infile ../data/input.parquet
-ced train --config configs/training_config.yaml --model LR_EN --infile ../data/input.parquet --split-seed 0
+
+# Run from project root (all paths relative to root)
+ced save-splits --infile data/input.parquet
+ced train --model LR_EN --infile data/input.parquet --split-seed 0
 ced train-ensemble --run-id 20260127_115115 --split-seed 0
 ced aggregate-splits --run-id 20260127_115115 --model LR_EN
 ced optimize-panel --run-id 20260127_115115 --model LR_EN
@@ -65,7 +90,7 @@ ced consensus-panel --run-id 20260127_115115
 
 ## Package Architecture
 
-**Stats**: ~56,800 lines of code (including tests), 1,271 tests (14% coverage after refactoring expansion).
+**Stats**: ~65,000 lines of code (including tests), 1,422 test items, 2,610 test functions.
 
 For detailed architecture with code pointers, see [docs/ARCHITECTURE.md](analysis/docs/ARCHITECTURE.md).
 
@@ -148,7 +173,7 @@ Trains single model on one split with:
 - Calibration (isotonic regression + prevalence adjustment)
 - Threshold optimization (fixed specificity 0.95 on validation set)
 
-Output: `../results/{model}/split_seed{N}/`
+Output: `../results/run_{RUN_ID}/{model}/splits/split_seed{N}/`
 
 ### 3. Feature Selection
 
@@ -191,7 +216,7 @@ Expected improvement: +2-5% AUROC over best single model.
 
 **Auto-detection** (recommended): Use `--run-id` to automatically discover results directory and base models.
 
-Output: `../results/ENSEMBLE/run_{RUN_ID}/split_seed{N}/`
+Output: `../results/run_{RUN_ID}/ENSEMBLE/splits/split_seed{N}/`
 
 ### 5. Post-Training Pipeline (HPC only)
 After HPC jobs complete, run the comprehensive post-processing script:
@@ -227,7 +252,7 @@ Aggregation includes:
 - Risk distributions and calibration plots
 - Feature stability and consensus panels
 
-Output: `../results/{MODEL}/run_{RUN_ID}/aggregated/`
+Output: `../results/run_{RUN_ID}/{MODEL}/aggregated/`
 
 **Local alternative** (manual aggregation):
 ```bash
@@ -238,7 +263,7 @@ ced aggregate-splits --run-id 20260127_115115 --model LR_EN
 ced aggregate-splits --config configs/aggregate_config.yaml
 
 # Alternative: Explicit path
-ced aggregate-splits --results-dir results/LR_EN/run_20260127_115115/
+ced aggregate-splits --results-dir results/run_20260127_115115/LR_EN/
 ```
 
 ### 6. Visualize (Optional)
@@ -348,11 +373,12 @@ For complete CLI documentation, see [analysis/docs/reference/CLI_REFERENCE.md](a
 ### CLI Commands
 | Command | Module | Purpose |
 |---------|--------|---------|
+| `ced run-pipeline` | `cli/run_pipeline.py` | **Full end-to-end workflow orchestration (RECOMMENDED)** |
 | `ced save-splits` | `cli/save_splits.py` | Split generation |
 | `ced train` | `cli/train.py` | Model training |
 | `ced train-ensemble` | `cli/train_ensemble.py` | Ensemble meta-learner training |
-| `ced optimize-panel` | `cli/optimize_panel.py` | **Panel optimization (aggregated RFE)** |
-| `ced consensus-panel` | `cli/consensus_panel.py` | **Cross-model consensus panel (RRA)** |
+| `ced optimize-panel` | `cli/optimize_panel.py` | Panel optimization (aggregated RFE) |
+| `ced consensus-panel` | `cli/consensus_panel.py` | Cross-model consensus panel (RRA) |
 | `ced aggregate-splits` | `cli/aggregate_splits.py` | Results aggregation |
 | `ced eval-holdout` | `cli/eval_holdout.py` | Holdout evaluation |
 | `ced config` | `cli/config_tools.py` | Config validation and diff |
@@ -364,7 +390,7 @@ For complete CLI documentation, see [analysis/docs/reference/CLI_REFERENCE.md](a
 pytest tests/ -v
 ```
 
-**Test suite:** 1,271 tests covering:
+**Test suite:** 1,422 test items (2,610 test functions) covering:
 - Data I/O (CSV/Parquet), column resolution, and split generation
 - Feature screening, k-best, stability, correlation pruning, panels, RFE, consensus
 - Model registry, hyperparameters, training, calibration, prevalence, stacking
@@ -374,7 +400,7 @@ pytest tests/ -v
 - CLI integration (including optimize-panel, consensus-panel, ensemble)
 - Config validation and comparison
 
-**Coverage:** 14% overall (after major refactoring expansion)
+**Coverage:** Test coverage metrics available via `pytest --cov=ced_ml tests/`
 
 **Test markers:**
 - `slow`: Integration tests that train real models (10-20s each). Skip with `pytest -m "not slow"` for faster development.
@@ -416,13 +442,14 @@ These files control:
 
 ### Local development
 ```bash
-# 1. Setup
-cd analysis/
+# 1. Setup (from project root)
+cd CeliacRisks/
 conda create -n ced_ml python=3.10
 conda activate ced_ml
-pip install -e ".[dev]"
+pip install -e "analysis/[dev]"
 
 # 2. Test changes
+cd analysis/
 pytest tests/ -v
 pytest tests/ --cov=ced_ml
 
@@ -430,8 +457,9 @@ pytest tests/ --cov=ced_ml
 ruff check src/ tests/
 black src/ tests/
 
-# 4. Quick validation
-./run_local.sh
+# 4. Quick validation (back to root)
+cd ..
+ced run-pipeline
 
 # 5. Commit
 git add .
@@ -440,21 +468,22 @@ git commit -m "feat(models): add Optuna pruning support"
 
 ### HPC deployment
 ```bash
-# 1. Test locally first
-./run_local.sh
+# 1. Test locally first (from project root)
+cd CeliacRisks/
+ced run-pipeline
 
 # 2. Setup HPC environment
-bash scripts/hpc_setup.sh
+bash analysis/scripts/hpc_setup.sh
 source venv/bin/activate
 
 # 3. Edit HPC config
-nano configs/pipeline_hpc.yaml
+nano analysis/configs/pipeline_hpc.yaml
 
 # 4. Dry run
-DRY_RUN=1 ./run_hpc.sh
+DRY_RUN=1 bash analysis/run_hpc.sh
 
 # 5. Submit production jobs
-./run_hpc.sh
+bash analysis/run_hpc.sh
 
 # 6. Monitor
 bjobs -w | grep CeD_
@@ -516,9 +545,9 @@ ced optimize-panel --run-id 20260127_115115 --model LR_EN
 
 # Method 3: Optimize single model with explicit path (legacy)
 ced optimize-panel \
-  --results-dir results/LR_EN/run_20260127_115115 \
-  --infile ../data/Celiac_dataset_proteomics_w_demo.parquet \
-  --split-dir ../splits/
+  --results-dir results/run_20260127_115115/LR_EN \
+  --infile data/Celiac_dataset_proteomics_w_demo.parquet \
+  --split-dir splits/
 ```
 **Advantages:**
 - Uses consensus stable proteins from ALL splits (eliminates variability)
@@ -607,7 +636,7 @@ bash scripts/post_training_pipeline.sh --run-id <RUN_ID>
 ### Ensemble training fails
 Check base model outputs exist:
 ```bash
-ls results/{MODEL}/run_{RUN_ID}/split_seed*/preds/train_oof/
+ls results/run_{RUN_ID}/{MODEL}/splits/split_seed*/preds/train_oof/
 ```
 
 ---
@@ -626,12 +655,41 @@ ls results/{MODEL}/run_{RUN_ID}/split_seed*/preds/train_oof/
 - [analysis/src/ced_ml/models/calibration.py](analysis/src/ced_ml/models/calibration.py) - OOF calibration
 
 **Helper scripts**:
-- [analysis/scripts/post_training_pipeline.sh](analysis/scripts/post_training_pipeline.sh) - HPC post-processing
+- [analysis/run_hpc.sh](analysis/run_hpc.sh) - HPC job submission (simplified, uses ced run-pipeline)
+- [analysis/run_local.sh](analysis/run_local.sh) - Local pipeline runner
+- [analysis/scripts/post_training_pipeline.sh](analysis/scripts/post_training_pipeline.sh) - HPC post-processing (legacy)
 - [analysis/scripts/hpc_setup.sh](analysis/scripts/hpc_setup.sh) - HPC environment setup
 
 ---
 
 ## Recent Major Changes
+
+**2026-01-29:**
+1. **Simplified Working Directory Requirement** - All `ced` commands must now run from project root only:
+   - Removed complex "call from anywhere" path resolution (was messy and error-prone)
+   - Simple rule: Always `cd CeliacRisks/` before running `ced` commands
+   - Clear error message if run from wrong directory
+   - Paths in configs remain analysis-relative (unchanged)
+   - See [docs/CLI_WORKING_DIRECTORY.md](analysis/docs/CLI_WORKING_DIRECTORY.md)
+2. **Simplified HPC Runner** - `run_hpc.sh` remodeled to use `ced run-pipeline` CLI:
+   - Reduced from 468 lines to 253 lines (46% reduction)
+   - Submits per-split jobs that each run `ced run-pipeline` for all models
+   - Eliminates manual ensemble training, aggregation, and panel optimization coordination
+   - All workflow logic now handled by tested CLI commands
+   - Maintains HPC job submission, logging, and resource management
+3. **One-Command Pipeline** - NEW `ced run-pipeline` command for end-to-end workflow orchestration:
+   - Runs complete pipeline: splits → train → aggregate → ensemble → optimize panel → consensus
+   - Default: 3 models (LR_EN, RF, XGBoost) × 3 seeds with all features enabled
+   - Customizable models, seeds, and feature toggles (ensemble, consensus, optimize-panel)
+   - Maintains shared run_id across all models for easy tracking
+   - Eliminates need to manually chain individual commands
+4. **Documentation Accuracy Review** - Comprehensive doc-updater agent review and fixes:
+   - Updated version number to 1.0.0 (corrected from 1.3.0)
+   - Updated code statistics: 33,933 lines (src), 64,948 total (src + tests)
+   - Updated test counts: 1,422 test items, 2,610 test functions
+   - Corrected ADR-013 from "Four-Strategy" to "Five-Strategy Feature Selection Framework"
+   - Added Strategy 4 (Consensus Panel) and renumbered Fixed Panel to Strategy 5
+   - All CLI commands, ADRs, and config files verified accurate
 
 **2026-01-28:**
 1. **Complete `--run-id` Auto-Detection** - All CLI commands now support `--run-id` for zero-config path resolution:
@@ -665,5 +723,5 @@ ls results/{MODEL}/run_{RUN_ID}/split_seed*/preds/train_oof/
 
 ---
 
-**Last Updated**: 2026-01-28
+**Last Updated**: 2026-01-29
 **Status**: Production-ready with complete `--run-id` auto-detection, panel optimization, cross-model consensus, and investigation framework for clinical deployment

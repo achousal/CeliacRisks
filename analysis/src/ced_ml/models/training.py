@@ -922,6 +922,24 @@ def _extract_selected_proteins_from_fold(
         if screen_proteins:
             selected_proteins.update(screen_proteins)
 
+    # Strategy 1b: Extract from model-specific selector (if present)
+    if "model_sel" in pipeline.named_steps:
+        model_sel_step = pipeline.named_steps["model_sel"]
+        if hasattr(model_sel_step, "get_feature_names_out"):
+            sel_names = model_sel_step.get_feature_names_out()
+            # Map back to protein names
+            model_sel_proteins = set()
+            for name in sel_names:
+                if name in protein_cols:
+                    model_sel_proteins.add(name)
+                elif name.startswith("num__"):
+                    orig = name[len("num__") :]
+                    if orig in protein_cols:
+                        model_sel_proteins.add(orig)
+            if model_sel_proteins:
+                # model_sel is the final selection -- override kbest output
+                return sorted(model_sel_proteins)
+
     # Strategy 2: Extract from model coefficients (linear models)
     # Only relevant for hybrid_stability strategy
     if strategy == "hybrid_stability":

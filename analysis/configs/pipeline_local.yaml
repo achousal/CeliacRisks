@@ -1,8 +1,7 @@
 # Pipeline Configuration - Local Environment
-# Single source of truth for paths, models, and execution settings
+# Single source of truth for ced run-pipeline (local mode)
 
-# Environment
-environment: local  # local or hpc
+environment: local
 
 # Paths (relative to analysis/)
 paths:
@@ -11,21 +10,22 @@ paths:
   results_dir: ../results
   logs_dir: ../logs
 
-# Configs
+# Config files (relative to analysis/)
 configs:
   splits: configs/splits_config.yaml
   training: configs/training_config.yaml
 
-# Execution
-execution:
+# Pipeline orchestration settings (used by ced run-pipeline)
+pipeline:
   models:
     - LR_EN
     - LinSVM_cal
     # - RF
     # - XGBoost
-  n_boot: 200  # Bootstrap iterations for L2 (adequate for ranking)
+  split_seeds: [0, 1, 2]
+  ensemble: true
+  consensus: true
+  optimize_panel: true
   overwrite_splits: false
+  n_boot: 200  # Bootstrap iterations (adequate for ranking)
   dry_run: false
-
-# The splits config controls n_splits and seed_start
-# Edit configs/splits_config.yaml to change those settings

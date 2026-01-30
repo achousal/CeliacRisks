@@ -486,6 +486,17 @@ def build_consensus_panel(
 
     logger.info(f"Consensus ranking: {len(consensus_df)} total proteins")
 
+    # Degenerate consensus warning: detect identical rankings across models
+    if "rank_std" in consensus_df.columns:
+        zero_std_frac = (consensus_df["rank_std"] == 0.0).mean()
+        if zero_std_frac > 0.9:
+            logger.warning(
+                "Consensus is degenerate: %.0f%% of proteins have identical rankings "
+                "across all models (rank_std=0). Enable model_selector=true "
+                "or use a diverse k_grid for meaningful cross-model consensus.",
+                zero_std_frac * 100,
+            )
+
     # Extract consensus scores for clustering
     consensus_scores = dict(
         zip(consensus_df["protein"], consensus_df["consensus_score"], strict=False)

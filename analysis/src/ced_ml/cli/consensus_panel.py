@@ -67,11 +67,18 @@ def discover_models_with_aggregated_results(
     """
     model_dirs = {}
 
-    for model_dir in sorted(results_root.glob("*/")):
+    # New layout: results/run_{RUN_ID}/{MODEL}/aggregated/
+    run_dir = results_root / f"run_{run_id}"
+    if not run_dir.exists():
+        raise FileNotFoundError(
+            f"No results found for run {run_id}.\n" f"Searched in: {results_root}"
+        )
+
+    for model_dir in sorted(run_dir.glob("*/")):
         model_name = model_dir.name
 
         # Skip hidden/special directories
-        if model_name.startswith(".") or model_name == "investigations":
+        if model_name.startswith(".") or model_name in ("investigations", "consensus"):
             continue
 
         # Skip ENSEMBLE if requested
@@ -82,13 +89,8 @@ def discover_models_with_aggregated_results(
         if model_filter and model_name != model_filter:
             continue
 
-        # Check for run directory
-        run_dir = model_dir / f"run_{run_id}"
-        if not run_dir.exists():
-            continue
-
         # Check for aggregated results with feature stability
-        aggregated_dir = run_dir / "aggregated"
+        aggregated_dir = model_dir / "aggregated"
         stability_file = aggregated_dir / "panels" / "feature_stability_summary.csv"
         # Fallback: check legacy nested paths
         if not stability_file.exists():
@@ -206,35 +208,34 @@ def auto_detect_data_paths(
 
     logger = logging.getLogger(__name__)
 
-    # Find any model's run_metadata.json (at run level, not split level)
-    for model_dir in results_root.glob("*/"):
-        if model_dir.name.startswith(".") or model_dir.name in ("investigations", "ENSEMBLE"):
-            continue
+    # Find shared run_metadata.json at run level: results_root/run_{id}/run_metadata.json
+    run_dir = results_root / f"run_{run_id}"
+    metadata_file = run_dir / "run_metadata.json"
+    logger.debug(f"Checking for metadata: {metadata_file}")
 
-        run_dir = model_dir / f"run_{run_id}"
-        if not run_dir.exists():
-            continue
+    if metadata_file.exists():
+        logger.debug(f"Found metadata file: {metadata_file}")
+        try:
+            with open(metadata_file) as f:
+                metadata = json.load(f)
 
-        # Look for run_metadata.json at the run level
-        metadata_file = run_dir / "run_metadata.json"
-        logger.debug(f"Checking for metadata: {metadata_file}")
-
-        if metadata_file.exists():
-            logger.debug(f"Found metadata file: {metadata_file}")
-            try:
-                with open(metadata_file) as f:
-                    metadata = json.load(f)
-
+            # Shared metadata format: look in first model's entry
+            models_meta = metadata.get("models", {})
+            if models_meta:
+                first_model_meta = next(iter(models_meta.values()))
+                infile = first_model_meta.get("infile")
+                split_dir_path = first_model_meta.get("split_dir")
+            else:
+                # Fallback to flat format
                 infile = metadata.get("infile")
-                split_dir_path = metadata.get("split_dir")  # Fixed: was "splits_dir"
+                split_dir_path = metadata.get("split_dir")
 
-                logger.debug(f"Metadata infile: {infile}, split_dir: {split_dir_path}")
+            logger.debug(f"Metadata infile: {infile}, split_dir: {split_dir_path}")
 
-                if infile and split_dir_path:
-                    return infile, split_dir_path
-            except Exception as e:
-                logger.debug(f"Error reading metadata: {e}")
-                continue
+            if infile and split_dir_path:
+                return infile, split_dir_path
+        except Exception as e:
+            logger.debug(f"Error reading metadata: {e}")
 
     logger.debug("No run_metadata.json found, returning None")
     return None, None
@@ -274,40 +275,26 @@ def run_consensus_panel(
         ValueError: If insufficient models or proteins.
     """
     # Setup logging
+    from ced_ml.utils.logging import auto_log_path, setup_logger
+
     log_level = logging.WARNING
     if verbose >= 2:
         log_level = logging.DEBUG
     elif verbose >= 1:
         log_level = logging.INFO
 
-    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-    logger_name = f"{__name__}.{run_id}_{timestamp}"
-    logger = logging.getLogger(logger_name)
-    logger.setLevel(log_level)
-    logger.propagate = False
-
-    # Create log directory
-    log_dir = Path(__file__).parent.parent.parent.parent.parent / "logs" / "features"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"consensus_panel_{run_id}_{timestamp}.log"
-
-    # File handler
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(log_level)
-    file_handler.setFormatter(
-        logging.Formatter(
-            "[%(asctime)s] %(name)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
+    # Auto-file-logging
+    log_file = auto_log_path(
+        command="consensus-panel",
+        outdir=outdir or "results",
+        run_id=run_id,
     )
-    logger.addHandler(file_handler)
-
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(log_level)
-    console_handler.setFormatter(logging.Formatter("%(levelname)s - %(message)s"))
-    logger.addHandler(console_handler)
-
+    logger = setup_logger(
+        f"ced_ml.consensus_panel.{run_id}",
+        level=log_level,
+        log_file=log_file,
+    )
+    logger.info(f"Logging to file: {log_file}")
     logger.info(f"Consensus panel generation started for run_id={run_id}")
 
     # Determine results root (CED_RESULTS_DIR env var for testability)
@@ -450,7 +437,7 @@ def run_consensus_panel(
 
     # Save results
     if outdir is None:
-        outdir = results_root / "consensus_panel" / f"run_{run_id}"
+        outdir = results_root / f"run_{run_id}" / "consensus"
     else:
         outdir = Path(outdir)
 

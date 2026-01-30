@@ -1,6 +1,6 @@
 # CeD-ML Project Overview
 
-**Updated**: 2026-01-21
+**Updated**: 2026-01-29
 **Version**: 1.0.0
 **Package**: ced-ml
 **Python**: 3.10+
@@ -16,9 +16,9 @@ Primary documentation: [README.md](../../README.md)
 **Models**: Logistic Regression (ElasticNet/L1), Random Forest, XGBoost, Linear SVM (calibrated)
 
 **Statistics**:
-- Code: 20,821 lines
-- Tests: 770 tests, 85% coverage
-- ADRs: 19 Architecture Decision Records
+- Code: 33,933 lines (src only), 64,948 total (src + tests)
+- Tests: 1,422 test items, 2,610 test functions
+- ADRs: 15 Architecture Decision Records
 
 ## Core Components
 
@@ -42,9 +42,10 @@ Primary documentation: [README.md](../../README.md)
 
 ## Recent Major Changes
 
+**2026-01-28**: Complete --run-id auto-detection, uncertainty quantification, panel optimization
+**2026-01-27**: Cross-model consensus panel, multi-model batch processing
+**2026-01-26**: Aggregated panel optimization, model stacking ensemble, OOF-posthoc calibration
 **2026-01-20**: Optuna integration (Bayesian TPE + pruning for 2-5x speedup)
-**2026-01-19**: Pipeline refactor (unified configs, environment variable overrides)
-**2026-01-18**: Split-specific output directories for better parallel execution
 
 ## Key Design Principles
 

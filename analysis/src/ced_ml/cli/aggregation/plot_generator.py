@@ -285,8 +285,14 @@ def generate_aggregated_plots(
                             ]
 
                             if repeat_cols:
-                                # Get unique sample indices
-                                unique_idx = model_train_oof_df["idx"].unique()
+                                # Get unique sample indices from FIRST split only
+                                # (all splits have identical train set indices, so we just need one)
+                                first_seed = model_train_oof_df["split_seed"].iloc[0]
+                                seed_df = model_train_oof_df[
+                                    model_train_oof_df["split_seed"] == first_seed
+                                ]
+
+                                unique_idx = seed_df["idx"].unique()
                                 n_samples = len(unique_idx)
                                 n_repeats = len(repeat_cols)
 
@@ -297,17 +303,21 @@ def generate_aggregated_plots(
                                 # Map idx to position
                                 idx_to_pos = {idx: pos for pos, idx in enumerate(unique_idx)}
 
-                                # Fill in predictions from first split_seed (they should all have same idx mapping)
-                                first_seed = model_train_oof_df["split_seed"].iloc[0]
-                                seed_df = model_train_oof_df[
-                                    model_train_oof_df["split_seed"] == first_seed
-                                ]
-
+                                # Fill in predictions from first split
                                 for _, row in seed_df.iterrows():
                                     pos = idx_to_pos[row["idx"]]
                                     y_true_oof[pos] = row["y_true"]
                                     for repeat_idx, col in enumerate(repeat_cols):
                                         oof_preds[repeat_idx, pos] = row[col]
+
+                                # Validate we have valid data (should never be all NaN)
+                                if np.all(np.isnan(oof_preds)):
+                                    if logger:
+                                        logger.warning(
+                                            f"Skipping OOF combined plots for {model_name}: "
+                                            f"all OOF predictions are NaN"
+                                        )
+                                    continue
 
                                 plot_oof_combined(
                                     y_true=y_true_oof,
