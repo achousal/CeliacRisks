@@ -321,9 +321,14 @@ def test_optuna_trials_aggregation_with_model_prefix(temp_results_dir):
     """Test aggregation of model-prefixed optuna_trials.csv files (bug fix regression test)."""
     from ced_ml.cli.aggregate_splits import run_aggregate_splits
 
+    # Create CeliacRisks directory structure for auto_log_path compatibility
+    celiac_root = temp_results_dir / "CeliacRisks"
+    celiac_root.mkdir(parents=True)
+    results_base = celiac_root / "results" / "run_test" / "LinSVM_cal" / "splits"
+
     # Create mock optuna_trials files with model prefix (real-world format)
-    # Directory structure: results_dir/splits/split_seed*/
-    splits_base = temp_results_dir / "splits"
+    # Directory structure: CeliacRisks/results/run_test/LinSVM_cal/splits/split_seed*/
+    splits_base = results_base
     for seed in [0, 1]:
         split_dir = splits_base / f"split_seed{seed}"
         cv_dir = split_dir / "cv"
@@ -361,15 +366,15 @@ def test_optuna_trials_aggregation_with_model_prefix(temp_results_dir):
                 pred_file, index=False
             )
 
-    # Run aggregation
+    # Run aggregation (use parent directory of splits)
     run_aggregate_splits(
-        results_dir=str(temp_results_dir),
+        results_dir=str(results_base.parent),
         save_plots=False,
         n_boot=10,
     )
 
     # Verify optuna trials were aggregated
-    agg_optuna_file = temp_results_dir / "aggregated" / "cv" / "optuna_trials.csv"
+    agg_optuna_file = results_base.parent / "aggregated" / "cv" / "optuna_trials.csv"
     assert agg_optuna_file.exists(), "Aggregated optuna_trials.csv not found"
 
     # Verify combined trials

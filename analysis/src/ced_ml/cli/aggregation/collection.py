@@ -189,7 +189,7 @@ def collect_metrics(
 
 def collect_best_hyperparams(
     split_dirs: list[Path],
-    optuna_file: str = "cv/optuna/best_params_optuna.csv",
+    optuna_file: str = "cv/best_params_optuna.csv",
     logger: logging.Logger | None = None,
 ) -> pd.DataFrame:
     """
