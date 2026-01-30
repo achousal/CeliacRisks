@@ -2,21 +2,16 @@
 
 **Version:** 3.0
 **Date:** 2026-01-29
-**Status:** Reference documentation with `--run-id` auto-detection support
 
----
+**Key structural features:**
+1. **Run-first grouping** - Everything from one experiment lives under a single `run_{id}/` directory
+2. **Model isolation** - Each model has its own subdirectory within the run
+3. **Split separation** - Individual splits live under `splits/split_seed{N}/`
+4. **Flat predictions** - All prediction types (test, val, train_oof, controls) in single `preds/` directory (no subdirectories)
+5. **Flat diagnostics** - All diagnostic CSVs in single `diagnostics/` directory (no subdirectories)
+6. **Flat panels** - All panel reports in single `panels/` directory (no subdirectories)
+7. **Auto-detection support** - `run_metadata.json` at run level enables zero-config CLI commands
 
-## Table of Contents
-
-1. [Directory Structure](#1-directory-structure)
-2. [Core Artifacts](#2-core-artifacts)
-3. [Cross-Validation Artifacts](#3-cross-validation-artifacts)
-4. [Plots](#4-plots)
-5. [File Formats](#5-file-formats)
-6. [Ensemble Artifacts](#6-ensemble-artifacts)
-7. [Auto-Detection Examples](#7-auto-detection-examples)
-
----
 
 ## 1. Directory Structure
 
@@ -48,30 +43,6 @@ results/
       splits/
         split_seed{N}/
     consensus/                    # Cross-model consensus panel (if generated)
-```
-
-**Key structural features:**
-1. **Run-first grouping** - Everything from one experiment lives under a single `run_{id}/` directory
-2. **Model isolation** - Each model has its own subdirectory within the run
-3. **Split separation** - Individual splits live under `splits/split_seed{N}/`
-4. **Flat predictions** - All prediction types (test, val, train_oof, controls) in single `preds/` directory (no subdirectories)
-5. **Flat diagnostics** - All diagnostic CSVs in single `diagnostics/` directory (no subdirectories)
-6. **Flat panels** - All panel reports in single `panels/` directory (no subdirectories)
-7. **Auto-detection support** - `run_metadata.json` at run level enables zero-config CLI commands
-
-**Auto-detection examples:**
-```bash
-# Aggregate results (auto-detects results directory from run-id)
-ced aggregate-splits --run-id 20260127_115115 --model LR_EN
-
-# Optimize panel (auto-detects infile, split-dir, aggregated/ paths)
-ced optimize-panel --run-id 20260127_115115 --model LR_EN
-
-# Cross-model consensus (auto-detects all model aggregated/ directories)
-ced consensus-panel --run-id 20260127_115115
-
-# Train ensemble (auto-detects base models and paths)
-ced train-ensemble --run-id 20260127_115115 --split-seed 0
 ```
 
 ### 1.2 Single Split Output
@@ -169,27 +140,6 @@ results/run_{run_id}/
 }
 ```
 
-**Usage:** Enables zero-config CLI commands:
-```bash
-# Auto-detect results directory from run-id
-ced aggregate-splits --run-id 20260127_115115 --model LR_EN
-
-# Auto-detect infile, split-dir, and results paths
-ced optimize-panel --run-id 20260127_115115 --model LR_EN
-
-# Auto-detect all paths for consensus panel
-ced consensus-panel --run-id 20260127_115115
-
-# Auto-detect base models and paths for ensemble training
-ced train-ensemble --run-id 20260127_115115 --split-seed 0
-```
-
-### 1.4 Aggregated Output (Multiple Splits)
-
-**Path pattern:** `results/run_{run_id}/{model}/aggregated/`
-
-**Example:** `results/run_20260127_115115/LR_EN/aggregated/`
-
 **Purpose:** Cross-split aggregation and model comparison.
 
 ```
@@ -241,49 +191,6 @@ results/run_{run_id}/{model}/aggregated/
     {model}__aggregated_learning_curve.csv # Aggregated learning curves
 ```
 
-**Auto-detection:** Use `--run-id` for automatic path resolution:
-```bash
-# Aggregate single model
-ced aggregate-splits --run-id 20260127_115115 --model LR_EN
-
-# Optimize panel (auto-detects aggregated/ directory)
-ced optimize-panel --run-id 20260127_115115 --model LR_EN
-
-# Generate cross-model consensus panel
-ced consensus-panel --run-id 20260127_115115
-```
-
-### 1.5 Consensus Panel Output (Cross-Model)
-
-**Path pattern:** `results/run_{run_id}/consensus/`
-
-**Example:** `results/run_20260127_115115/consensus/`
-
-**Purpose:** Cross-model consensus panels via Robust Rank Aggregation.
-
-```
-results/run_{run_id}/consensus/
-  consensus_panel_N{size}.json    # Consensus panel at specific size (e.g., N=25)
-  consensus_panel_metadata.json   # Consensus aggregation statistics
-  uncertainty_summary.csv         # Cross-model agreement metrics
-  feature_ranks_by_model.csv      # Per-model protein rankings
-```
-
-**Generation:**
-```bash
-# Auto-detects all models under run-id and aggregates their feature rankings
-ced consensus-panel --run-id 20260127_115115
-
-# Reads from:
-#   results/run_20260127_115115/LR_EN/aggregated/panels/feature_stability.csv
-#   results/run_20260127_115115/RF/aggregated/panels/feature_stability.csv
-#   results/run_20260127_115115/XGBoost/aggregated/panels/feature_stability.csv
-# Writes to:
-#   results/run_20260127_115115/consensus/
-```
-
----
-
 ## 2. Core Artifacts
 
 ### 2.1 final_model.pkl
@@ -295,18 +202,6 @@ ced consensus-panel --run-id 20260127_115115
 **Metadata stored separately in:**
 - `run_settings.json` - Full config, hyperparameters, feature names
 - `reports/stable_panel/` - Selected feature panel
-
-**Usage:**
-```python
-import pickle
-with open('final_model.pkl', 'rb') as f:
-    model = pickle.load(f)
-
-# Standard sklearn predictions at training prevalence (16.7%)
-y_pred = model.predict_proba(X)[:, 1]
-```
-
-**Note on prevalence:** Predictions are calibrated at training prevalence (16.7%). For real-world deployment at different prevalence (e.g., 0.34%), see [ADR-010](../adr/ADR-010-prevalence-adjustment.md) for speculative adjustment strategies.
 
 ### 2.2 Prediction CSVs
 
@@ -451,40 +346,6 @@ Generated flat in `cv/` directory:
 
 ---
 
-## 5. File Formats
-
-### 5.1 Split Files
-
-**Location:** `splits/` directory (sibling to `results/`)
-
-**Format:** Pickle files containing split indices
-
-**Filename pattern:** `splits_{seed}.pkl`
-
-**Purpose:** Reproducible split indices for deterministic train/val/test splits.
-
-### 5.2 Aggregated Metrics
-
-**Location:** `results/run_{run_id}/{model}/aggregated/metrics/`
-
-**Files:**
-- `pooled_test_metrics.csv` - Metrics computed on pooled predictions across all splits
-- `test_metrics_summary.csv` - Mean, std, min, max across per-split metrics
-- `selection_scores.csv` - Composite model selection scores
-
-### 5.3 Aggregated Panel Artifacts
-
-**Location:** `results/run_{run_id}/{model}/aggregated/panels/`
-
-**Format:** CSV and JSON files (flat structure)
-
-**Example files:**
-
-**Feature Stability (aggregated across splits):**
-```
-feature_stability.csv       # Columns: protein, stability, agreement, rank, rank_std
-```
-
 **Consensus Panel (RRA aggregation across models):**
 ```
 consensus_panel_N25.json    # 25-protein consensus panel with metadata
@@ -506,50 +367,6 @@ LR_EN__uncertainty_metadata.json # Uncertainty quantification for RFE panels
 - Consensus panels: Cross-model agreement via Robust Rank Aggregation
 - RFE panels: Aggregated recursive feature elimination for single-model deployment
 - Uncertainty metrics: Bootstrap CIs and cross-model agreement for deployment decisions
-
-**Auto-detection usage:**
-```bash
-# Single-model panel optimization (auto-detects aggregated/ directory)
-ced optimize-panel --run-id 20260127_115115 --model LR_EN
-
-# Cross-model consensus panel (auto-detects all model aggregated/ directories)
-ced consensus-panel --run-id 20260127_115115
-
-# Batch optimization for all models under run-id
-ced optimize-panel --run-id 20260127_115115  # Processes all models
-```
-
-**For detailed uncertainty quantification documentation, see [UNCERTAINTY_QUANTIFICATION.md](UNCERTAINTY_QUANTIFICATION.md)**
-
----
-
-## File Size Estimates
-
-**Typical sizes for 43,960-sample dataset:**
-- `final_model.pkl`: 1-10 MB (depends on model type)
-- Prediction CSVs: 2-10 MB each
-- `*_metrics.csv`: <100 KB each
-- `run_settings.json`: 5-20 KB
-- Plots: 50-200 KB each
-- `cv_repeat_metrics.csv`: 10-50 KB
-- Split pickle files: 500 KB - 2 MB each
-
-**Total per split:** ~20-50 MB
-
-**Total for 10 splits:** ~200-500 MB
-
----
-
-## Artifact Retention Policy
-
-**Development runs:**
-- Keep: metrics CSVs, `run_settings.json`, plots
-- Optional: prediction CSVs, CV artifacts
-- Discard: `final_model.pkl` (unless best model)
-
-**Production runs:**
-- Keep all artifacts for reproducibility
-- Archive to long-term storage after validation
 
 ---
 
@@ -582,136 +399,3 @@ results/ENSEMBLE/run_{run_id}/splits/split_seed{N}/
     val_preds__ENSEMBLE.csv       # VAL predictions
     train_oof__ENSEMBLE.csv       # OOF predictions
 ```
-
-### 6.2 Base Model Requirements
-
-**Required files per base model (for ensemble training):**
-```
-results/{base_model}/run_{run_id}/splits/split_seed{N}/preds/train_oof__*.csv  # OOF predictions
-results/{base_model}/run_{run_id}/splits/split_seed{N}/preds/val_preds__*.csv  # VAL predictions
-results/{base_model}/run_{run_id}/splits/split_seed{N}/preds/test_preds__*.csv # TEST predictions
-```
-
-**Example:**
-```
-results/run_20260127_115115/LR_EN/splits/split_seed0/preds/train_oof__LR_EN.csv
-results/RF/run_20260127_115115/splits/split_seed0/preds/train_oof__RF.csv
-results/XGBoost/run_20260127_115115/splits/split_seed0/preds/train_oof__XGBoost.csv
-```
-
-### 6.3 Auto-Detection Workflow
-
-```bash
-# Step 1: Train base models (creates run_metadata.json per model)
-ced train --model LR_EN --split-seed 0
-ced train --model RF --split-seed 0
-ced train --model XGBoost --split-seed 0
-
-# Step 2: Train ensemble (auto-detects base models from run-id)
-ced train-ensemble --run-id 20260127_115115 --split-seed 0
-
-# Step 3: Aggregate ensemble results
-ced aggregate-splits --run-id 20260127_115115 --model ENSEMBLE
-```
-
-**Key artifact:** `results/ENSEMBLE/run_{run_id}/run_metadata.json` contains:
-```json
-{
-  "run_id": "20260127_115115",
-  "model": "ENSEMBLE",
-  "base_models": ["LR_EN", "RF", "XGBoost"],
-  "meta_learner_type": "logistic_regression",
-  "base_model_paths": {
-    "LR_EN": "results/LR_EN/run_20260127_115115",
-    "RF": "results/RF/run_20260127_115115",
-    "XGBoost": "results/XGBoost/run_20260127_115115"
-  }
-}
-```
-
----
-
-## 7. Auto-Detection Examples
-
-### 7.1 Single Model Workflow
-
-```bash
-# Step 1: Train with auto-generated run-id
-ced train --model LR_EN --split-seed 0
-# Creates: results/run_20260127_115115/LR_EN/splits/split_seed0/
-#          results/LR_EN/run_20260127_115115/run_metadata.json
-
-# Step 2: Aggregate using run-id (auto-detects results directory)
-ced aggregate-splits --run-id 20260127_115115 --model LR_EN
-# Reads: results/LR_EN/run_20260127_115115/run_metadata.json
-# Creates: results/run_20260127_115115/LR_EN/aggregated/
-
-# Step 3: Optimize panel (auto-detects infile, split-dir, aggregated/)
-ced optimize-panel --run-id 20260127_115115 --model LR_EN
-# Reads: run_metadata.json → infile, split_dir paths
-#        aggregated/panels/feature_stability.csv
-# Creates: aggregated/panels/LR_EN__rfe_panel_N*.json
-```
-
-### 7.2 Multi-Model Consensus Workflow
-
-```bash
-# Step 1: Train multiple models (same run-id timestamp)
-ced train --model LR_EN --split-seed 0
-ced train --model RF --split-seed 0
-ced train --model XGBoost --split-seed 0
-
-# Step 2: Aggregate each model
-ced aggregate-splits --run-id 20260127_115115 --model LR_EN
-ced aggregate-splits --run-id 20260127_115115 --model RF
-ced aggregate-splits --run-id 20260127_115115 --model XGBoost
-
-# Step 3: Generate consensus panel (auto-detects all models)
-ced consensus-panel --run-id 20260127_115115
-# Scans: results/run_20260127_115115/*/aggregated/panels/feature_stability.csv
-# Creates: results/run_20260127_115115/consensus/consensus_panel_N*.json
-```
-
-### 7.3 Ensemble Training Workflow
-
-```bash
-# Step 1: Train base models (auto-creates run-id)
-ced train --model LR_EN --split-seed 0
-ced train --model RF --split-seed 0
-ced train --model XGBoost --split-seed 0
-
-# Step 2: Train ensemble (auto-detects base models)
-ced train-ensemble --run-id 20260127_115115 --split-seed 0
-# Reads: results/*/run_20260127_115115/run_metadata.json (all models)
-# Creates: results/ENSEMBLE/run_20260127_115115/split_seed0/
-
-# Step 3: Aggregate ensemble
-ced aggregate-splits --run-id 20260127_115115 --model ENSEMBLE
-```
-
-### 7.4 Legacy Mode (Explicit Paths)
-
-**Still supported for backward compatibility:**
-
-```bash
-# Explicit results directory
-ced aggregate-splits --results-dir results/LR_EN/run_20260127_115115/
-
-# Explicit panel optimization paths
-ced optimize-panel \
-  --results-dir results/LR_EN/run_20260127_115115 \
-  --infile ../data/Celiac_dataset_proteomics_w_demo.parquet \
-  --split-dir ../splits/
-
-# Explicit ensemble base models
-ced train-ensemble \
-  --results-dir results/ \
-  --base-models LR_EN,RF,XGBoost \
-  --split-seed 0
-```
-
-**Recommendation:** Use `--run-id` for all new workflows (simpler, less error-prone).
-
----
-
-**End of ARTIFACTS.md**

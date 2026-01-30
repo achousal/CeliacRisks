@@ -97,11 +97,26 @@ def temporal_proteomics_data(tmp_path):
     n_total = n_controls + n_incident + n_prevalent
     n_proteins = 15
 
-    labels = (
-        [CONTROL_LABEL] * n_controls
-        + [INCIDENT_LABEL] * n_incident
-        + [PREVALENT_LABEL] * n_prevalent
-    )
+    # Interleave labels so incident/prevalent cases are distributed across timeline
+    # (temporal splits need cases in all time windows)
+    labels = []
+    ctrl_idx, inc_idx, prev_idx = 0, 0, 0
+    for i in range(n_total):
+        if i % 6 == 1 and inc_idx < n_incident:
+            labels.append(INCIDENT_LABEL)
+            inc_idx += 1
+        elif i % 10 == 9 and prev_idx < n_prevalent:
+            labels.append(PREVALENT_LABEL)
+            prev_idx += 1
+        elif ctrl_idx < n_controls:
+            labels.append(CONTROL_LABEL)
+            ctrl_idx += 1
+        elif inc_idx < n_incident:
+            labels.append(INCIDENT_LABEL)
+            inc_idx += 1
+        else:
+            labels.append(PREVALENT_LABEL)
+            prev_idx += 1
 
     # Generate dates spanning 2020-2023 (chronologically ordered)
     base_date = pd.Timestamp("2020-01-01")

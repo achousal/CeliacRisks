@@ -157,7 +157,7 @@ class TestTrainingOutputStructure:
                 "--split-dir",
                 str(splits_dir),
                 "--outdir",
-                str(results_dir / "LR_EN"),
+                str(results_dir),
                 "--config",
                 str(minimal_config),
                 "--model",
@@ -173,10 +173,8 @@ class TestTrainingOutputStructure:
 
         # Find run directory under model directory
         # Actual structure: results/LR_EN/run_test_e2e_run/LR_EN/splits/split_seed42/
-        model_dir = results_dir / "LR_EN"
-        run_dirs = [d for d in model_dir.iterdir() if d.is_dir() and d.name.startswith("run_")]
-        assert len(run_dirs) == 1
-        run_dir = run_dirs[0]
+        run_dir = results_dir / "run_test_e2e_run"
+        assert run_dir.exists(), f"Run directory not found: {run_dir}"
         split_dir = run_dir / "LR_EN" / "splits" / "split_seed42"
 
         # Verify directory structure
@@ -224,7 +222,7 @@ class TestTrainingOutputStructure:
                 "--split-dir",
                 str(splits_dir),
                 "--outdir",
-                str(results_dir / "LR_EN"),
+                str(results_dir),
                 "--config",
                 str(minimal_config),
                 "--model",
@@ -295,7 +293,7 @@ class TestTrainingOutputStructure:
                 "--split-dir",
                 str(splits_dir),
                 "--outdir",
-                str(results_dir / "LR_EN"),
+                str(results_dir),
                 "--config",
                 str(minimal_config),
                 "--model",
@@ -364,7 +362,7 @@ class TestTrainingOutputStructure:
                 "--split-dir",
                 str(splits_dir),
                 "--outdir",
-                str(results_dir / "LR_EN"),
+                str(results_dir),
                 "--config",
                 str(minimal_config),
                 "--model",
@@ -436,7 +434,7 @@ class TestAggregationOutputStructure:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / "LR_EN"),
+                    str(results_dir),
                     "--config",
                     str(minimal_config),
                     "--model",
@@ -464,7 +462,7 @@ class TestAggregationOutputStructure:
             pytest.skip("Aggregation failed")
 
         # Verify aggregation directory structure
-        agg_dir = results_dir / "LR_EN" / f"run_{run_id}" / "aggregated"
+        agg_dir = results_dir / f"run_{run_id}" / "LR_EN" / "aggregated"
         assert agg_dir.exists()
 
         required_dirs = ["metrics", "preds", "panels"]
@@ -512,7 +510,7 @@ class TestAggregationOutputStructure:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / "LR_EN"),
+                    str(results_dir),
                     "--config",
                     str(minimal_config),
                     "--model",
@@ -593,7 +591,7 @@ class TestAggregationOutputStructure:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / "LR_EN"),
+                    str(results_dir),
                     "--config",
                     str(minimal_config),
                     "--model",
@@ -681,7 +679,7 @@ class TestEnsembleOutputStructure:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / model),
+                    str(results_dir),
                     "--config",
                     str(minimal_config),
                     "--model",
@@ -701,7 +699,15 @@ class TestEnsembleOutputStructure:
 
         result_ens = runner.invoke(
             cli,
-            ["train-ensemble", "--run-id", run_id, "--split-seed", "42"],
+            [
+                "train-ensemble",
+                "--run-id",
+                run_id,
+                "--split-seed",
+                "42",
+                "--results-dir",
+                str(results_dir),
+            ],
             catch_exceptions=False,
         )
 
@@ -709,7 +715,7 @@ class TestEnsembleOutputStructure:
             pytest.skip("Ensemble training failed")
 
         # Verify ENSEMBLE directory exists and is separate
-        ensemble_dir = results_dir / "ENSEMBLE" / f"run_{run_id}" / "splits" / "split_seed42"
+        ensemble_dir = results_dir / f"run_{run_id}" / "ENSEMBLE" / "splits" / "split_seed42"
         assert ensemble_dir.exists(), "ENSEMBLE directory not created"
 
         # Should have similar structure to base models
@@ -757,7 +763,7 @@ class TestEnsembleOutputStructure:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / model),
+                    str(results_dir),
                     "--config",
                     str(minimal_config),
                     "--model",
@@ -776,7 +782,15 @@ class TestEnsembleOutputStructure:
 
         result_ens = runner.invoke(
             cli,
-            ["train-ensemble", "--run-id", run_id, "--split-seed", "42"],
+            [
+                "train-ensemble",
+                "--run-id",
+                run_id,
+                "--split-seed",
+                "42",
+                "--results-dir",
+                str(results_dir),
+            ],
             catch_exceptions=False,
         )
 
@@ -784,7 +798,7 @@ class TestEnsembleOutputStructure:
             pytest.skip("Ensemble training failed")
 
         # Find ensemble metadata
-        metrics_files = list((results_dir / "ENSEMBLE").rglob("metrics.json"))
+        metrics_files = list((results_dir / f"run_{run_id}" / "ENSEMBLE").rglob("metrics.json"))
         if len(metrics_files) > 0:
             with open(metrics_files[0]) as f:
                 metrics = json.load(f)
@@ -840,7 +854,7 @@ class TestPanelOptimizationOutputStructure:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / "LR_EN"),
+                    str(results_dir),
                     "--config",
                     str(minimal_config),
                     "--model",
@@ -873,7 +887,7 @@ class TestPanelOptimizationOutputStructure:
             pytest.skip("Panel optimization failed")
 
         # Verify RFE outputs
-        panel_dir = results_dir / "LR_EN" / f"run_{run_id}" / "aggregated" / "optimize_panel"
+        panel_dir = results_dir / f"run_{run_id}" / "LR_EN" / "aggregated" / "optimize_panel"
         assert panel_dir.exists()
 
         required_files = [
@@ -926,7 +940,7 @@ class TestPanelOptimizationOutputStructure:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / "LR_EN"),
+                    str(results_dir),
                     "--config",
                     str(minimal_config),
                     "--model",
@@ -961,8 +975,8 @@ class TestPanelOptimizationOutputStructure:
         # Validate panel curve
         panel_curve_path = (
             results_dir
-            / "LR_EN"
             / f"run_{run_id}"
+            / "LR_EN"
             / "aggregated"
             / "optimize_panel"
             / "panel_curve_aggregated.csv"

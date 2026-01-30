@@ -149,12 +149,9 @@ All commands use YAML configs in `analysis/configs/`:
 
 | Document | Description |
 |----------|-------------|
-| [CLAUDE.md](CLAUDE.md) | Project overview (START HERE) |
+| [CLAUDE.md](CLAUDE.md) | Project overview |
 | [ARCHITECTURE.md](analysis/docs/ARCHITECTURE.md) | Technical architecture + code pointers |
 | [ADRs](analysis/docs/adr/) | 15 architectural decisions (split strategy, calibration, ensembles, etc.) |
-| [CLI_REFERENCE.md](analysis/docs/reference/CLI_REFERENCE.md) | Complete command reference |
-| [FEATURE_SELECTION.md](analysis/docs/reference/FEATURE_SELECTION.md) | Five feature selection strategies guide |
-| [HYPERPARAMETER_TUNING.md](analysis/docs/reference/HYPERPARAMETER_TUNING.md) | Tuning guide |
 | [ARTIFACTS.md](analysis/docs/reference/ARTIFACTS.md) | Output structure |
 
 ---

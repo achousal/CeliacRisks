@@ -561,7 +561,7 @@ class TestEnsembleWithRunId:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / model),
+                    str(results_dir),
                     "--config",
                     str(fast_training_config),
                     "--model",
@@ -609,8 +609,8 @@ class TestEnsembleWithRunId:
         assert result_ens.exit_code == 0, f"Ensemble with --run-id failed: {result_ens.output}"
 
         # Verify ensemble outputs
-        ensemble_dir = results_dir / "ENSEMBLE" / f"split_{42}"
-        assert ensemble_dir.exists(), "Ensemble directory should exist"
+        ensemble_dir = results_dir / f"run_{SHARED_RUN_ID}" / "ENSEMBLE" / "splits" / "split_seed42"
+        assert ensemble_dir.exists(), f"Ensemble directory should exist: {ensemble_dir}"
         assert (ensemble_dir / "core" / "metrics.json").exists(), "Ensemble metrics should exist"
 
     def test_ensemble_run_id_without_base_models_fails(self, tmp_path):
@@ -948,7 +948,7 @@ class TestConsensusPanelWithRunId:
                         "--split-dir",
                         str(splits_dir),
                         "--outdir",
-                        str(results_dir / model),
+                        str(results_dir),
                         "--config",
                         str(fast_training_config),
                         "--model",
@@ -1015,8 +1015,8 @@ class TestConsensusPanelWithRunId:
         ), f"Consensus-panel with --run-id failed: {result_consensus.output}"
 
         # Verify consensus panel outputs
-        consensus_dir = results_dir / "consensus_panel" / f"run_{run_id}"
-        assert consensus_dir.exists(), "Consensus panel directory should exist"
+        consensus_dir = results_dir / f"run_{run_id}" / "consensus"
+        assert consensus_dir.exists(), f"Consensus panel directory should exist: {consensus_dir}"
         assert (consensus_dir / "final_panel.txt").exists(), "Final panel should exist"
         assert (consensus_dir / "consensus_ranking.csv").exists(), "Consensus ranking should exist"
 
@@ -1184,7 +1184,7 @@ class TestFullPipelineWithRunId:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / model),
+                    str(results_dir),
                     "--config",
                     str(fast_training_config),
                     "--model",
@@ -1221,7 +1221,7 @@ class TestFullPipelineWithRunId:
             pytest.skip("Ensemble training failed")
 
         # Step 4: Verify ensemble outputs
-        ensemble_dir = results_dir / "ENSEMBLE" / "split_42"
+        ensemble_dir = results_dir / f"run_{SHARED_RUN_ID}" / "ENSEMBLE" / "splits" / "split_seed42"
         assert ensemble_dir.exists()
         assert (ensemble_dir / "core" / "metrics.json").exists()
 
