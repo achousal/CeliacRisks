@@ -26,9 +26,12 @@ A modular ML framework for predicting disease risk from proteomics or other high
 
 ## Quick Start
 
-### Local
 ```bash
 git clone https://github.com/achousal/CeliacRiskML.git
+```
+
+### Local
+```bash
 cd CeliacRiskML/
 pip install -e analysis/
 ced run-pipeline
@@ -41,9 +44,6 @@ bash analysis/scripts/hpc_setup.sh
 
 # Submit pipeline with LSF job dependency chains
 ced run-pipeline --hpc
-
-# Preview without submitting
-ced run-pipeline --hpc --dry-run
 
 # Monitor jobs
 bjobs -w | grep CeD_
