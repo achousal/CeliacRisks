@@ -603,7 +603,7 @@ def test_collect_oof_predictions_from_files():
 
         # Create mock directory structure and files
         for model in ["LR_EN", "RF"]:
-            model_dir = results_dir / model / "split_0" / "preds"
+            model_dir = results_dir / "run_test" / model / "splits" / "split_seed0" / "preds"
             model_dir.mkdir(parents=True)
 
             # Create mock OOF CSV
@@ -639,7 +639,7 @@ def test_collect_oof_predictions_index_length_mismatch():
         results_dir = Path(tmpdir)
 
         # Create LR_EN with 100 samples
-        lr_dir = results_dir / "LR_EN" / "split_0" / "preds"
+        lr_dir = results_dir / "run_test" / "LR_EN" / "splits" / "split_seed0" / "preds"
         lr_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -650,7 +650,7 @@ def test_collect_oof_predictions_index_length_mismatch():
         ).to_csv(lr_dir / "train_oof__LR_EN.csv", index=False)
 
         # Create RF with 80 samples (mismatch)
-        rf_dir = results_dir / "RF" / "split_0" / "preds"
+        rf_dir = results_dir / "run_test" / "RF" / "splits" / "split_seed0" / "preds"
         rf_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -675,7 +675,7 @@ def test_collect_oof_predictions_index_value_mismatch():
         results_dir = Path(tmpdir)
 
         # Create LR_EN with indices 0-99
-        lr_dir = results_dir / "LR_EN" / "split_0" / "preds"
+        lr_dir = results_dir / "run_test" / "LR_EN" / "splits" / "split_seed0" / "preds"
         lr_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -686,7 +686,7 @@ def test_collect_oof_predictions_index_value_mismatch():
         ).to_csv(lr_dir / "train_oof__LR_EN.csv", index=False)
 
         # Create RF with different indices (100-199 instead of 0-99)
-        rf_dir = results_dir / "RF" / "split_0" / "preds"
+        rf_dir = results_dir / "run_test" / "RF" / "splits" / "split_seed0" / "preds"
         rf_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -711,7 +711,7 @@ def test_collect_split_predictions_index_length_mismatch():
         results_dir = Path(tmpdir)
 
         # Create LR_EN with 50 test samples
-        lr_dir = results_dir / "LR_EN" / "split_0" / "preds"
+        lr_dir = results_dir / "run_test" / "LR_EN" / "splits" / "split_seed0" / "preds"
         lr_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -722,7 +722,7 @@ def test_collect_split_predictions_index_length_mismatch():
         ).to_csv(lr_dir / "test_preds__LR_EN.csv", index=False)
 
         # Create RF with 40 test samples (mismatch)
-        rf_dir = results_dir / "RF" / "split_0" / "preds"
+        rf_dir = results_dir / "run_test" / "RF" / "splits" / "split_seed0" / "preds"
         rf_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -748,7 +748,7 @@ def test_collect_split_predictions_index_value_mismatch():
         results_dir = Path(tmpdir)
 
         # Create LR_EN with indices 0-49
-        lr_dir = results_dir / "LR_EN" / "split_0" / "preds"
+        lr_dir = results_dir / "run_test" / "LR_EN" / "splits" / "split_seed0" / "preds"
         lr_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -759,7 +759,7 @@ def test_collect_split_predictions_index_value_mismatch():
         ).to_csv(lr_dir / "test_preds__LR_EN.csv", index=False)
 
         # Create RF with different indices
-        rf_dir = results_dir / "RF" / "split_0" / "preds"
+        rf_dir = results_dir / "run_test" / "RF" / "splits" / "split_seed0" / "preds"
         rf_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -785,7 +785,7 @@ def test_collect_split_predictions_val_index_mismatch():
         results_dir = Path(tmpdir)
 
         # Create LR_EN with indices 0-29
-        lr_dir = results_dir / "LR_EN" / "split_0" / "preds"
+        lr_dir = results_dir / "run_test" / "LR_EN" / "splits" / "split_seed0" / "preds"
         lr_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -796,7 +796,7 @@ def test_collect_split_predictions_val_index_mismatch():
         ).to_csv(lr_dir / "val_preds__LR_EN.csv", index=False)
 
         # Create RF with different indices
-        rf_dir = results_dir / "RF" / "split_0" / "preds"
+        rf_dir = results_dir / "run_test" / "RF" / "splits" / "split_seed0" / "preds"
         rf_dir.mkdir(parents=True)
         pd.DataFrame(
             {
@@ -825,7 +825,7 @@ def test_collect_oof_predictions_matching_indices_succeeds():
         shared_indices = np.arange(100)
 
         for model in ["LR_EN", "RF", "XGBoost"]:
-            model_dir = results_dir / model / "split_0" / "preds"
+            model_dir = results_dir / "run_test" / model / "splits" / "split_seed0" / "preds"
             model_dir.mkdir(parents=True)
             pd.DataFrame(
                 {
@@ -857,12 +857,12 @@ def test_ensemble_predictions_directory_structure():
         results_dir = Path(tmpdir) / "results"
         results_dir.mkdir(parents=True)
 
-        # Create mock base model results (flat preds directory)
+        # Create mock base model results (with run_* directory and splits/)
         for model in ["LR_EN", "RF"]:
-            preds_dir = results_dir / model / "split_0" / "preds"
+            preds_dir = results_dir / "run_test" / model / "splits" / "split_seed0" / "preds"
             preds_dir.mkdir(parents=True)
 
-            # Mock OOF predictions (flat structure)
+            # Mock OOF predictions
             oof_df = pd.DataFrame(
                 {
                     "idx": np.arange(100),
@@ -873,7 +873,7 @@ def test_ensemble_predictions_directory_structure():
             )
             oof_df.to_csv(preds_dir / f"train_oof__{model}.csv", index=False)
 
-            # Mock val predictions (flat structure)
+            # Mock val predictions
             val_df = pd.DataFrame(
                 {
                     "idx": np.arange(50),
@@ -883,7 +883,7 @@ def test_ensemble_predictions_directory_structure():
             )
             val_df.to_csv(preds_dir / f"val_preds__{model}.csv", index=False)
 
-            # Mock test predictions (flat structure)
+            # Mock test predictions
             test_df = pd.DataFrame(
                 {
                     "idx": np.arange(50, 100),
@@ -903,18 +903,18 @@ def test_ensemble_predictions_directory_structure():
 
         assert result is not None
 
-        # Check that ENSEMBLE predictions are in the flat preds directory
-        ensemble_dir = results_dir / "ENSEMBLE" / "split_0"
+        # Check that ENSEMBLE predictions are in the expected directory
+        ensemble_dir = results_dir / "run_test" / "ENSEMBLE" / "splits" / "split_seed0"
 
-        # Val predictions should be in flat preds/ directory
+        # Val predictions should be in preds/ directory
         val_preds_path = ensemble_dir / "preds" / "val_preds__ENSEMBLE.csv"
         assert val_preds_path.exists(), f"Val predictions not found at {val_preds_path}"
 
-        # Test predictions should be in flat preds/ directory
+        # Test predictions should be in preds/ directory
         test_preds_path = ensemble_dir / "preds" / "test_preds__ENSEMBLE.csv"
         assert test_preds_path.exists(), f"Test predictions not found at {test_preds_path}"
 
-        # OOF predictions should be in flat preds/ directory
+        # OOF predictions should be in preds/ directory
         oof_preds_path = ensemble_dir / "preds" / "train_oof__ENSEMBLE.csv"
         assert oof_preds_path.exists(), f"OOF predictions not found at {oof_preds_path}"
 
@@ -936,42 +936,42 @@ class TestEnsembleAggregationSupport:
 
     def test_discover_ensemble_dirs_empty(self, tmp_path):
         """Test that empty directory returns empty list."""
-        from ced_ml.cli.aggregate_splits import discover_ensemble_dirs
+        from ced_ml.cli.aggregation.discovery import discover_ensemble_dirs
 
         result = discover_ensemble_dirs(tmp_path)
         assert result == []
 
     def test_discover_ensemble_dirs_no_ensemble_folder(self, tmp_path):
         """Test that missing ENSEMBLE folder returns empty list."""
-        from ced_ml.cli.aggregate_splits import discover_ensemble_dirs
+        from ced_ml.cli.aggregation.discovery import discover_ensemble_dirs
 
         (tmp_path / "some_other_folder").mkdir()
         result = discover_ensemble_dirs(tmp_path)
         assert result == []
 
     def test_discover_ensemble_dirs_split_underscore_format(self, tmp_path):
-        """Test discovery of split_X format directories."""
-        from ced_ml.cli.aggregate_splits import discover_ensemble_dirs
+        """Test discovery of split_seedX format directories."""
+        from ced_ml.cli.aggregation.discovery import discover_ensemble_dirs
 
-        ensemble_dir = tmp_path / "ENSEMBLE"
-        ensemble_dir.mkdir()
-        (ensemble_dir / "split_0").mkdir()
-        (ensemble_dir / "split_1").mkdir()
-        (ensemble_dir / "split_2").mkdir()
+        ensemble_dir = tmp_path / "ENSEMBLE" / "splits"
+        ensemble_dir.mkdir(parents=True)
+        (ensemble_dir / "split_seed0").mkdir()
+        (ensemble_dir / "split_seed1").mkdir()
+        (ensemble_dir / "split_seed2").mkdir()
 
         result = discover_ensemble_dirs(tmp_path)
         assert len(result) == 3
         # Check they're sorted by seed
-        assert result[0].name == "split_0"
-        assert result[1].name == "split_1"
-        assert result[2].name == "split_2"
+        assert result[0].name == "split_seed0"
+        assert result[1].name == "split_seed1"
+        assert result[2].name == "split_seed2"
 
     def test_discover_ensemble_dirs_split_seed_format(self, tmp_path):
         """Test discovery of split_seed{X} format directories."""
-        from ced_ml.cli.aggregate_splits import discover_ensemble_dirs
+        from ced_ml.cli.aggregation.discovery import discover_ensemble_dirs
 
-        ensemble_dir = tmp_path / "ENSEMBLE"
-        ensemble_dir.mkdir()
+        ensemble_dir = tmp_path / "ENSEMBLE" / "splits"
+        ensemble_dir.mkdir(parents=True)
         (ensemble_dir / "split_seed0").mkdir()
         (ensemble_dir / "split_seed5").mkdir()
         (ensemble_dir / "split_seed10").mkdir()
@@ -984,28 +984,26 @@ class TestEnsembleAggregationSupport:
         assert result[2].name == "split_seed10"
 
     def test_discover_ensemble_dirs_mixed_formats(self, tmp_path):
-        """Test discovery handles mixed naming conventions."""
-        from ced_ml.cli.aggregate_splits import discover_ensemble_dirs
+        """Test discovery handles only split_seed format directories."""
+        from ced_ml.cli.aggregation.discovery import discover_ensemble_dirs
 
-        ensemble_dir = tmp_path / "ENSEMBLE"
-        ensemble_dir.mkdir()
-        (ensemble_dir / "split_0").mkdir()
+        ensemble_dir = tmp_path / "ENSEMBLE" / "splits"
+        ensemble_dir.mkdir(parents=True)
+        (ensemble_dir / "split_seed0").mkdir()
         (ensemble_dir / "split_seed1").mkdir()
-        (ensemble_dir / "split_2").mkdir()
+        (ensemble_dir / "split_seed2").mkdir()
 
         result = discover_ensemble_dirs(tmp_path)
         assert len(result) == 3
 
     def test_collect_ensemble_predictions_empty(self, tmp_path):
         """Test collecting predictions from empty directories."""
-        from ced_ml.cli.aggregate_splits import (
-            collect_ensemble_predictions,
-            discover_ensemble_dirs,
-        )
+        from ced_ml.cli.aggregation.collection import collect_ensemble_predictions
+        from ced_ml.cli.aggregation.discovery import discover_ensemble_dirs
 
-        ensemble_dir = tmp_path / "ENSEMBLE"
-        ensemble_dir.mkdir()
-        (ensemble_dir / "split_0").mkdir()
+        ensemble_dir = tmp_path / "ENSEMBLE" / "splits"
+        ensemble_dir.mkdir(parents=True)
+        (ensemble_dir / "split_seed0").mkdir()
 
         ensemble_dirs = discover_ensemble_dirs(tmp_path)
         result = collect_ensemble_predictions(ensemble_dirs, "test")
@@ -1013,20 +1011,18 @@ class TestEnsembleAggregationSupport:
 
     def test_collect_ensemble_predictions_with_data(self, tmp_path):
         """Test collecting predictions with actual data."""
-        from ced_ml.cli.aggregate_splits import (
-            collect_ensemble_predictions,
-            discover_ensemble_dirs,
-        )
+        from ced_ml.cli.aggregation.collection import collect_ensemble_predictions
+        from ced_ml.cli.aggregation.discovery import discover_ensemble_dirs
 
-        # Setup directory structure (flat preds)
-        ensemble_dir = tmp_path / "ENSEMBLE"
-        ensemble_dir.mkdir()
-        split_dir = ensemble_dir / "split_0"
+        # Setup directory structure
+        ensemble_dir = tmp_path / "ENSEMBLE" / "splits"
+        ensemble_dir.mkdir(parents=True)
+        split_dir = ensemble_dir / "split_seed0"
         split_dir.mkdir()
         preds_dir = split_dir / "preds"
         preds_dir.mkdir(parents=True)
 
-        # Create test predictions (flat structure)
+        # Create test predictions
         pd.DataFrame(
             {
                 "idx": [0, 1, 2],
@@ -1046,17 +1042,15 @@ class TestEnsembleAggregationSupport:
 
     def test_collect_ensemble_predictions_multiple_splits(self, tmp_path):
         """Test collecting predictions from multiple splits."""
-        from ced_ml.cli.aggregate_splits import (
-            collect_ensemble_predictions,
-            discover_ensemble_dirs,
-        )
+        from ced_ml.cli.aggregation.collection import collect_ensemble_predictions
+        from ced_ml.cli.aggregation.discovery import discover_ensemble_dirs
 
         # Setup directory structure with two splits
-        ensemble_dir = tmp_path / "ENSEMBLE"
-        ensemble_dir.mkdir()
+        ensemble_dir = tmp_path / "ENSEMBLE" / "splits"
+        ensemble_dir.mkdir(parents=True)
 
         for seed in [0, 1]:
-            split_dir = ensemble_dir / f"split_{seed}"
+            split_dir = ensemble_dir / f"split_seed{seed}"
             split_dir.mkdir()
             preds_dir = split_dir / "preds"
             preds_dir.mkdir(parents=True)
@@ -1079,15 +1073,13 @@ class TestEnsembleAggregationSupport:
         """Test collecting metrics from ENSEMBLE directories."""
         import json
 
-        from ced_ml.cli.aggregate_splits import (
-            collect_ensemble_metrics,
-            discover_ensemble_dirs,
-        )
+        from ced_ml.cli.aggregation.collection import collect_ensemble_metrics
+        from ced_ml.cli.aggregation.discovery import discover_ensemble_dirs
 
         # Setup directory structure
-        ensemble_dir = tmp_path / "ENSEMBLE"
-        ensemble_dir.mkdir()
-        split_dir = ensemble_dir / "split_0"
+        ensemble_dir = tmp_path / "ENSEMBLE" / "splits"
+        ensemble_dir.mkdir(parents=True)
+        split_dir = ensemble_dir / "split_seed0"
         split_dir.mkdir()
         core_dir = split_dir / "core"
         core_dir.mkdir()
@@ -1111,7 +1103,7 @@ class TestEnsembleAggregationSupport:
 
     def test_generate_model_comparison_report(self, tmp_path):
         """Test model comparison report generation."""
-        from ced_ml.cli.aggregate_splits import generate_model_comparison_report
+        from ced_ml.cli.aggregation.plot_generator import generate_model_comparison_report
 
         test_metrics = {
             "LR_EN": {"AUROC": 0.85, "PR_AUC": 0.12, "Brier": 0.08},
@@ -1150,7 +1142,7 @@ class TestEnsembleAggregationSupport:
 
     def test_generate_model_comparison_report_sorted_by_auroc(self, tmp_path):
         """Test that model comparison report is sorted by test AUROC."""
-        from ced_ml.cli.aggregate_splits import generate_model_comparison_report
+        from ced_ml.cli.aggregation.plot_generator import generate_model_comparison_report
 
         test_metrics = {
             "RF": {"AUROC": 0.82},
@@ -1167,7 +1159,7 @@ class TestEnsembleAggregationSupport:
 
     def test_generate_model_comparison_report_empty(self, tmp_path):
         """Test model comparison report with empty metrics."""
-        from ced_ml.cli.aggregate_splits import generate_model_comparison_report
+        from ced_ml.cli.aggregation.plot_generator import generate_model_comparison_report
 
         result = generate_model_comparison_report({}, {}, {}, tmp_path)
         assert result.empty

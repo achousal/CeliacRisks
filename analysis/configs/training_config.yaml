@@ -1,20 +1,20 @@
-# Training Configuration
+# Training Configuration (Production)
 # Model training for Celiac Disease risk prediction
+# This is the single source of truth -- HPC production values are the defaults.
 
 # NOTE: scenario is auto-detected from split files (set in splits_config.yaml)
 
 # Cross-validation
 cv:
-  folds: 3
-  repeats: 2
+  folds: 5
+  repeats: 3
   scoring: roc_auc  # Options: roc_auc, average_precision, neg_brier_score
   # n_iter: 2  # Global override: if set, overrides ALL per-model n_iter values below
   inner_folds: 3
-  n_jobs: 1  # CRITICAL: Set to 1 to prevent nested parallelism memory explosion (was -1)
+  n_jobs: -1  # Use all cores (-1). Set to 1 locally if memory is tight.
   random_state: 42
   grid_randomize: true  # Randomize numeric grid values for more diverse search
   verbose: 1
-  # Local testing: 3 folds x 2 repeats = 6 CV splits (lightweight)
 
 # Ensemble training: Use separate CLI command `ced train-ensemble`
 # See docs/reference/CLI_REFERENCE.md for usage
@@ -22,14 +22,14 @@ cv:
 # Optuna hyperparameter optimization (optional alternative to RandomizedSearchCV)
 optuna:
   enabled: true  # Set to true to use Optuna instead of RandomizedSearchCV
-  n_trials: 10  # Number of hyperparameter trials (exploratory local testing)
+  n_trials: 600  # Thorough search
   timeout: null  # Optional timeout in seconds (null = no limit)
-  sampler: random  # Options: tpe, random, cmaes, grid
+  sampler: tpe  # Options: tpe, random, cmaes, grid
   sampler_seed: 42  # Seed for reproducibility
-  pruner: hyperband  # Options: median, percentile, hyperband, none
-  pruner_n_startup_trials: 5  # Number of trials before pruning starts
-  pruner_percentile: 20.0  # Percentile for percentile pruner (0-100)
-  n_jobs: 4  # CRITICAL: Limit parallelism to prevent memory explosion with CalibratedClassifierCV (was -1)
+  pruner: median  # Options: median, percentile, hyperband, none
+  pruner_n_startup_trials: 20  # Trials before pruning starts
+  pruner_percentile: 25.0  # Percentile for percentile pruner (0-100)
+  n_jobs: 4  # CRITICAL: Limit parallelism to prevent memory explosion with CalibratedClassifierCV
   save_study: true  # Save Optuna study object
   save_trials_csv: true  # Save trials as CSV
 
@@ -39,13 +39,13 @@ optuna:
 features:
   # Strategy selection (change this to switch methods)
   feature_selection_strategy: hybrid_stability  # Options: hybrid_stability, rfecv, none
-  # - hybrid_stability: Fast (~30 min), screen → k-best → stability → corr-prune
-  # - rfecv: Rigorous (~4-5h with k-best=100), screen → RFE with CV
+  # - hybrid_stability: Fast (~30 min), screen -> k-best -> stability -> corr-prune
+  # - rfecv: Rigorous (~4-5h with k-best=100), screen -> RFE with CV
   # - none: No feature selection (use all screened features)
 
   # Common: Screening (used by all strategies)
   screen_method: mannwhitney  # "mannwhitney" or "f_classif"
-  screen_top_n: 1000  # Stage 1: Mann-Whitney → keep top 1000
+  screen_top_n: 1000  # Stage 1: Mann-Whitney -> keep top 1000
 
   # Strategy 1: Hybrid Stability parameters (used if strategy=hybrid_stability)
   k_grid: [25, 50, 100, 150, 200, 300, 400]  # K-best tuning grid
@@ -53,10 +53,10 @@ features:
   stable_corr_thresh: 0.85  # Remove features with r > 0.85
 
   # Strategy 2: RFECV parameters (used if strategy=rfecv)
-  rfe_kbest_prefilter: false  # Enable k-best pre-filter (5× speedup)
-  rfe_kbest_k: 100  # Reduces ~300 → ~100 proteins before RFECV
+  rfe_kbest_prefilter: false  # Enable k-best pre-filter (5x speedup)
+  rfe_kbest_k: 100  # Reduces ~300 -> ~100 proteins before RFECV
   rfe_target_size: 50  # Minimum features (stops at 50//2 = 25)
-  rfe_step_strategy: 5  # Options: adaptive, linear, geometric
+  rfe_step_strategy: adaptive  # Options: adaptive, linear, geometric, or int
   rfe_cv_folds: 3  # Inner CV folds for RFE
   rfe_consensus_thresh: 0.80  # Consensus threshold across CV repeats
 
@@ -91,7 +91,7 @@ lr:
 
   # Fixed parameters (used as baseline for all trials):
   solver: saga              # Solver supporting L1/ElasticNet
-  max_iter: 5000           # Increased for convergence (was 5000)
+  max_iter: 10000           # Ensure convergence with 5-fold CV
 
   # Search algorithm settings:
   n_iter: 4                 # RandomizedSearchCV iterations (ignored if optuna.enabled=true)
@@ -136,27 +136,27 @@ rf:
 # XGBoost
 xgboost:
   # Tuned parameters (explored by RandomizedSearchCV/Optuna):
-  n_estimators_grid: [100, 200, 400, 800, 1200]        # Boosting rounds
-  max_depth_grid: [3, 4, 5, 6, 7, 8]                   # Tree depth
-  learning_rate_grid: [0.01, 0.03, 0.05, 0.1, 0.2]     # Exploratory learning rates
-  subsample_grid: [0.5, 0.7, 0.85, 1.0]                # Expanded row subsampling
-  colsample_bytree_grid: [0.3, 0.5, 0.7, 0.85, 1.0]    # Expanded column subsampling
-  scale_pos_weight_grid: [3.0, 5.0, 6.0, 7.0, 10.0]    # Expanded class weight range
-  min_child_weight_grid: [1, 2, 4, 6, 10]              # Min child weight
-  gamma_grid: [0.0, 0.05, 0.1, 0.5, 1.0, 2.0]          # Expanded min split loss
-  reg_alpha_grid: [0.0, 0.001, 0.01, 0.1, 1.0]         # L1 regularization
-  reg_lambda_grid: [0.01, 0.1, 1.0, 5.0, 10.0, 50.0]   # Expanded L2 regularization
+  n_estimators_grid: [500, 800, 1200, 1600, 2000]
+  max_depth_grid: [3, 4, 5, 6, 7]                        # Constrained (was [3-8])
+  learning_rate_grid: [0.005, 0.01, 0.02, 0.03, 0.05]
+  subsample_grid: [0.5, 0.6, 0.7, 0.8]
+  colsample_bytree_grid: [0.4, 0.5, 0.6, 0.7]
+  scale_pos_weight_grid: [3.0, 5.0, 7.0, 10.0]
+  min_child_weight_grid: [5, 10, 15, 20, 30]             # Conservative (was [1-10])
+  gamma_grid: [0.5, 1.0, 2.0, 3.0, 5.0]                 # Higher split cost (was [0.0-2.0])
+  reg_alpha_grid: [0.01, 0.1, 1.0, 5.0, 10.0]           # Stronger L1 (was [0.0-1.0])
+  reg_lambda_grid: [1.0, 5.0, 10.0, 30.0, 50.0, 100.0]  # Much stronger L2
 
-  # Optuna-specific ranges (optional, override grid-derived ranges)
-  optuna_n_estimators: [50, 1500]            # Exploratory range
-  optuna_max_depth: [3, 10]                  # Exploratory range
-  optuna_learning_rate: [0.005, 0.3]         # Exploratory range
-  optuna_min_child_weight: [0.1, 20.0]       # Exploratory range
-  optuna_gamma: [0.0, 2.0]                   # Exploratory range
-  optuna_subsample: [0.5, 1.0]               # Exploratory range
-  optuna_colsample_bytree: [0.3, 1.0]        # Exploratory range
-  optuna_reg_alpha: [1.0e-8, 10.0]           # Exploratory range (log-scale)
-  optuna_reg_lambda: [1.0e-2, 50.0]          # Exploratory range (log-scale)
+  # Optuna-specific ranges - regularized for production
+  optuna_n_estimators: [500, 2500]         # More rounds (was 50-1500)
+  optuna_max_depth: [3, 7]                 # Shallow only (was 3-10)
+  optuna_learning_rate: [0.005, 0.05]      # Slow (was 0.005-0.3)
+  optuna_min_child_weight: [5.0, 30.0]     # Conservative (was 0.1-20.0)
+  optuna_gamma: [0.5, 5.0]                # Higher split cost (was 0.0-2.0)
+  optuna_subsample: [0.5, 0.8]            # Aggressive row sampling (was 0.5-1.0)
+  optuna_colsample_bytree: [0.4, 0.7]     # Aggressive col sampling (was 0.3-1.0)
+  optuna_reg_alpha: [0.01, 10.0]           # Force L1 (was 1e-8-10.0)
+  optuna_reg_lambda: [1.0, 100.0]          # Force L2 (was 0.01-50.0)
 
   # Fixed parameters (used as baseline for all trials):
   tree_method: hist                            # Algorithm: hist (fast), exact, approx
@@ -194,7 +194,7 @@ thresholds:
 # Evaluation
 evaluation:
   test_ci_bootstrap: true
-  n_boot: 100  # Reduced for local testing (was 500, production: 1000)
+  n_boot: 1000  # Publication-ready CIs
   boot_random_state: 0
   learning_curve: true
   lc_train_sizes: [0.1, 0.25, 0.5, 0.75, 1.0]

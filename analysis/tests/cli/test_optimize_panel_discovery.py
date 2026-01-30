@@ -9,41 +9,39 @@ from ced_ml.cli.optimize_panel import discover_models_by_run_id
 @pytest.fixture
 def mock_results_structure(tmp_path):
     """
-    Create a mock results directory structure:
+    Create a mock results directory structure matching production layout:
         results/
-            LR_EN/
-                run_20260127_115115/
+            run_20260127_115115/
+                LR_EN/
                     aggregated/
                         panels/feature_stability_summary.csv
-                run_20260127_120000/
+                RF/
+                    aggregated/
+                        panels/feature_stability_summary.csv
+                XGBoost/
                     (no aggregated dir)
-            RF/
-                run_20260127_115115/
+                ENSEMBLE/
                     aggregated/
                         panels/feature_stability_summary.csv
-            XGBoost/
-                run_20260127_115115/
+            run_20260127_120000/
+                LR_EN/
                     (no aggregated dir)
-            ENSEMBLE/
-                run_20260127_115115/
-                    aggregated/
-                        panels/feature_stability_summary.csv
     """
     results_root = tmp_path / "results"
 
-    # LR_EN with two runs, only one has aggregated
-    lr_en_run1 = results_root / "LR_EN" / "run_20260127_115115" / "aggregated"
+    # LR_EN with two runs, only first has aggregated
+    lr_en_run1 = results_root / "run_20260127_115115" / "LR_EN" / "aggregated"
     lr_en_feature_reports = lr_en_run1 / "panels"
     lr_en_feature_reports.mkdir(parents=True)
     (lr_en_feature_reports / "feature_stability_summary.csv").write_text(
         "feature,stability\\nP1,0.8\\n"
     )
 
-    lr_en_run2 = results_root / "LR_EN" / "run_20260127_120000"
+    lr_en_run2 = results_root / "run_20260127_120000" / "LR_EN"
     lr_en_run2.mkdir(parents=True)
 
     # RF with aggregated
-    rf_run1 = results_root / "RF" / "run_20260127_115115" / "aggregated"
+    rf_run1 = results_root / "run_20260127_115115" / "RF" / "aggregated"
     rf_feature_reports = rf_run1 / "panels"
     rf_feature_reports.mkdir(parents=True)
     (rf_feature_reports / "feature_stability_summary.csv").write_text(
@@ -51,11 +49,11 @@ def mock_results_structure(tmp_path):
     )
 
     # XGBoost without aggregated
-    xgb_run1 = results_root / "XGBoost" / "run_20260127_115115"
+    xgb_run1 = results_root / "run_20260127_115115" / "XGBoost"
     xgb_run1.mkdir(parents=True)
 
     # ENSEMBLE with aggregated
-    ens_run1 = results_root / "ENSEMBLE" / "run_20260127_115115" / "aggregated"
+    ens_run1 = results_root / "run_20260127_115115" / "ENSEMBLE" / "aggregated"
     ens_feature_reports = ens_run1 / "panels"
     ens_feature_reports.mkdir(parents=True)
     (ens_feature_reports / "feature_stability_summary.csv").write_text(
@@ -82,9 +80,9 @@ def test_discover_all_models(mock_results_structure):
     # Verify paths are correct (should point to aggregated directories)
     assert (
         discovered["LR_EN"]
-        == mock_results_structure / "LR_EN" / "run_20260127_115115" / "aggregated"
+        == mock_results_structure / "run_20260127_115115" / "LR_EN" / "aggregated"
     )
-    assert discovered["RF"] == mock_results_structure / "RF" / "run_20260127_115115" / "aggregated"
+    assert discovered["RF"] == mock_results_structure / "run_20260127_115115" / "RF" / "aggregated"
 
 
 def test_discover_with_model_filter(mock_results_structure):
@@ -149,14 +147,14 @@ def test_discover_with_partial_structure(tmp_path):
     results_root = tmp_path / "results"
 
     # Model with run dir but no aggregated subdir
-    (results_root / "Model1" / "run_20260127_115115").mkdir(parents=True)
+    (results_root / "run_20260127_115115" / "Model1").mkdir(parents=True)
 
     # Model with aggregated dir but missing required feature stability file
-    (results_root / "Model2" / "run_20260127_115115" / "aggregated").mkdir(parents=True)
+    (results_root / "run_20260127_115115" / "Model2" / "aggregated").mkdir(parents=True)
 
     # Model with complete aggregated structure
     model3_feature_reports = (
-        results_root / "Model3" / "run_20260127_115115" / "aggregated" / "panels"
+        results_root / "run_20260127_115115" / "Model3" / "aggregated" / "panels"
     )
     model3_feature_reports.mkdir(parents=True)
     (model3_feature_reports / "feature_stability_summary.csv").write_text(

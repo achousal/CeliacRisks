@@ -232,18 +232,23 @@ def verify_run_metadata(run_dir: Path, expected_model: str, expected_split_seed:
     with open(metadata_path) as f:
         metadata = json.load(f)
 
-    # Check required fields
+    # Check required top-level fields
     assert "run_id" in metadata
-    assert "model" in metadata
-    assert "scenario" in metadata
     assert "infile" in metadata
     assert "split_dir" in metadata
-    assert "split_seed" in metadata
-    assert "timestamp" in metadata
+    assert "models" in metadata
+
+    # Check model-specific fields (nested structure)
+    assert expected_model in metadata["models"], f"Model {expected_model} not in metadata"
+    model_entry = metadata["models"][expected_model]
+    assert "scenario" in model_entry
+    assert "infile" in model_entry
+    assert "split_dir" in model_entry
+    assert "split_seed" in model_entry
+    assert "timestamp" in model_entry
 
     # Validate content
-    assert metadata["model"] == expected_model
-    assert metadata["split_seed"] == expected_split_seed
+    assert model_entry["split_seed"] == expected_split_seed
 
 
 class TestRunIdMetadataCreation:
@@ -291,7 +296,7 @@ class TestRunIdMetadataCreation:
                 "--split-dir",
                 str(splits_dir),
                 "--outdir",
-                str(results_dir / "LR_EN"),
+                str(results_dir),
                 "--config",
                 str(fast_training_config),
                 "--model",
@@ -307,11 +312,12 @@ class TestRunIdMetadataCreation:
         if result.exit_code != 0:
             pytest.skip(f"Training failed: {result.output[:200]}")
 
-        # Find run directory
-        run_dir = results_dir / "LR_EN" / f"run_{SHARED_RUN_ID}"
+        # Find run directory (production layout: results/run_{ID}/)
+        # Actual root for this split is: results/run_{ID}/LR_EN/splits/split_seed42/
+        run_dir = results_dir / f"run_{SHARED_RUN_ID}"
         assert run_dir.exists()
 
-        # Verify metadata
+        # Verify metadata (stored at run level, not split level)
         verify_run_metadata(run_dir, "LR_EN", 42)
 
     def test_run_metadata_persists_across_splits(
@@ -356,7 +362,7 @@ class TestRunIdMetadataCreation:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / "LR_EN"),
+                    str(results_dir),
                     "--config",
                     str(fast_training_config),
                     "--model",
@@ -373,9 +379,12 @@ class TestRunIdMetadataCreation:
                 pytest.skip(f"Training on seed {seed} failed")
 
         # Both splits share one run_id directory
-        run_dir = results_dir / "LR_EN" / f"run_{SHARED_RUN_ID}"
+        # Production layout: results/run_{ID}/{MODEL}/splits/split_seed{N}/
+        run_dir = results_dir / f"run_{SHARED_RUN_ID}"
         assert run_dir.exists()
-        splits_parent = run_dir / "splits"
+        model_dir = run_dir / "LR_EN"
+        assert model_dir.exists(), "Model subdirectory not found"
+        splits_parent = model_dir / "splits"
         assert splits_parent.exists(), "splits/ subdirectory not found"
         split_dirs = [
             d for d in splits_parent.iterdir() if d.is_dir() and d.name.startswith("split_")
@@ -432,7 +441,7 @@ class TestAggregateWithRunId:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / "LR_EN"),
+                    str(results_dir),
                     "--config",
                     str(fast_training_config),
                     "--model",
@@ -478,7 +487,7 @@ class TestAggregateWithRunId:
         assert result_agg.exit_code == 0, f"Aggregation with --run-id failed: {result_agg.output}"
 
         # Verify aggregated outputs
-        agg_dir = results_dir / "LR_EN" / f"run_{run_id}" / "aggregated"
+        agg_dir = results_dir / f"run_{run_id}" / "LR_EN" / "aggregated"
         assert agg_dir.exists(), "Aggregated directory should exist"
         assert any(agg_dir.rglob("*metrics*")), "Aggregated metrics should exist"
 
@@ -683,7 +692,7 @@ class TestOptimizePanelWithRunId:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / "LR_EN"),
+                    str(results_dir),
                     "--config",
                     str(fast_training_config),
                     "--model",
@@ -749,7 +758,7 @@ class TestOptimizePanelWithRunId:
         ), f"Optimize-panel with --run-id failed: {result_opt.output}"
 
         # Verify panel optimization outputs
-        panel_dir = results_dir / "LR_EN" / f"run_{run_id}" / "aggregated" / "optimize_panel"
+        panel_dir = results_dir / f"run_{run_id}" / "LR_EN" / "aggregated" / "optimize_panel"
         assert panel_dir.exists(), "Panel optimization directory should exist"
         assert (panel_dir / "panel_curve_aggregated.csv").exists(), "Panel curve should exist"
 
@@ -799,7 +808,7 @@ class TestOptimizePanelWithRunId:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / "LR_EN"),
+                    str(results_dir),
                     "--config",
                     str(fast_training_config),
                     "--model",
@@ -863,7 +872,7 @@ class TestOptimizePanelWithRunId:
         # Create results directory structure but without aggregated results
         results_dir = tmp_path / "results"
         results_dir.mkdir()
-        model_run_dir = results_dir / "LR_EN" / "run_20260101_000000"
+        model_run_dir = results_dir / "run_20260101_000000" / "LR_EN"
         model_run_dir.mkdir(parents=True)
 
         # Create a split directory but no aggregated directory
@@ -1084,7 +1093,7 @@ class TestFullPipelineWithRunId:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / "LR_EN"),
+                    str(results_dir),
                     "--config",
                     str(fast_training_config),
                     "--model",
@@ -1125,10 +1134,10 @@ class TestFullPipelineWithRunId:
             pytest.skip("Panel optimization failed")
 
         # Verify complete pipeline outputs exist
-        run_dir = results_dir / "LR_EN" / f"run_{run_id}"
+        run_dir = results_dir / f"run_{run_id}"
         assert (run_dir / "run_metadata.json").exists()
-        assert (run_dir / "aggregated").exists()
-        assert (run_dir / "aggregated" / "optimize_panel").exists()
+        assert (run_dir / "LR_EN" / "aggregated").exists()
+        assert (run_dir / "LR_EN" / "aggregated" / "optimize_panel").exists()
 
     @pytest.mark.slow
     def test_complete_ensemble_pipeline(
@@ -1239,10 +1248,11 @@ class TestRunIdErrorHandling:
         """
         results_dir = tmp_path / "results"
 
-        # Create partial structure (model-prefixed, matching production)
-        run_dir = results_dir / "LR_EN" / "run_20260127_115115"
-        (run_dir / "splits" / "split_seed42").mkdir(parents=True)
-        # Missing split_seed43
+        # Create partial structure (matching production layout)
+        # Production layout: results/run_{ID}/{MODEL}/splits/split_seed{N}/
+        run_dir = results_dir / "run_20260127_115115"
+        (run_dir / "LR_EN" / "splits" / "split_seed42").mkdir(parents=True)
+        # Missing split_seed43 to test partial results handling
 
         runner = CliRunner()
         result = runner.invoke(
@@ -1261,8 +1271,8 @@ class TestRunIdErrorHandling:
         Should still work (metadata is optional for older runs).
         """
         results_dir = tmp_path / "results"
-        run_dir = results_dir / "LR_EN" / "run_20260127_115115"
-        run_dir.mkdir(parents=True)
+        run_dir = results_dir / "run_20260127_115115"
+        (run_dir / "LR_EN").mkdir(parents=True)
 
         runner = CliRunner()
         result = runner.invoke(

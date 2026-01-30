@@ -1,7 +1,7 @@
 # Refactoring Plan: ced_ml Codebase
 
 **Created**: 2026-01-28
-**Updated**: 2026-01-29 (audit: refactor-cleaner agent + Codex repo scan)
+**Updated**: 2026-01-29 (audit: refactor-cleaner agent + Codex repo scan + config inheritance changes + v1.10 cruft audit)
 **Status**: Planned
 **Scope**: Exhaustive complexity reduction and modularity improvements
 
@@ -29,6 +29,7 @@
 | `plotting/risk_dist.py` | ~600 | `plot_risk_distribution` 554 lines |
 | `cli/aggregate_splits.py` | ~550 | `run_aggregate_splits` 516 lines |
 
+
 **Cross-cutting issues:**
 - 123 `if config.*` checks (missing Strategy pattern) -- 42 in `cli/train.py` alone
 - Path discovery logic duplicated in 4+ modules
@@ -38,29 +39,141 @@
 - `cli/train.py` imports 24 internal modules (highest coupling in codebase)
 - 51 potentially dead symbols across 18 files
 - 14 distinct boilerplate patterns repeated across CLI commands (~394 lines duplicated)
+- ~50 backward-compat shims, redundant pathways, and dead config options across ~25 files (v1.10 audit)
+
+### Backward-Compat / Cruft Inventory (Codex repo scan, 2026-01-29)
+
+Full line-level inventory organized by category. Items marked **(Rx)** map to a removal candidate below.
+
+#### Back-compat / shim layers
+
+| Area | Locations | Notes |
+|------|-----------|-------|
+| Split metadata legacy formats (scenario-less JSON, legacy index sort) | persistence.py:16,306,353,374,537,589 | **(R3)** |
+| Legacy split filename (no-scenario CSV) | train.py:337,354,373 | **(R3)** |
+| Holdout bare-model wrap + config fallback | holdout.py:88,93,412 | **(R5)** |
+| `panels` module re-exports for old imports | panels.py:26 | Low risk to remove |
+| `calibration` module re-exports for old imports | calibration.py:33-34 | Low risk to remove |
+| KBest alias for old attribute name | kbest.py:486 | Low risk to remove |
+| Aggregation orchestrator return format kept for old callers | orchestrator.py:44 | Low risk to remove |
+| Legacy optuna filename (no model prefix) | aggregate_splits.py:736 | **(R2)** |
+
+#### Legacy support / vestigial paths
+
+| Area | Locations | Notes |
+|------|-----------|-------|
+| Convenience legacy loader in data IO | io.py:482,485 | Can remove if unused |
+| Legacy results layout fallbacks (panels/features, reports/feature_reports) | optimize_panel.py:551,649; consensus_panel.py:95,136 | **(R2)** |
+| Legacy split directory layout | optimize_panel.py:695; train_ensemble.py:361 | **(R3)** |
+| Legacy stability inputs (selected_proteins_per_split fallback) | optimize_panel.py:357 | **(R4)** |
+| Legacy protein name cleanup for CSVs | optimize_panel.py:669 | Phase 5 (I/O centralization) |
+| Legacy `_resid` suffix normalization | optimize_panel.py:801 | Phase 5 / F3 |
+| Legacy ColumnTransformer feature name assumptions | training.py:982,1052,1123 | Medium risk |
+| Deprecated `feature_select` config default | defaults.py:66 | **(R1)** |
+
+#### Compatibility cruft (kept "just in case")
+
+| Area | Locations | Notes |
+|------|-----------|-------|
+| Hardcoded fallbacks in pipeline config resolution | run_pipeline.py:74,119 | Keep (user-friendly auto-detect) |
+| CLI "first non-None wins" pattern | main.py:1294 | Phase 7 (CLI args DRY) |
+| Optuna import fallback (graceful no-optuna) | optuna_search.py:11,30 | Keep (HPC compat) |
+
+#### Redundant pathways
+
+| Area | Locations | Notes |
+|------|-----------|-------|
+| Split seed sources: CLI vs splits config | main.py:1249,1277 | Phase 7 |
+| Stability sources: stable_panel__KBest vs selected_proteins_per_split | optimize_panel.py:333,357 | **(R4)** / F8 |
+| Stability file resolution triple-path | optimize_panel.py:551; consensus_panel.py:95 | **(R2)** / F2 |
+
+#### Defensive fallbacks (keep -- scientifically justified)
+
+| Area | Locations | Rationale |
+|------|-----------|-----------|
+| KBest variance fallback if F-test fails | kbest.py:42,84 | Handles degenerate features |
+| Stability top-N fallback if none pass threshold | stability.py:143,231 | Prevents empty panel |
+| Stratification fallback to outcome only | splits.py:165,201 | Handles small strata |
+| DCA closest-zero fallback | dca.py:437,476 | Numerical edge case |
+| Thresholds fallback path | thresholds.py:503 | Edge case handling |
+| Registry sklearn version compat | registry.py:6,9,245,333 | HPC version variance |
+| Optuna single vs multi-objective validation | optuna_search.py:395 | Runtime safety |
+
+#### Transitional / deprecated APIs
+
+| Area | Locations | Notes |
+|------|-----------|-------|
+| Deprecated `--verbose` CLI arg | save_splits.py:70; train.py:540; aggregate_splits.py:322; train_ensemble.py:279 | **(R1)** / Phase 0f |
+| Deprecated risk_dist plotting args | risk_dist.py:120,173 | **(R1)** |
+
+### Removal candidates (lowest risk first)
+
+| ID | Action | Risk | Files |
+|----|--------|------|-------|
+| R1 | Remove deprecated CLI args (`--verbose`) and deprecated plotting params (`threshold_bundle` only) | Very low | save_splits, train, aggregate_splits, train_ensemble, risk_dist, defaults |
+| R2 | Remove legacy path fallbacks for aggregated results (panels/features, reports/feature_reports) and legacy optuna filename | Low | optimize_panel, consensus_panel, aggregate_splits |
+| R3 | Drop legacy split filename support (scenario-less CSVs) and legacy split meta naming | Low-medium | persistence, train, optimize_panel, train_ensemble |
+| R4 | Remove legacy `selected_proteins_per_split` fallback in optimize-panel | Low | optimize_panel |
+| R5 | Remove bare-model holdout compat (require bundle format) | Medium | holdout (needs artifact cutoff date) |
 
 ---
 
-## Phase 0: Dead Code and Script Hygiene (Very Low Risk)
+## Phase 0: Dead Code, Dead Config, and Script Hygiene (Very Low Risk)
 
-**Goal**: Remove unused code and archive superseded scripts before structural refactoring.
+**Goal**: Remove unused code, dead config, and archive superseded scripts before structural refactoring.
 
-**Dead code removals:**
+### 0a. Dead code removals
+
 - `utils/paths.py`: `get_run_dir`, `get_core_dir`, `get_preds_dir`, `get_diagnostics_dir`, `get_reports_dir` have zero callers (only defined + re-exported via `__init__.py`). Remove functions and drop from `__all__`.
 - `utils/metadata.py`: Docstring references `build_holdout_metadata` which does not exist. Remove stale reference. Also remove `format_split_info` (zero callers).
-- `config/loader.py`: 6 dead functions -- `load_holdout_config`, `load_panel_optimize_config`, `convert_paths`, `print_config_summary`, `format_dict`, `resolve_value`. Remove all.
+- `config/loader.py`: 6 dead functions -- `load_holdout_config`, `load_panel_optimize_config`, `convert_paths`, `print_config_summary`, `format_dict`, `resolve_value`. Remove all. **Note**: `load_yaml` now supports `_base` key for YAML config inheritance (deep-merge); this is active code -- do not remove.
 - `utils/logging.py`: 3 dead symbols -- `cleanup_live_logs`, `LoggerContext`, `log_dict`. Remove all.
 - `config/schema.py`: 9 dataclasses potentially dead (`PanelConfig`, `SVMConfig`, `RFConfig`, `XGBoostConfig`, `EvaluationConfig`, `DCAConfig`, `OutputConfig`, `StrictnessConfig`, `ComputeConfig`, `RootConfig`). **Verify YAML deserialization usage before removing** -- these may be instantiated dynamically. Also: `rfe_min_auroc_frac` field unused -- implement or mark deprecated.
 
-**Script archival:**
+### 0b. Dead config options (v1.10 audit)
+
+Remove from `config/schema.py` and `config/defaults.py`:
+
+| Parameter | Why dead |
+|-----------|----------|
+| `splits.save_indices_only` | Defined in schema, never read by any code |
+| `features.kbest_scope` | Defined as `Literal["protein", "transformed"]`, never used to alter behavior |
+| `features.kbest_max` | Defined, never enforced in k-best selection |
+| `features.rf_use_permutation` + `rf_perm_repeats` + `rf_perm_min_importance` + `rf_perm_top_n` | Full RF permutation importance feature never wired into training |
+| `features.coef_threshold` | Defined in schema, not in defaults, no usage |
+| `evaluation.bootstrap_min_samples` | Defined, never checked in code |
+| `cv.scoring_target_fpr` | Defined, not wired into scoring logic |
+| Entire `PanelConfig` class (`panels.*` block) | Replaced by `ced optimize-panel` and `ced consensus-panel` CLI commands |
+
+Also consolidate `cv.tune_n_jobs` into `cv.n_jobs` (redundant param).
+
+**Files**: `config/schema.py`, `config/defaults.py`, `config/validation.py`
+
+### 0c. Conditional dead config (confirm before removing)
+
+| Parameter | Condition for removal |
+|-----------|----------------------|
+| `cv.grid_randomize` | Dead if Optuna is always enabled (production default) |
+| `cv.error_score` | Dead if RandomizedSearchCV code path is unreachable |
+| `output.save_controls_oof` | File is written but never consumed downstream; clarify if needed for manual inspection |
+
+### 0d. Script archival
+
 - `scripts/setup_optimize_panel.py`: Superseded by `ced optimize-panel --run-id` auto-detection. Move to `scripts/_legacy/`.
 - `scripts/hpc_optimize_panel.sh`: Duplicates run-id/model discovery already in `post_training_pipeline.sh`. Move to `scripts/_legacy/`.
 - `scripts/validate_rfecv_fix.py`: One-off validation. Convert assertions into tests under `tests/features/`, then delete script.
+- `run_hpc.sh`: Already a deprecation stub that exits with error. Delete entirely, update docs.
 
-**Archive hygiene:**
+### 0e. Vestigial doc references
+
+- `CLAUDE.md` references `scripts/post_training_pipeline.sh` but it does not exist. Remove references.
 - `docs/investigations/_archive/`: Add a `README.md` marker or rename to `docs/archive/investigations/` to prevent confusion with active investigation workflows.
 
-**Logging consolidation (extend `utils/logging.py`):**
+### 0f. Deprecated CLI parameter
+
+- Remove `--verbose` from all CLI commands. Keep only `--log-level`. Currently both exist with fallback conversion (`20 - verbose*10`) in aggregate_splits:344, train_ensemble:291, and explicit mapping in optimize_panel:184-188, consensus_panel:280-285.
+
+### 0g. Logging consolidation (extend `utils/logging.py`)
 
 Two new helpers to eliminate divergent logger setup across all 6 CLI commands:
 
@@ -71,10 +184,47 @@ Two new helpers to eliminate divergent logger setup across all 6 CLI commands:
 - Combines `verbose_to_log_level` + `auto_log_path` + `setup_logger` + "Logging to file" info message.
 - Replaces 6-10 lines of boilerplate in every CLI command (train:592-600, run_pipeline:164-171, aggregate_splits:356-362, train_ensemble:295-301, optimize_panel:635-641, consensus_panel:288-293).
 
-**CLI validation helper:**
+### 0h. CLI validation helper
+
 - Extract common mutually-exclusive flag validation and auto-detect config checks into `cli/_validators.py` to reduce boilerplate in `cli/main.py`.
 
-**Verify**: `pytest tests/ -v` passes. `ruff check src/` clean. No broken imports.
+**Verify**: `pytest tests/ -v` passes. `ruff check src/` clean. No broken imports. `grep -r` for removed config keys returns 0 hits.
+
+---
+
+## Phase 0.5: Eliminate Backward-Compat Fallback Chains (Low Risk)
+
+**Goal**: Consolidate ~15 dual/triple-path fallback chains scattered across CLI modules into single-source-of-truth helpers. This reduces ~200 lines of duplicated fallback logic and makes the "canonical" file format explicit.
+
+### Fallback chain inventory
+
+Cross-referenced with Codex repo scan (Rx = removal candidate from inventory above).
+
+| ID | Pattern | Files affected (Codex-verified) | Action | Rx |
+|----|---------|--------------------------------|--------|----|
+| F1 | Split file format: `train_idx_{scenario}_seed{N}.csv` vs `train_idx_seed{N}.csv` | train.py:337,354,373; optimize_panel.py:275-285,695; consensus_panel.py; persistence.py:537-542; aggregate_splits.py | Centralize into `resolve_split_files(split_dir, seed, scenario)` in `utils/paths.py` | R3 |
+| F2 | Stability file triple-fallback: `panels/` -> `panels/features/` -> `reports/feature_reports/` | optimize_panel.py:551-561,649-660; consensus_panel.py:95-103,136-148 | Centralize into `find_stability_file(aggregated_dir)` in `utils/paths.py` | R2 |
+| F3 | Protein name `_resid` suffix matching (add/remove suffix as fallback) | optimize_panel.py:801-823; optimize_panel.py:669 (CSV cleanup) | Normalize protein names once at data load time in `io.py` | -- |
+| F4 | Optuna trials filename fallback (prefixed vs non-prefixed) | aggregate_splits.py:736-740 | Keep only current format if no old-format files in production | R2 |
+| F5 | Metadata format fallback (nested `models.{first}.infile` vs flat `infile`) | consensus_panel.py:229-236 | Standardize on nested format; remove flat fallback | -- |
+| F6 | Metrics loading dual-path (JSON vs CSV) | train_ensemble.py:140-157 | Standardize on JSON; remove CSV fallback | -- |
+| F7 | Split metadata fallback (with/without scenario in meta JSON) | persistence.py:16,306,353,374,537-542,589 | Consolidate into `resolve_split_files` helper | R3 |
+| F8 | Stability panel loading triple-fallback (`stable_panel__KBest.csv` -> `cv/selected_proteins_per_split.csv` -> all proteins) | optimize_panel.py:326-375; optimize_panel.py:333,357 | Document canonical path; centralize into helper | R4 |
+| F9 | RFE ranking file dual-path (`feature_ranking_aggregated.csv` vs `feature_ranking.csv`) | consensus_panel.py:174-183 | Standardize on aggregated name | -- |
+| F10 | Holdout backward-compat for bare model bundles | evaluation/holdout.py:88,93-94,412-413 | Require bundle format; remove bare-model shim | R5 |
+
+### Out of scope (keep as-is)
+
+- scipy/sklearn version compat shims (`features/screening.py:121-124`, `features/kbest.py:83,253`) -- needed for HPC environments
+- Auto-detection fallback chains that are genuinely user-friendly (config file discovery in `run_pipeline.py:74,119,171-193`)
+- Optuna import fallback / graceful no-optuna (`optuna_search.py:11,30`) -- needed for HPC environments
+- Optuna multi-objective code (`multi_objective`, `pareto_selection`, `objectives`) -- experimental, document as such
+- Optuna `storage`/`study_name`/`load_if_exists` -- optional advanced features
+- Optuna single vs multi-objective validation (`optuna_search.py:395`) -- runtime safety
+- `aggregate_config.yaml` -- still supported, mark as legacy in docs
+- Defensive scientific fallbacks (KBest variance fallback `kbest.py:42,84`, stability top-N `stability.py:143,231`, stratification `splits.py:165,201`, DCA `dca.py:437,476`, thresholds `thresholds.py:503`, registry sklearn compat `registry.py:6,9,245,333`) -- all scientifically justified
+
+**Verify**: `pytest tests/ -v` passes. Local smoke test with `ced run-pipeline`. `grep` for old fallback patterns returns 0 hits in caller code (fallbacks live only in centralized helpers).
 
 ---
 
@@ -131,9 +281,9 @@ tests/
 | `resolve_split_files` | `(split_dir, split_seed, scenario) -> tuple[Path, Path]` | optimize_panel:276-287, 756-765 |
 | `find_stability_file` | `(aggregated_dir: Path) -> Path` | optimize_panel:651-663, consensus_panel:136-149 |
 
-`find_results_root`: Check `CED_RESULTS_DIR` env -> project root / results -> cwd / results.
-`resolve_split_files`: Try scenario-specific name, fall back to old format without scenario.
-`find_stability_file`: Check panels/ -> panels/features/ -> reports/feature_reports/ (legacy).
+`find_results_root`: Check `CED_RESULTS_DIR` env -> project root / results -> cwd / results. Replaces 5+ fragile `.parent.parent.parent.parent.parent` chains.
+`resolve_split_files`: Try scenario-specific name, fall back to old format without scenario. (Absorbs fallback F1 from Phase 0.5)
+`find_stability_file`: Check panels/ -> panels/features/ -> reports/feature_reports/ (legacy). (Absorbs fallback F2 from Phase 0.5)
 
 #### 2b. `utils/discovery.py` -- 2 helpers
 
@@ -152,7 +302,7 @@ tests/
 | `load_run_metadata` | `(run_dir: Path) -> dict \| None` | run_pipeline:246-253, consensus_panel:213-239 |
 | `extract_paths_from_metadata` | `(metadata: dict) -> tuple[str\|None, str\|None]` | consensus_panel:213-239 |
 
-`extract_paths_from_metadata`: Handle nested (`models.{first}.infile`) and flat (`infile`) formats.
+`extract_paths_from_metadata`: Handle nested (`models.{first}.infile`) and flat (`infile`) formats. (Absorbs fallback F5 from Phase 0.5 temporarily; flat fallback removed once standardized.)
 
 #### 2d. `utils/model_loading.py` -- 1 helper
 
@@ -263,6 +413,10 @@ def save_feature_report(df, path) -> None: ...
 def read_metrics(path) -> pd.DataFrame: ...
 ```
 
+Also: normalize protein names (strip `_resid` suffix) once at load time in `io.py` to eliminate downstream defensive suffix gymnastics (absorbs fallback F3 from Phase 0.5).
+
+Also: centralize defensive protein name stripping (`str.strip().str.strip('"').str.strip("'")`) currently duplicated in consensus_panel.py:669-670 and optimize_panel.py:669-670. Fix at CSV write time instead.
+
 **Files modified**: cli/train.py, cli/aggregate_splits.py, cli/aggregation/collection.py, models/stacking.py, evaluation/reports.py
 
 ---
@@ -291,7 +445,7 @@ def read_metrics(path) -> pd.DataFrame: ...
 
 **Create `cli/common_args.py`** with reusable option groups:
 - `data_options`: --infile, --split-dir, --split-seed
-- `output_options`: --verbose, --outdir
+- `output_options`: --log-level, --outdir (--verbose removed in Phase 0f)
 - `model_options`: --model, --run-id, --config
 
 **Verify**: All `ced <cmd> --help` outputs unchanged.
@@ -344,9 +498,9 @@ Re-export from `config/schema.py` for backward compatibility (facade).
 ## Execution Dependencies
 
 ```
-Phase 0 (dead code) --> Phase 1 (tests) --> Phase 2 (paths) --> Phase 3 (train.py) --> Phase 4 (reports)
-                                                                                    |-> Phase 5 (I/O)
-                                                                                    |-> Phase 6 (splits)
+Phase 0 + 0.5 (dead code/cruft) --> Phase 1 (tests) --> Phase 2 (paths) --> Phase 3 (train.py) --> Phase 4 (reports)
+                                                                                                 |-> Phase 5 (I/O)
+                                                                                                 |-> Phase 6 (splits)
 Phase 7 (CLI args) -- independent, anytime after Phase 3
 Phase 8 (strategies) -- after Phase 3
 Phase 9 (schema split) -- independent, anytime after Phase 0
@@ -360,7 +514,9 @@ Phase 9 (schema split) -- independent, anytime after Phase 0
 | God Functions (>200 lines) | 7 | 0 |
 | God Classes (>15 methods) | 2 (`ResultsWriter` 23, `OptunaSearchCV` 20) | 0 |
 | Dead symbols | 51 | 0 |
-| Duplicated path discovery | 4 implementations | 1 |
+| Dead config params | 11+ | 0 |
+| Backward-compat fallback chains | 10 (duplicated across 5+ files) | 0 (centralized in helpers) |
+| Duplicated path discovery | 6 implementations | 1 |
 | CLI boilerplate (14 patterns) | ~394 lines | ~120 lines shared helpers |
 | Config if-checks | 123 | ~30 |
 | Scattered CSV I/O | 129 | centralized |
@@ -375,3 +531,5 @@ After all phases:
 3. `ced train --config configs/training_config.yaml --model LR_EN --split-seed 0 --infile ../data/input.parquet` -- smoke test
 4. `ruff check src/ tests/` -- no lint errors
 5. `black --check src/ tests/` -- formatting clean
+
+Unresolved questions: none.

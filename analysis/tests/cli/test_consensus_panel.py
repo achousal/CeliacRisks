@@ -14,23 +14,20 @@ def mock_aggregated_structure(tmp_path):
     """
     Create a mock results directory structure with aggregated stability results:
         results/
-            LR_EN/
-                run_20260127_115115/
+            run_20260127_115115/
+                LR_EN/
                     aggregated/
                         panels/
                             feature_stability_summary.csv
                         optimize_panel/
                             feature_ranking_aggregated.csv
-            RF/
-                run_20260127_115115/
+                RF/
                     aggregated/
                         panels/
                             feature_stability_summary.csv
-            XGBoost/
-                run_20260127_115115/
+                XGBoost/
                     (no aggregated dir - not run yet)
-            ENSEMBLE/
-                run_20260127_115115/
+                ENSEMBLE/
                     aggregated/
                         panels/
                             feature_stability_summary.csv
@@ -38,7 +35,7 @@ def mock_aggregated_structure(tmp_path):
     results_root = tmp_path / "results"
 
     # LR_EN with full aggregated results including RFE
-    lr_en_agg = results_root / "LR_EN" / "run_20260127_115115" / "aggregated"
+    lr_en_agg = results_root / "run_20260127_115115" / "LR_EN" / "aggregated"
     lr_en_reports = lr_en_agg / "panels"
     lr_en_reports.mkdir(parents=True)
 
@@ -64,7 +61,7 @@ def mock_aggregated_structure(tmp_path):
     rfe_df.to_csv(lr_en_rfe / "feature_ranking_aggregated.csv", index=False)
 
     # RF with stability only (no RFE)
-    rf_agg = results_root / "RF" / "run_20260127_115115" / "aggregated"
+    rf_agg = results_root / "run_20260127_115115" / "RF" / "aggregated"
     rf_reports = rf_agg / "panels"
     rf_reports.mkdir(parents=True)
 
@@ -79,11 +76,11 @@ def mock_aggregated_structure(tmp_path):
     stability_df_rf.to_csv(rf_reports / "feature_stability_summary.csv", index=False)
 
     # XGBoost without aggregated
-    xgb_dir = results_root / "XGBoost" / "run_20260127_115115"
+    xgb_dir = results_root / "run_20260127_115115" / "XGBoost"
     xgb_dir.mkdir(parents=True)
 
     # ENSEMBLE with stability (should be skipped by default)
-    ens_agg = results_root / "ENSEMBLE" / "run_20260127_115115" / "aggregated"
+    ens_agg = results_root / "run_20260127_115115" / "ENSEMBLE" / "aggregated"
     ens_reports = ens_agg / "panels"
     ens_reports.mkdir(parents=True)
     stability_df.to_csv(ens_reports / "feature_stability_summary.csv", index=False)
@@ -147,12 +144,12 @@ class TestDiscoverModelsWithAggregatedResults:
             results_root=mock_aggregated_structure,
         )
 
-        expected_lr = mock_aggregated_structure / "LR_EN" / "run_20260127_115115" / "aggregated"
+        expected_lr = mock_aggregated_structure / "run_20260127_115115" / "LR_EN" / "aggregated"
         assert discovered["LR_EN"] == expected_lr
 
     def test_nonexistent_run_id_raises(self, mock_aggregated_structure):
         """Nonexistent run_id raises FileNotFoundError."""
-        with pytest.raises(FileNotFoundError, match="No models"):
+        with pytest.raises(FileNotFoundError, match="No results found for run"):
             discover_models_with_aggregated_results(
                 run_id="NONEXISTENT",
                 results_root=mock_aggregated_structure,
@@ -164,7 +161,7 @@ class TestLoadModelStability:
 
     def test_loads_stability_data(self, mock_aggregated_structure):
         """Loads stability data from aggregated directory."""
-        aggregated_dir = mock_aggregated_structure / "LR_EN" / "run_20260127_115115" / "aggregated"
+        aggregated_dir = mock_aggregated_structure / "run_20260127_115115" / "LR_EN" / "aggregated"
 
         stability_df = load_model_stability(aggregated_dir)
 
@@ -176,7 +173,7 @@ class TestLoadModelStability:
 
     def test_stability_threshold_filtering(self, mock_aggregated_structure):
         """Filters proteins below stability threshold."""
-        aggregated_dir = mock_aggregated_structure / "LR_EN" / "run_20260127_115115" / "aggregated"
+        aggregated_dir = mock_aggregated_structure / "run_20260127_115115" / "LR_EN" / "aggregated"
 
         stability_df = load_model_stability(aggregated_dir, stability_threshold=0.80)
 
@@ -195,7 +192,7 @@ class TestLoadModelRfeRanking:
 
     def test_loads_rfe_ranking(self, mock_aggregated_structure):
         """Loads RFE ranking from aggregated directory."""
-        aggregated_dir = mock_aggregated_structure / "LR_EN" / "run_20260127_115115" / "aggregated"
+        aggregated_dir = mock_aggregated_structure / "run_20260127_115115" / "LR_EN" / "aggregated"
 
         rfe_ranking = load_model_rfe_ranking(aggregated_dir)
 
@@ -208,7 +205,7 @@ class TestLoadModelRfeRanking:
 
     def test_missing_rfe_returns_none(self, mock_aggregated_structure):
         """Missing RFE file returns None (graceful fallback)."""
-        aggregated_dir = mock_aggregated_structure / "RF" / "run_20260127_115115" / "aggregated"
+        aggregated_dir = mock_aggregated_structure / "run_20260127_115115" / "RF" / "aggregated"
 
         rfe_ranking = load_model_rfe_ranking(aggregated_dir)
 

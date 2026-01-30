@@ -1258,6 +1258,24 @@ def run_pipeline(ctx, config, models, split_seeds, **kwargs):
         run_pipeline as run_pipeline_impl,
     )
 
+    def _derive_split_seeds_from_config(pcfg: dict) -> list[int]:
+        """Derive split_seeds from splits_config.yaml (single source of truth).
+
+        Reads n_splits and seed_start from the splits config referenced by
+        the pipeline config. Falls back to [0, 1, 2] if no config found.
+        """
+        splits_config_path = pcfg.get("splits_config")
+        if splits_config_path and Path(splits_config_path).exists():
+            import yaml
+
+            with open(splits_config_path) as f:
+                splits_raw = yaml.safe_load(f) or {}
+            seed_start = splits_raw.get("seed_start", 0)
+            n_splits = splits_raw.get("n_splits", 3)
+            return list(range(seed_start, seed_start + n_splits))
+        # Fallback: no splits config found
+        return [0, 1, 2]
+
     # --- Extract raw CLI values (None = not provided by user) ---------------
     hpc_flag = kwargs.pop("hpc", False) or False
     hpc_config_cli = kwargs.pop("hpc_config", None)
@@ -1291,7 +1309,8 @@ def run_pipeline(ctx, config, models, split_seeds, **kwargs):
     if split_seeds is not None:
         seed_list = [int(s.strip()) for s in split_seeds.split(",")]
     else:
-        seed_list = pcfg.get("split_seeds", _PIPELINE_DEFAULTS["split_seeds"])
+        # Derive from splits_config (single source of truth for split seeds)
+        seed_list = _derive_split_seeds_from_config(pcfg)
 
     # Paths
     infile = Path(kwargs["infile"]) if kwargs.get("infile") else pcfg.get("infile")

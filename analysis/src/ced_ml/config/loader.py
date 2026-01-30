@@ -35,16 +35,42 @@ from ced_ml.config.schema import (
 )
 
 
+def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge *overlay* into *base* (overlay wins on leaf conflicts).
+
+    Returns a new dict; neither input is mutated.
+    """
+    merged = base.copy()
+    for key, value in overlay.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def load_yaml(file_path: str | Path) -> dict[str, Any]:
-    """Load configuration from YAML file."""
-    file_path = Path(file_path)
+    """Load configuration from YAML file.
+
+    Supports a ``_base`` key: if present, the referenced YAML file is loaded
+    first and the current file's values are deep-merged on top.  The ``_base``
+    path is resolved relative to the directory containing *file_path*.
+    Bases can be chained (a base may itself declare ``_base``).
+    """
+    file_path = Path(file_path).resolve()
     if not file_path.exists():
         raise FileNotFoundError(f"Config file not found: {file_path}")
 
     with open(file_path) as f:
-        config_dict = yaml.safe_load(f)
+        config_dict = yaml.safe_load(f) or {}
 
-    return config_dict or {}
+    base_ref = config_dict.pop("_base", None)
+    if base_ref is not None:
+        base_path = (file_path.parent / base_ref).resolve()
+        base_dict = load_yaml(base_path)
+        config_dict = _deep_merge(base_dict, config_dict)
+
+    return config_dict
 
 
 def resolve_paths_relative_to_config(

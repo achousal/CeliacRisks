@@ -9,8 +9,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from ced_ml.cli.aggregate_splits import run_aggregate_splits
 from ced_ml.cli.consensus_panel import run_consensus_panel
 from ced_ml.cli.optimize_panel import discover_models_by_run_id, run_optimize_panel_aggregated
@@ -74,7 +72,6 @@ def _ensure_splits_exist(
 # Hardcoded fallback defaults (used when no config and no CLI override)
 _PIPELINE_DEFAULTS: dict[str, Any] = {
     "models": ["LR_EN", "RF", "XGBoost"],
-    "split_seeds": [0, 1, 2],
     "ensemble": True,
     "consensus": True,
     "optimize_panel": True,
@@ -98,11 +95,11 @@ def load_pipeline_config(config_path: Path) -> dict[str, Any]:
         Dict with keys like ``infile``, ``splits_dir``, ``results_dir``,
         ``training_config``, ``models``, ``split_seeds``, ``ensemble``, etc.
     """
+    from ced_ml.config.loader import load_yaml
     from ced_ml.utils.paths import get_project_root
 
-    config_path = Path(config_path)
-    with open(config_path) as fh:
-        raw = yaml.safe_load(fh) or {}
+    config_path = Path(config_path).resolve()
+    raw = load_yaml(config_path)
 
     # Determine base directory for path resolution
     # If config is in analysis/configs/, base is analysis/ (config.parent.parent)
@@ -139,7 +136,6 @@ def load_pipeline_config(config_path: Path) -> dict[str, Any]:
     pipeline = raw.get("pipeline", {})
     for key in (
         "models",
-        "split_seeds",
         "ensemble",
         "consensus",
         "optimize_panel",

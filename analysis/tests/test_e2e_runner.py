@@ -466,7 +466,7 @@ class TestE2EFullPipeline:
         # Find the run directory (timestamped run_YYYYMMDD_HHMMSS)
         run_dirs = [d for d in results_dir.iterdir() if d.is_dir() and d.name.startswith("run_")]
         assert len(run_dirs) == 1, f"Expected 1 run directory, found {len(run_dirs)}: {run_dirs}"
-        model_dir = run_dirs[0] / "splits" / "split_seed42"
+        model_dir = run_dirs[0] / "LR_EN" / "splits" / "split_seed42"
         assert model_dir.exists(), f"Model directory not found: {model_dir}"
 
         # Check required output files
@@ -681,9 +681,19 @@ class TestE2EEnsembleWorkflow:
         assert result_ensemble.exit_code == 0, f"Ensemble failed: {result_ensemble.output}"
 
         # Verify ensemble outputs
-        # Ensemble creates output in ENSEMBLE/split_{seed} directory (not timestamped run dirs)
-        ensemble_dir = results_dir / "ENSEMBLE" / "split_42"
-        assert ensemble_dir.exists(), f"Ensemble directory not found: {ensemble_dir}"
+        # Find the run directory with ENSEMBLE model output
+        run_dirs = [d for d in results_dir.iterdir() if d.is_dir() and d.name.startswith("run_")]
+        assert len(run_dirs) >= 1, f"Expected at least 1 run directory, found {len(run_dirs)}"
+
+        # Look for ENSEMBLE in any run directory (may be in different run_id than base models)
+        ensemble_dir = None
+        for run_dir in run_dirs:
+            candidate = run_dir / "ENSEMBLE" / "splits" / "split_seed42"
+            if candidate.exists():
+                ensemble_dir = candidate
+                break
+
+        assert ensemble_dir is not None, f"Ensemble directory not found in any run_dir: {run_dirs}"
 
         # Check ensemble-specific files (using actual file structure)
         assert (ensemble_dir / "core/metrics.json").exists(), "Missing metrics.json"
@@ -1238,7 +1248,7 @@ class TestE2EFixedPanelValidation:
         # Verify outputs exist
         run_dirs = [d for d in results_dir.iterdir() if d.is_dir() and d.name.startswith("run_")]
         assert len(run_dirs) == 1, f"Expected 1 run directory, found {len(run_dirs)}"
-        model_dir = run_dirs[0] / "splits" / "split_seed42"
+        model_dir = run_dirs[0] / "LR_EN" / "splits" / "split_seed42"
         assert model_dir.exists()
 
         # Check that model was trained

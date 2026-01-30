@@ -336,7 +336,7 @@ class TestTemporalTrainingWorkflow:
                 "--split-dir",
                 str(splits_dir),
                 "--outdir",
-                str(results_dir / "LR_EN"),
+                str(results_dir),
                 "--config",
                 str(temporal_training_config),
                 "--model",
@@ -350,12 +350,10 @@ class TestTemporalTrainingWorkflow:
         if result_train.exit_code != 0:
             pytest.skip(f"Training failed: {result_train.output[:200]}")
 
-        # Verify outputs exist
-        run_dirs = [
-            d for d in (results_dir / "LR_EN").iterdir() if d.is_dir() and d.name.startswith("run_")
-        ]
+        # Verify outputs exist (production writes to results_dir/run_{ID}/LR_EN/splits/split_seed{N}/)
+        run_dirs = [d for d in results_dir.iterdir() if d.is_dir() and d.name.startswith("run_")]
         assert len(run_dirs) > 0
-        split_dir = run_dirs[0] / "splits" / "split_seed42"
+        split_dir = run_dirs[0] / "LR_EN" / "splits" / "split_seed42"
         assert split_dir.exists()
         assert (split_dir / "core").exists()
 
@@ -402,7 +400,7 @@ class TestTemporalTrainingWorkflow:
                 "--split-dir",
                 str(splits_dir),
                 "--outdir",
-                str(results_dir / "LR_EN"),
+                str(results_dir),
                 "--config",
                 str(temporal_training_config),
                 "--model",
@@ -480,7 +478,7 @@ class TestTemporalValidationMetrics:
                 "--split-dir",
                 str(splits_dir),
                 "--outdir",
-                str(results_dir / "LR_EN"),
+                str(results_dir),
                 "--config",
                 str(temporal_training_config),
                 "--model",
@@ -559,7 +557,7 @@ class TestTemporalValidationMetrics:
                 "--split-dir",
                 str(splits_dir),
                 "--outdir",
-                str(results_dir / "LR_EN"),
+                str(results_dir),
                 "--config",
                 str(temporal_training_config),
                 "--model",
@@ -651,7 +649,7 @@ class TestTemporalAggregation:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / "LR_EN"),
+                    str(results_dir),
                     "--config",
                     str(temporal_training_config),
                     "--model",
@@ -677,8 +675,8 @@ class TestTemporalAggregation:
         if result_agg.exit_code != 0:
             pytest.skip("Aggregation failed")
 
-        # Verify aggregated outputs
-        agg_dir = results_dir / "LR_EN" / f"run_{run_id}" / "aggregated"
+        # Verify aggregated outputs (production writes to results_dir/run_{ID}/LR_EN/aggregated/)
+        agg_dir = results_dir / f"run_{run_id}" / "LR_EN" / "aggregated"
         assert agg_dir.exists()
         assert (agg_dir / "metrics").exists()
 

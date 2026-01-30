@@ -198,8 +198,9 @@ class TestSharedRunIdCoordination:
                 pytest.skip(f"{model} training failed: {result.output[:200]}")
 
         # Verify both models created run directories with shared run_id
-        lr_run_dir = results_dir / "LR_EN" / f"run_{SHARED_RUN_ID}"
-        rf_run_dir = results_dir / "RF" / f"run_{SHARED_RUN_ID}"
+        # Production structure: results/{MODEL}/run_{RUN_ID}/{MODEL}/splits/split_seed{N}/
+        lr_run_dir = results_dir / "LR_EN" / f"run_{SHARED_RUN_ID}" / "LR_EN"
+        rf_run_dir = results_dir / "RF" / f"run_{SHARED_RUN_ID}" / "RF"
 
         assert lr_run_dir.exists(), "LR_EN run directory not found"
         assert rf_run_dir.exists(), "RF run directory not found"
@@ -268,6 +269,7 @@ class TestSharedRunIdCoordination:
                 pytest.skip(f"{model} training failed")
 
         # Load metadata from both models
+        # Each model has its own run_metadata.json at results/{MODEL}/run_{RUN_ID}/
         lr_metadata_path = results_dir / "LR_EN" / f"run_{SHARED_RUN_ID}" / "run_metadata.json"
         rf_metadata_path = results_dir / "RF" / f"run_{SHARED_RUN_ID}" / "run_metadata.json"
 
@@ -280,13 +282,18 @@ class TestSharedRunIdCoordination:
         with open(rf_metadata_path) as f:
             rf_metadata = json.load(f)
 
-        # Check consistency of shared fields
+        # Check consistency of shared fields across separate metadata files
         assert lr_metadata["run_id"] == rf_metadata["run_id"]
-        assert lr_metadata["split_seed"] == rf_metadata["split_seed"]
+        assert lr_metadata["run_id"] == SHARED_RUN_ID
 
-        # Models should differ in model name
-        assert lr_metadata["model"] == "LR_EN"
-        assert rf_metadata["model"] == "RF"
+        # Each metadata file contains its own model's entry
+        assert "models" in lr_metadata
+        assert "LR_EN" in lr_metadata["models"]
+        assert lr_metadata["models"]["LR_EN"]["split_seed"] == 42
+
+        assert "models" in rf_metadata
+        assert "RF" in rf_metadata["models"]
+        assert rf_metadata["models"]["RF"]["split_seed"] == 42
 
 
 class TestCrossModelAggregation:
@@ -355,9 +362,16 @@ class TestCrossModelAggregation:
 
         # Aggregate each model
         for model in models:
+            # Pass full results-dir explicitly since we're using non-standard layout
+            # Production structure: results/{MODEL}/run_{RUN_ID}/{MODEL}/
+            model_results_dir = results_dir / model / f"run_{SHARED_RUN_ID}" / model
             result_agg = runner.invoke(
                 cli,
-                ["aggregate-splits", "--run-id", SHARED_RUN_ID, "--model", model],
+                [
+                    "aggregate-splits",
+                    "--results-dir",
+                    str(model_results_dir),
+                ],
                 catch_exceptions=False,
             )
 
@@ -365,7 +379,8 @@ class TestCrossModelAggregation:
                 pytest.skip(f"{model} aggregation failed: {result_agg.output[:200]}")
 
             # Verify aggregated outputs
-            agg_dir = results_dir / model / f"run_{SHARED_RUN_ID}" / "aggregated"
+            # Production structure: results/{MODEL}/run_{RUN_ID}/{MODEL}/aggregated/
+            agg_dir = results_dir / model / f"run_{SHARED_RUN_ID}" / model / "aggregated"
             assert agg_dir.exists(), f"{model} aggregation directory not found"
             assert (agg_dir / "metrics").exists(), f"{model} aggregation metrics missing"
 
@@ -430,15 +445,22 @@ class TestCrossModelAggregation:
                     pytest.skip("Training failed")
 
         for model in models:
+            # Production structure: results/{MODEL}/run_{RUN_ID}/{MODEL}/
+            model_results_dir = results_dir / model / f"run_{SHARED_RUN_ID}" / model
             runner.invoke(
                 cli,
-                ["aggregate-splits", "--run-id", SHARED_RUN_ID, "--model", model],
+                [
+                    "aggregate-splits",
+                    "--results-dir",
+                    str(model_results_dir),
+                ],
                 catch_exceptions=False,
             )
 
         # Check that both models have similar output structures
-        lr_agg_dir = results_dir / "LR_EN" / f"run_{SHARED_RUN_ID}" / "aggregated"
-        rf_agg_dir = results_dir / "RF" / f"run_{SHARED_RUN_ID}" / "aggregated"
+        # Production structure: results/{MODEL}/run_{RUN_ID}/{MODEL}/aggregated/
+        lr_agg_dir = results_dir / "LR_EN" / f"run_{SHARED_RUN_ID}" / "LR_EN" / "aggregated"
+        rf_agg_dir = results_dir / "RF" / f"run_{SHARED_RUN_ID}" / "RF" / "aggregated"
 
         lr_subdirs = {d.name for d in lr_agg_dir.iterdir() if d.is_dir()}
         rf_subdirs = {d.name for d in rf_agg_dir.iterdir() if d.is_dir()}
@@ -496,7 +518,7 @@ class TestConsensusPanelIntegration:
                         "--split-dir",
                         str(splits_dir),
                         "--outdir",
-                        str(results_dir / model),
+                        str(results_dir),
                         "--config",
                         str(fast_multi_config),
                         "--model",
@@ -512,9 +534,15 @@ class TestConsensusPanelIntegration:
                 if result_train.exit_code != 0:
                     pytest.skip(f"{model} training failed")
 
+            # Production structure: results/run_{RUN_ID}/{MODEL}/
+            model_results_dir = results_dir / f"run_{SHARED_RUN_ID}" / model
             result_agg = runner.invoke(
                 cli,
-                ["aggregate-splits", "--run-id", SHARED_RUN_ID, "--model", model],
+                [
+                    "aggregate-splits",
+                    "--results-dir",
+                    str(model_results_dir),
+                ],
                 catch_exceptions=False,
             )
 
@@ -540,7 +568,8 @@ class TestConsensusPanelIntegration:
             pytest.skip(f"Consensus panel failed: {result_consensus.output[:200]}")
 
         # Verify consensus outputs
-        consensus_dir = results_dir / "consensus_panel" / f"run_{SHARED_RUN_ID}"
+        # Production structure: results/run_{RUN_ID}/consensus/
+        consensus_dir = results_dir / f"run_{SHARED_RUN_ID}" / "consensus"
         assert consensus_dir.exists(), "Consensus directory not found"
         assert (consensus_dir / "final_panel.txt").exists(), "Final panel not found"
         assert (consensus_dir / "consensus_ranking.csv").exists(), "Ranking not found"
@@ -589,7 +618,7 @@ class TestConsensusPanelIntegration:
                         "--split-dir",
                         str(splits_dir),
                         "--outdir",
-                        str(results_dir / model),
+                        str(results_dir),
                         "--config",
                         str(fast_multi_config),
                         "--model",
@@ -626,8 +655,9 @@ class TestConsensusPanelIntegration:
             pytest.skip("Consensus panel failed")
 
         # Check consensus metadata
+        # Production structure: results/run_{RUN_ID}/consensus/
         metadata_path = (
-            results_dir / "consensus_panel" / f"run_{SHARED_RUN_ID}" / "consensus_metadata.json"
+            results_dir / f"run_{SHARED_RUN_ID}" / "consensus" / "consensus_metadata.json"
         )
 
         if metadata_path.exists():
@@ -690,7 +720,7 @@ class TestEnsembleMultiModelWorkflow:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / model),
+                    str(results_dir),
                     "--config",
                     str(fast_multi_config),
                     "--model",
@@ -725,7 +755,8 @@ class TestEnsembleMultiModelWorkflow:
             pytest.fail(f"Ensemble training failed: {result_ensemble.output}")
 
         # Verify ensemble outputs
-        ensemble_dir = results_dir / "ENSEMBLE" / "split_42"
+        # Production structure: results/run_{RUN_ID}/ENSEMBLE/splits/split_seed{N}/
+        ensemble_dir = results_dir / f"run_{SHARED_RUN_ID}" / "ENSEMBLE" / "splits" / "split_seed42"
         assert ensemble_dir.exists(), "Ensemble directory not found"
         assert (ensemble_dir / "core").exists(), "Ensemble core missing"
 
@@ -865,9 +896,15 @@ class TestMultiModelPanelOptimization:
                     catch_exceptions=False,
                 )
 
+            # Production structure: results/{MODEL}/run_{RUN_ID}/{MODEL}/
+            model_results_dir = results_dir / model / f"run_{SHARED_RUN_ID}" / model
             result_agg = runner.invoke(
                 cli,
-                ["aggregate-splits", "--run-id", SHARED_RUN_ID, "--model", model],
+                [
+                    "aggregate-splits",
+                    "--results-dir",
+                    str(model_results_dir),
+                ],
                 catch_exceptions=False,
             )
 
@@ -892,8 +929,14 @@ class TestMultiModelPanelOptimization:
 
         # Verify panel optimization for both models
         for model in models:
+            # Production structure: results/{MODEL}/run_{RUN_ID}/{MODEL}/aggregated/optimize_panel/
             panel_dir = (
-                results_dir / model / f"run_{SHARED_RUN_ID}" / "aggregated" / "optimize_panel"
+                results_dir
+                / model
+                / f"run_{SHARED_RUN_ID}"
+                / model
+                / "aggregated"
+                / "optimize_panel"
             )
             assert panel_dir.exists(), f"{model} panel optimization not found"
             assert (
@@ -960,22 +1003,34 @@ class TestMultiModelMetadataConsistency:
                 catch_exceptions=False,
             )
 
-        # Load all metadata
-        metadata_files = list(results_dir.rglob("run_metadata.json"))
-        metadata_list = []
-        for mf in metadata_files:
-            with open(mf) as f:
-                metadata_list.append(json.load(f))
+        # Load metadata files
+        # Production structure: results/{MODEL}/run_{RUN_ID}/run_metadata.json
+        # Each model has its own metadata file
+        lr_metadata_path = results_dir / "LR_EN" / f"run_{SHARED_RUN_ID}" / "run_metadata.json"
+        rf_metadata_path = results_dir / "RF" / f"run_{SHARED_RUN_ID}" / "run_metadata.json"
 
-        if len(metadata_list) < 2:
-            pytest.skip("Insufficient metadata files")
+        if not lr_metadata_path.exists() or not rf_metadata_path.exists():
+            pytest.skip("Metadata files not found")
 
-        # Check consistency
-        run_ids = {m["run_id"] for m in metadata_list}
-        split_seeds = {m["split_seed"] for m in metadata_list}
+        with open(lr_metadata_path) as f:
+            lr_metadata = json.load(f)
 
-        assert len(run_ids) == 1, f"Inconsistent run_ids: {run_ids}"
-        assert len(split_seeds) == 1, f"Inconsistent split_seeds: {split_seeds}"
+        with open(rf_metadata_path) as f:
+            rf_metadata = json.load(f)
+
+        # Both should have same run_id
+        assert lr_metadata["run_id"] == SHARED_RUN_ID
+        assert rf_metadata["run_id"] == SHARED_RUN_ID
+        assert lr_metadata["run_id"] == rf_metadata["run_id"]
+
+        # Check per-model metadata
+        assert "models" in lr_metadata and "LR_EN" in lr_metadata["models"]
+        assert "models" in rf_metadata and "RF" in rf_metadata["models"]
+
+        # Check consistency across models
+        lr_seed = lr_metadata["models"]["LR_EN"]["split_seed"]
+        rf_seed = rf_metadata["models"]["RF"]["split_seed"]
+        assert lr_seed == rf_seed, f"Inconsistent split_seeds: LR_EN={lr_seed}, RF={rf_seed}"
 
 
 # ==================== How to Run ====================

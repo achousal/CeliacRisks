@@ -322,8 +322,10 @@ def test_optuna_trials_aggregation_with_model_prefix(temp_results_dir):
     from ced_ml.cli.aggregate_splits import run_aggregate_splits
 
     # Create mock optuna_trials files with model prefix (real-world format)
+    # Directory structure: results_dir/splits/split_seed*/
+    splits_base = temp_results_dir / "splits"
     for seed in [0, 1]:
-        split_dir = temp_results_dir / f"split_seed{seed}"
+        split_dir = splits_base / f"split_seed{seed}"
         optuna_dir = split_dir / "cv" / "optuna"
         optuna_dir.mkdir(parents=True, exist_ok=True)
 
@@ -383,7 +385,9 @@ def test_optuna_trials_backward_compatibility_no_prefix(temp_results_dir):
     from ced_ml.cli.aggregate_splits import run_aggregate_splits
 
     # Create mock optuna_trials files without model prefix (legacy format)
-    split_dir = temp_results_dir / "split_seed0"
+    # Directory structure: results_dir/splits/split_seed*/
+    splits_base = temp_results_dir / "splits"
+    split_dir = splits_base / "split_seed0"
     optuna_dir = split_dir / "cv" / "optuna"
     optuna_dir.mkdir(parents=True, exist_ok=True)
 
