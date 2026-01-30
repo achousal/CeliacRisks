@@ -8,7 +8,6 @@ Usage Guide:
     - build_plot_metadata: Main builder for test/val plots during training
     - build_oof_metadata: Specialized builder for out-of-fold plots during training
     - build_aggregated_metadata: Builder for plots aggregating multiple splits
-    - build_holdout_metadata: Builder for holdout evaluation plots (currently unused)
 
 """
 

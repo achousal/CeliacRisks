@@ -20,21 +20,11 @@ from ced_ml.config.validation import validate_config
 from ced_ml.utils.logging import setup_logger
 
 
-def _verbose_to_level(verbose: int) -> int:
-    """Convert verbose count to logging level."""
-    if verbose == 0:
-        return logging.WARNING
-    elif verbose == 1:
-        return logging.INFO
-    else:
-        return logging.DEBUG
-
-
 def validate_config_file(
     config_file: Path,
     command: str,
     strict: bool = False,
-    verbose: int = 0,
+    log_level: int | None = None,
 ) -> tuple[bool, list[str], list[str]]:
     """
     Validate configuration file and return diagnostic report.
@@ -43,12 +33,14 @@ def validate_config_file(
         config_file: Path to YAML config file
         command: Command type ('save-splits' or 'train')
         strict: If True, treat warnings as errors
-        verbose: Verbosity level
+        log_level: Logging level constant (logging.DEBUG, logging.INFO, etc.)
 
     Returns:
         Tuple of (is_valid, errors, warnings)
     """
-    logger = setup_logger("ced.config.validate", level=_verbose_to_level(verbose))
+    if log_level is None:
+        log_level = logging.WARNING
+    logger = setup_logger("ced.config.validate", level=log_level)
 
     errors = []
     warnings = []
@@ -139,7 +131,7 @@ def diff_configs(
     config_file1: Path,
     config_file2: Path,
     output_file: Path | None = None,
-    verbose: int = 0,
+    log_level: int | None = None,
 ) -> dict[str, Any]:
     """
     Compare two config files and report differences.
@@ -148,12 +140,14 @@ def diff_configs(
         config_file1: First config file
         config_file2: Second config file
         output_file: Optional output file for diff report
-        verbose: Verbosity level
+        log_level: Logging level constant (logging.DEBUG, logging.INFO, etc.)
 
     Returns:
         Dictionary with diff results
     """
-    logger = setup_logger("ced.config.diff", level=_verbose_to_level(verbose))
+    if log_level is None:
+        log_level = logging.WARNING
+    logger = setup_logger("ced.config.diff", level=log_level)
 
     # Load both configs
     config1 = load_yaml(config_file1)
@@ -247,7 +241,7 @@ def run_config_validate(
     config_file: Path,
     command: str = "train",
     strict: bool = False,
-    verbose: int = 0,
+    log_level: int | None = None,
 ):
     """
     Run config validation command.
@@ -256,9 +250,11 @@ def run_config_validate(
         config_file: Path to config file
         command: Command type
         strict: Treat warnings as errors
-        verbose: Verbosity level
+        log_level: Logging level constant (logging.DEBUG, logging.INFO, etc.)
     """
-    logger = setup_logger("ced.config.validate", level=_verbose_to_level(verbose))
+    if log_level is None:
+        log_level = logging.WARNING
+    logger = setup_logger("ced.config.validate", level=log_level)
 
     logger.info(f"Validating config: {config_file}")
 
@@ -266,7 +262,7 @@ def run_config_validate(
         config_file=config_file,
         command=command,
         strict=strict,
-        verbose=verbose,
+        log_level=log_level,
     )
 
     # Print results
@@ -300,7 +296,7 @@ def run_config_diff(
     config_file1: Path,
     config_file2: Path,
     output_file: Path | None = None,
-    verbose: int = 0,
+    log_level: int | None = None,
 ):
     """
     Run config diff command.
@@ -309,15 +305,17 @@ def run_config_diff(
         config_file1: First config file
         config_file2: Second config file
         output_file: Output file for diff report
-        verbose: Verbosity level
+        log_level: Logging level constant (logging.DEBUG, logging.INFO, etc.)
     """
-    setup_logger("ced.config.diff", level=_verbose_to_level(verbose))
+    if log_level is None:
+        log_level = logging.WARNING
+    setup_logger("ced.config.diff", level=log_level)
 
     diff_configs(
         config_file1=config_file1,
         config_file2=config_file2,
         output_file=output_file,
-        verbose=verbose,
+        log_level=log_level,
     )
 
     # Always exit with 0 (success) - diff command itself succeeded

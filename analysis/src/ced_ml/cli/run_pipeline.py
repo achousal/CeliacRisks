@@ -24,8 +24,7 @@ def _ensure_splits_exist(
     config_file: Path | None,
     overwrite: bool,
     overrides: list[str] | None = None,
-    verbose: int = 1,
-    log_level: str = "INFO",
+    log_level: int | None = None,
     logger: logging.Logger | None = None,
 ) -> None:
     """Generate splits if needed, otherwise use existing.
@@ -36,8 +35,7 @@ def _ensure_splits_exist(
         config_file: Optional splits config file
         overwrite: Force regeneration even if splits exist
         overrides: Optional config overrides
-        verbose: Verbosity level
-        log_level: Logging level
+        log_level: Logging level constant (logging.DEBUG, logging.INFO, etc.)
         logger: Optional logger instance
 
     Note:
@@ -61,7 +59,6 @@ def _ensure_splits_exist(
             config_file=config_file,
             cli_args=splits_cli_args,
             overrides=overrides or [],
-            verbose=verbose,
             log_level=log_level,
         )
         logger.info("Splits generated.")
@@ -291,6 +288,7 @@ def _discover_input_file(
 def _run_hpc_mode(
     *,
     config_file: Path | None,
+    splits_config_file: Path | None,
     infile: Path | None,
     split_dir: Path | None,
     models: list[str],
@@ -350,6 +348,11 @@ def _run_hpc_mode(
         if training_cfg:
             config_file = (hpc_config_file.parent.parent / training_cfg).resolve()
 
+    if splits_config_file is None:
+        splits_cfg = hpc_config.get("configs", {}).get("splits")
+        if splits_cfg:
+            splits_config_file = (hpc_config_file.parent.parent / splits_cfg).resolve()
+
     logs_dir_str = hpc_config.get("paths", {}).get("logs_dir", "../logs")
     logs_dir = (hpc_config_file.parent.parent / logs_dir_str).resolve()
 
@@ -366,10 +369,9 @@ def _run_hpc_mode(
     _ensure_splits_exist(
         split_dir=split_dir,
         infile=infile,
-        config_file=config_file,
+        config_file=splits_config_file,
         overwrite=overwrite_splits,
         overrides=[],
-        verbose=0,
         log_level=log_level,
         logger=hpc_logger,
     )
@@ -431,6 +433,7 @@ def _run_hpc_mode(
 
 def run_pipeline(
     config_file: Path | None,
+    splits_config_file: Path | None,
     infile: Path | None,
     split_dir: Path | None,
     models: list[str],
@@ -444,7 +447,6 @@ def run_pipeline(
     log_file: Path | None,
     cli_args: dict,
     overrides: list[str],
-    verbose: int,
     log_level: int,
     hpc: bool = False,
     hpc_config_file: Path | None = None,
@@ -464,6 +466,7 @@ def run_pipeline(
 
     Args:
         config_file: Path to training config YAML
+        splits_config_file: Path to splits config YAML (for split generation)
         infile: Input data file (Parquet/CSV, auto-discovered if None)
         split_dir: Directory for split indices
         models: List of model names to train
@@ -477,13 +480,13 @@ def run_pipeline(
         log_file: Path to save pipeline logs (None for console only)
         cli_args: Additional CLI arguments for training
         overrides: Config override strings
-        verbose: Verbosity level
         log_level: Logging level constant
     """
     # HPC mode: submit LSF jobs and exit
     if hpc:
         _run_hpc_mode(
             config_file=config_file,
+            splits_config_file=splits_config_file,
             infile=infile,
             split_dir=split_dir,
             models=models,
@@ -538,10 +541,9 @@ def run_pipeline(
     _ensure_splits_exist(
         split_dir=split_dir,
         infile=infile,
-        config_file=config_file,
+        config_file=splits_config_file,
         overwrite=overwrite_splits,
         overrides=overrides,
-        verbose=verbose,
         log_level=log_level,
         logger=logger,
     )
@@ -571,7 +573,6 @@ def run_pipeline(
                 config_file=config_file,
                 cli_args=train_cli_args,
                 overrides=overrides,
-                verbose=verbose,
                 log_level=log_level,
             )
 
@@ -608,7 +609,6 @@ def run_pipeline(
             target_specificity=0.95,
             plot_formats=["png"],
             n_boot=500,
-            verbose=verbose,
             log_level=log_level,
         )
 
@@ -630,7 +630,6 @@ def run_pipeline(
                 outdir=None,  # Use default
                 meta_penalty=None,
                 meta_C=None,
-                verbose=verbose,
                 log_level=log_level,
             )
 
@@ -647,7 +646,6 @@ def run_pipeline(
             target_specificity=0.95,
             plot_formats=["png"],
             n_boot=500,
-            verbose=verbose,
             log_level=log_level,
         )
 
@@ -679,7 +677,7 @@ def run_pipeline(
                 cv_folds=5,
                 step_strategy="geometric",
                 outdir=None,
-                verbose=verbose,
+                log_level=log_level,
             )
 
     # Step 7: Generate consensus panel (if enabled)
@@ -698,7 +696,7 @@ def run_pipeline(
             rfe_weight=0.5,
             rra_method="geometric_mean",
             outdir=None,
-            verbose=verbose,
+            log_level=log_level,
         )
 
     # Final summary

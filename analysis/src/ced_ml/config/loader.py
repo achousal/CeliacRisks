@@ -21,7 +21,6 @@ from ced_ml.config.defaults import (
     DEFAULT_FEATURE_CONFIG,
     DEFAULT_OPTUNA_CONFIG,
     DEFAULT_OUTPUT_CONFIG,
-    DEFAULT_PANEL_CONFIG,
     DEFAULT_SPLITS_CONFIG,
     DEFAULT_STRICTNESS_CONFIG,
     DEFAULT_THRESHOLD_CONFIG,
@@ -154,7 +153,6 @@ def apply_overrides(config_dict: dict[str, Any], overrides: list[str]) -> dict[s
     LIST_KEYS = {
         "scenarios",
         "k_grid",
-        "panel_sizes",
         "control_spec_targets",
         "toprisk_fracs",
     }
@@ -305,7 +303,6 @@ def load_training_config(
     config_dict = {
         "cv": DEFAULT_CV_CONFIG.copy(),
         "features": DEFAULT_FEATURE_CONFIG.copy(),
-        "panels": DEFAULT_PANEL_CONFIG.copy(),
         "thresholds": DEFAULT_THRESHOLD_CONFIG.copy(),
         "evaluation": DEFAULT_EVALUATION_CONFIG.copy(),
         "dca": DEFAULT_DCA_CONFIG.copy(),

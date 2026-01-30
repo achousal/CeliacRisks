@@ -4,6 +4,7 @@ CLI implementation for save-splits command.
 Uses refactored data I/O and split generation modules.
 """
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -57,7 +58,6 @@ def run_save_splits(
     config_file: str | None = None,
     cli_args: dict[str, Any] | None = None,
     overrides: list[str] | None = None,
-    verbose: int = 0,
     log_level: int | None = None,
 ):
     """
@@ -67,12 +67,11 @@ def run_save_splits(
         config_file: Path to YAML config file (optional)
         cli_args: Dictionary of CLI arguments (optional)
         overrides: List of config overrides (optional)
-        verbose: Verbosity level (0=INFO, 1=DEBUG) - deprecated, use log_level
         log_level: Logging level constant (logging.DEBUG, logging.INFO, etc.)
     """
     # Setup logger
     if log_level is None:
-        log_level = 20 - (verbose * 10)  # INFO=20, DEBUG=10
+        log_level = logging.INFO
     # Use parent logger "ced_ml" so all child modules inherit the level
     logger = setup_logger("ced_ml", level=log_level)
 

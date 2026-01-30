@@ -527,7 +527,6 @@ def run_train(
     config_file: str | None = None,
     cli_args: dict[str, Any] | None = None,
     overrides: list[str] | None = None,
-    verbose: int = 0,
     log_level: int | None = None,
 ):
     """
@@ -537,12 +536,11 @@ def run_train(
         config_file: Path to YAML config file (optional)
         cli_args: Dictionary of CLI arguments (optional)
         overrides: List of config overrides (optional)
-        verbose: Verbosity level (0=INFO, 1=DEBUG) - deprecated, use log_level
         log_level: Logging level constant (logging.DEBUG, logging.INFO, etc.)
     """
-    # Setup logger (use log_level if provided, otherwise fall back to verbose)
+    # Setup logger
     if log_level is None:
-        log_level = 20 - (verbose * 10)
+        log_level = logging.INFO
     # Use parent logger "ced_ml" so all child modules inherit the level
     logger = setup_logger("ced_ml", level=log_level)
 
@@ -1348,7 +1346,6 @@ def run_train(
         "inner_folds": getattr(config.cv, "inner_folds", 5),
         "n_iter": getattr(config.cv, "n_iter", 50),
         "feature_selection_strategy": config.features.feature_selection_strategy,
-        "kbest_scope": getattr(config.features, "kbest_scope", "inner"),
         "kbest_max": getattr(config.features, "kbest_max", 500),
         "screen_method": getattr(config.features, "screen_method", "none"),
         "screen_top_n": getattr(config.features, "screen_top_n", 1000),

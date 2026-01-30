@@ -1,8 +1,8 @@
 # Refactoring Plan: ced_ml Codebase
 
 **Created**: 2026-01-28
-**Updated**: 2026-01-29 (audit: refactor-cleaner agent + Codex repo scan + config inheritance changes + v1.10 cruft audit)
-**Status**: Planned
+**Updated**: 2026-01-30 (Phase 0 + 0.5 implementation in progress)
+**Status**: Phase 0/0.5 - Steps 1-5 Complete (dead code + config + --verbose removed)
 **Scope**: Exhaustive complexity reduction and modularity improvements
 
 ---
@@ -125,10 +125,10 @@ Full line-level inventory organized by category. Items marked **(Rx)** map to a 
 ### 0a. Dead code removals
 
 - `utils/paths.py`: `get_run_dir`, `get_core_dir`, `get_preds_dir`, `get_diagnostics_dir`, `get_reports_dir` have zero callers (only defined + re-exported via `__init__.py`). Remove functions and drop from `__all__`.
-- `utils/metadata.py`: Docstring references `build_holdout_metadata` which does not exist. Remove stale reference. Also remove `format_split_info` (zero callers).
-- `config/loader.py`: 6 dead functions -- `load_holdout_config`, `load_panel_optimize_config`, `convert_paths`, `print_config_summary`, `format_dict`, `resolve_value`. Remove all. **Note**: `load_yaml` now supports `_base` key for YAML config inheritance (deep-merge); this is active code -- do not remove.
+- `utils/metadata.py`: Docstring references `build_holdout_metadata` which does not exist. Remove stale reference. **Note**: `format_split_info` is a nested function within `build_plot_metadata` - keep (properly scoped).
+- `config/loader.py`: **CORRECTION**: The 6 functions listed previously are NOT dead. `convert_paths`, `format_dict`, `resolve_value` are nested functions (properly scoped). `load_holdout_config`, `load_panel_optimize_config`, `print_config_summary` are architectural public APIs matching the pattern of `load_training_config`. All should be kept.
 - `utils/logging.py`: 3 dead symbols -- `cleanup_live_logs`, `LoggerContext`, `log_dict`. Remove all.
-- `config/schema.py`: 9 dataclasses potentially dead (`PanelConfig`, `SVMConfig`, `RFConfig`, `XGBoostConfig`, `EvaluationConfig`, `DCAConfig`, `OutputConfig`, `StrictnessConfig`, `ComputeConfig`, `RootConfig`). **Verify YAML deserialization usage before removing** -- these may be instantiated dynamically. Also: `rfe_min_auroc_frac` field unused -- implement or mark deprecated.
+- `config/schema.py`: **CORRECTION**: All dataclasses are ALIVE (used via Pydantic deserialization from YAML configs). Keep all. `rfe_min_auroc_frac` is a schema field - keep.
 
 ### 0b. Dead config options (v1.10 audit)
 
@@ -138,14 +138,16 @@ Remove from `config/schema.py` and `config/defaults.py`:
 |-----------|----------|
 | `splits.save_indices_only` | Defined in schema, never read by any code |
 | `features.kbest_scope` | Defined as `Literal["protein", "transformed"]`, never used to alter behavior |
-| `features.kbest_max` | Defined, never enforced in k-best selection |
-| `features.rf_use_permutation` + `rf_perm_repeats` + `rf_perm_min_importance` + `rf_perm_top_n` | Full RF permutation importance feature never wired into training |
-| `features.coef_threshold` | Defined in schema, not in defaults, no usage |
-| `evaluation.bootstrap_min_samples` | Defined, never checked in code |
-| `cv.scoring_target_fpr` | Defined, not wired into scoring logic |
+| `cv.tune_n_jobs` | Shadowed by `compute.tune_n_jobs` (only that one is actually used) |
+| `cv.error_score` | Hardcoded to "raise" in training.py, config value ignored |
+| `output.save_controls_oof` | File is unconditionally written when controls exist, config flag never checked |
 | Entire `PanelConfig` class (`panels.*` block) | Replaced by `ced optimize-panel` and `ced consensus-panel` CLI commands |
 
-Also consolidate `cv.tune_n_jobs` into `cv.n_jobs` (redundant param).
+**CORRECTIONS** - The following are LIVE (actively used in training.py), not dead:
+- `features.rf_use_permutation` + `rf_perm_repeats` + `rf_perm_min_importance` + `rf_perm_top_n` (used in training.py:953,1100,1139,1148)
+- `features.coef_threshold` (used in training.py:1002)
+- `evaluation.bootstrap_min_samples` (used in train.py:2075)
+- `cv.scoring_target_fpr` (used in training.py:630,680,1093)
 
 **Files**: `config/schema.py`, `config/defaults.py`, `config/validation.py`
 
@@ -154,8 +156,7 @@ Also consolidate `cv.tune_n_jobs` into `cv.n_jobs` (redundant param).
 | Parameter | Condition for removal |
 |-----------|----------------------|
 | `cv.grid_randomize` | Dead if Optuna is always enabled (production default) |
-| `cv.error_score` | Dead if RandomizedSearchCV code path is unreachable |
-| `output.save_controls_oof` | File is written but never consumed downstream; clarify if needed for manual inspection |
+| `features.kbest_max` | Used only in validation (validates panel sizes don't exceed) and as fallback when k_grid empty; can remove if validation deemed unnecessary |
 
 ### 0d. Script archival
 
@@ -177,18 +178,31 @@ Also consolidate `cv.tune_n_jobs` into `cv.n_jobs` (redundant param).
 
 Two new helpers to eliminate divergent logger setup across all 6 CLI commands:
 
-`verbose_to_log_level(verbose: int) -> int`:
-- Standardize two divergent strategies: arithmetic (`20 - verbose*10` at aggregate_splits:344, train_ensemble:291) vs explicit mapping (optimize_panel:184-188, consensus_panel:280-285).
-
-`setup_command_logger(command, verbose, outdir, run_id, model, split_seed, logger_name) -> Logger`:
-- Combines `verbose_to_log_level` + `auto_log_path` + `setup_logger` + "Logging to file" info message.
+`setup_command_logger(command, log_level, outdir, run_id, model, split_seed, logger_name) -> Logger`:
+- Combines `auto_log_path` + `setup_logger` + "Logging to file" info message.
 - Replaces 6-10 lines of boilerplate in every CLI command (train:592-600, run_pipeline:164-171, aggregate_splits:356-362, train_ensemble:295-301, optimize_panel:635-641, consensus_panel:288-293).
+- **Note**: After Phase 0f, `--verbose` is removed, so this helper only needs `log_level` parameter.
 
 ### 0h. CLI validation helper
 
 - Extract common mutually-exclusive flag validation and auto-detect config checks into `cli/_validators.py` to reduce boilerplate in `cli/main.py`.
 
 **Verify**: `pytest tests/ -v` passes. `ruff check src/` clean. No broken imports. `grep -r` for removed config keys returns 0 hits.
+
+### ✅ Phase 0 Implementation Status (2026-01-30)
+
+**Steps 1-5 COMPLETED:**
+- ✅ **Step 0a (Dead code)**: Removed 8 dead functions from utils/paths.py and utils/logging.py
+- ✅ **Step 0a (Docstring)**: Fixed stale reference in utils/metadata.py
+- ✅ **Step 0b (Dead config)**: Removed 6 dead config params + entire PanelConfig class
+- ✅ **Step 0f (--verbose)**: Removed deprecated --verbose flag from all 9 CLI files
+- ✅ **Documentation**: Updated REFACTORING.md with validation corrections
+
+**Files modified**: 24 total (22 source files, 1 doc, 1 test)
+**Lines removed**: ~350 lines of dead code and config
+**Verification**: `ruff check src/` passes ✓
+
+**Remaining steps**: 0g (logging helper), Phase 0.5 (fallback helpers), Phase 0.5 (discovery module)
 
 ---
 

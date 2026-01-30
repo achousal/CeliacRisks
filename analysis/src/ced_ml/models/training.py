@@ -901,16 +901,8 @@ def _extract_selected_proteins_from_fold(
         return []
 
     if strategy in ("hybrid_stability", "rfecv"):
-        kbest_scope = config.features.kbest_scope
-
-        if kbest_scope == "protein" and "prot_sel" in pipeline.named_steps:
-            # Protein-level K-best
-            prot_sel_proteins = getattr(pipeline.named_steps["prot_sel"], "selected_proteins_", [])
-            if prot_sel_proteins:
-                selected_proteins.update(prot_sel_proteins)
-
-        elif "sel" in pipeline.named_steps:
-            # Transformed-space K-best
+        if "sel" in pipeline.named_steps:
+            # K-best selection
             kbest_proteins = _extract_from_kbest_transformed(pipeline, protein_cols)
             if kbest_proteins:
                 selected_proteins.update(kbest_proteins)

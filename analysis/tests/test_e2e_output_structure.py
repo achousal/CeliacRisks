@@ -982,11 +982,6 @@ class TestConsensusPanelOutputStructure:
     """Test consensus panel produces correctly structured outputs."""
 
     @pytest.mark.slow
-    @pytest.mark.skip(
-        reason="Directory structure mismatch: training creates results/{MODEL}/run_{ID}/ "
-        "but consensus expects results/run_{ID}/{MODEL}/. "
-        "Needs production code fix."
-    )
     def test_consensus_panel_creates_required_files(
         self, tiny_proteomics_data, minimal_config, tmp_path
     ):
@@ -1017,7 +1012,10 @@ class TestConsensusPanelOutputStructure:
             ],
         )
 
-        # Train two models
+        # Use fixed run_id from config
+        run_id = "test_e2e_run"
+
+        # Train two models with run_id to ensure correct directory structure
         for model in ["LR_EN", "RF"]:
             for seed in [42, 43]:
                 result = runner.invoke(
@@ -1029,13 +1027,15 @@ class TestConsensusPanelOutputStructure:
                         "--split-dir",
                         str(splits_dir),
                         "--outdir",
-                        str(results_dir / model),
+                        str(results_dir),
                         "--config",
                         str(minimal_config),
                         "--model",
                         model,
                         "--split-seed",
                         str(seed),
+                        "--run-id",
+                        run_id,
                     ],
                     catch_exceptions=False,
                 )
@@ -1043,16 +1043,15 @@ class TestConsensusPanelOutputStructure:
                 if result.exit_code != 0:
                     pytest.skip(f"Training {model} seed {seed} failed")
 
-        # Use fixed run_id from config
-        run_id = "test_e2e_run"
-
         # Aggregate both models
         for model in ["LR_EN", "RF"]:
-            runner.invoke(
+            result = runner.invoke(
                 cli,
                 ["aggregate-splits", "--run-id", run_id, "--model", model],
                 catch_exceptions=False,
             )
+            if result.exit_code != 0:
+                pytest.skip(f"Aggregation {model} failed")
 
         # Generate consensus
         result_consensus = runner.invoke(
@@ -1073,10 +1072,14 @@ class TestConsensusPanelOutputStructure:
             pytest.skip("Consensus panel failed")
 
         # Verify consensus outputs
-        # Actual structure: results/{BASE_MODEL}/run_{run_id}/consensus/
-        # We check under one of the base models (LR_EN) used for consensus
-        consensus_dir = results_dir / "LR_EN" / f"run_{run_id}" / "consensus"
-        assert consensus_dir.exists()
+        # Current structure: results/run_{run_id}/{model}/consensus/
+        # Consensus creates a separate consensus directory for the aggregated panel
+        consensus_dir = results_dir / f"run_{run_id}" / "consensus"
+        if not consensus_dir.exists():
+            # Fallback: check if it's under the first base model
+            consensus_dir = results_dir / f"run_{run_id}" / "LR_EN" / "consensus"
+
+        assert consensus_dir.exists(), f"Consensus directory not found at {consensus_dir}"
 
         required_files = [
             "final_panel.txt",
@@ -1089,11 +1092,6 @@ class TestConsensusPanelOutputStructure:
             assert (consensus_dir / filename).exists(), f"Missing consensus file: {filename}"
 
     @pytest.mark.slow
-    @pytest.mark.skip(
-        reason="Directory structure mismatch: training creates results/{MODEL}/run_{ID}/ "
-        "but consensus expects results/run_{ID}/{MODEL}/. "
-        "Needs production code fix."
-    )
     def test_final_panel_txt_format(self, tiny_proteomics_data, minimal_config, tmp_path):
         """
         Test: final_panel.txt has one protein per line for --fixed-panel.
@@ -1122,6 +1120,9 @@ class TestConsensusPanelOutputStructure:
             ],
         )
 
+        # Use fixed run_id from config
+        run_id = "test_e2e_run"
+
         for model in ["LR_EN", "RF"]:
             for seed in [42, 43]:
                 result = runner.invoke(
@@ -1133,13 +1134,15 @@ class TestConsensusPanelOutputStructure:
                         "--split-dir",
                         str(splits_dir),
                         "--outdir",
-                        str(results_dir / model),
+                        str(results_dir),
                         "--config",
                         str(minimal_config),
                         "--model",
                         model,
                         "--split-seed",
                         str(seed),
+                        "--run-id",
+                        run_id,
                     ],
                     catch_exceptions=False,
                 )
@@ -1147,15 +1150,14 @@ class TestConsensusPanelOutputStructure:
                 if result.exit_code != 0:
                     pytest.skip("Training failed")
 
-        # Use fixed run_id from config
-        run_id = "test_e2e_run"
-
         for model in ["LR_EN", "RF"]:
-            runner.invoke(
+            result = runner.invoke(
                 cli,
                 ["aggregate-splits", "--run-id", run_id, "--model", model],
                 catch_exceptions=False,
             )
+            if result.exit_code != 0:
+                pytest.skip(f"Aggregation {model} failed")
 
         result_consensus = runner.invoke(
             cli,
@@ -1175,8 +1177,11 @@ class TestConsensusPanelOutputStructure:
             pytest.skip("Consensus panel failed")
 
         # Validate final_panel.txt format
-        # Actual structure: results/{BASE_MODEL}/run_{run_id}/consensus/final_panel.txt
-        panel_txt = results_dir / "LR_EN" / f"run_{run_id}" / "consensus" / "final_panel.txt"
+        # Current structure: results/run_{run_id}/consensus/final_panel.txt
+        panel_txt = results_dir / f"run_{run_id}" / "consensus" / "final_panel.txt"
+        if not panel_txt.exists():
+            # Fallback: check if it's under the first base model
+            panel_txt = results_dir / f"run_{run_id}" / "LR_EN" / "consensus" / "final_panel.txt"
         with open(panel_txt) as f:
             lines = [line.strip() for line in f if line.strip()]
 

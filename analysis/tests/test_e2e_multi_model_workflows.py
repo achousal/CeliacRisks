@@ -16,6 +16,8 @@ Run slow tests: pytest tests/test_e2e_multi_model_workflows.py -v -m slow
 """
 
 import json
+import os
+import unittest.mock
 
 import numpy as np
 import pandas as pd
@@ -550,19 +552,20 @@ class TestConsensusPanelIntegration:
                 pytest.skip(f"{model} aggregation failed")
 
         # Generate consensus panel
-        result_consensus = runner.invoke(
-            cli,
-            [
-                "consensus-panel",
-                "--run-id",
-                SHARED_RUN_ID,
-                "--infile",
-                str(multi_model_proteomics_data),
-                "--split-dir",
-                str(splits_dir),
-            ],
-            catch_exceptions=False,
-        )
+        with unittest.mock.patch.dict(os.environ, {"CED_RESULTS_DIR": str(results_dir)}):
+            result_consensus = runner.invoke(
+                cli,
+                [
+                    "consensus-panel",
+                    "--run-id",
+                    SHARED_RUN_ID,
+                    "--infile",
+                    str(multi_model_proteomics_data),
+                    "--split-dir",
+                    str(splits_dir),
+                ],
+                catch_exceptions=False,
+            )
 
         if result_consensus.exit_code != 0:
             pytest.skip(f"Consensus panel failed: {result_consensus.output[:200]}")
@@ -631,25 +634,27 @@ class TestConsensusPanelIntegration:
                     catch_exceptions=False,
                 )
 
+            model_results_dir = results_dir / f"run_{SHARED_RUN_ID}" / model
             runner.invoke(
                 cli,
-                ["aggregate-splits", "--run-id", SHARED_RUN_ID, "--model", model],
+                ["aggregate-splits", "--results-dir", str(model_results_dir)],
                 catch_exceptions=False,
             )
 
-        result_consensus = runner.invoke(
-            cli,
-            [
-                "consensus-panel",
-                "--run-id",
-                SHARED_RUN_ID,
-                "--infile",
-                str(multi_model_proteomics_data),
-                "--split-dir",
-                str(splits_dir),
-            ],
-            catch_exceptions=False,
-        )
+        with unittest.mock.patch.dict(os.environ, {"CED_RESULTS_DIR": str(results_dir)}):
+            result_consensus = runner.invoke(
+                cli,
+                [
+                    "consensus-panel",
+                    "--run-id",
+                    SHARED_RUN_ID,
+                    "--infile",
+                    str(multi_model_proteomics_data),
+                    "--split-dir",
+                    str(splits_dir),
+                ],
+                catch_exceptions=False,
+            )
 
         if result_consensus.exit_code != 0:
             pytest.skip("Consensus panel failed")

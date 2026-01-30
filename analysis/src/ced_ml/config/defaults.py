@@ -45,7 +45,6 @@ DEFAULT_SPLITS_CONFIG: dict[str, Any] = {
     "temporal_col": "CeD_date",
     "temporal_cutoff": None,
     "outdir": "splits",
-    "save_indices_only": False,
 }
 
 # Default CV configuration (matches celiacML_faith.py)
@@ -56,8 +55,6 @@ DEFAULT_CV_CONFIG: dict[str, Any] = {
     "scoring": "average_precision",
     "n_iter": None,  # None = use per-model n_iter; set value to override all
     "random_state": 0,
-    "tune_n_jobs": "auto",
-    "error_score": "nan",
     "grid_randomize": False,
 }
 
@@ -66,22 +63,10 @@ DEFAULT_FEATURE_CONFIG: dict[str, Any] = {
     "feature_selection_strategy": "hybrid_stability",  # Use new parameter (not deprecated feature_select)
     "screen_method": "mannwhitney",
     "screen_top_n": 0,
-    "kbest_scope": "protein",
     "kbest_max": 500,
     "k_grid": [50, 100, 200, 500],
     "stability_thresh": 0.70,
     "stable_corr_thresh": 0.80,
-}
-
-# Default panel building configuration
-DEFAULT_PANEL_CONFIG: dict[str, Any] = {
-    "build_panels": False,
-    "panel_sizes": [10, 25, 50, 100],
-    "panel_corr_thresh": 0.80,
-    "panel_corr_method": "spearman",
-    "panel_rep_tiebreak": "first",
-    "panel_refit": True,
-    "panel_stability_mode": "frequency",
 }
 
 # Default threshold configuration

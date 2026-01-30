@@ -43,7 +43,7 @@ def get_param_distributions(
                 "feature_selection_strategy='hybrid_stability' requires features.k_grid"
             )
 
-        # Always use 'sel' step name regardless of kbest_scope
+        # Always use 'sel' step name
         param_dists["sel__k"] = k_grid
 
     # Model-specific parameters

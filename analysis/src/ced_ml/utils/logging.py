@@ -107,64 +107,6 @@ def finalize_live_log(logger: logging.Logger) -> None:
                     logger.removeHandler(handler)
 
 
-def cleanup_live_logs(log_dir: Path, pattern: str = "*.live") -> None:
-    """
-    Find and finalize all .live log files in a directory.
-
-    Useful for cleanup after job completion or crashes.
-
-    Args:
-        log_dir: Directory containing .live log files
-        pattern: Glob pattern for live logs (default: *.live)
-    """
-    import shutil
-
-    log_dir = Path(log_dir)
-    for live_log in log_dir.glob(pattern):
-        final_log = live_log.with_suffix(".log")
-        if live_log.exists():
-            shutil.move(str(live_log), str(final_log))
-
-
-class LoggerContext:
-    """Context manager for temporary logger configuration."""
-
-    def __init__(
-        self,
-        logger: logging.Logger,
-        level: int | None = None,
-        log_file: Path | None = None,
-    ):
-        self.logger = logger
-        self.new_level = level
-        self.new_log_file = log_file
-
-        # Store original state
-        self.original_level = logger.level
-        self.original_handlers = logger.handlers.copy()
-
-    def __enter__(self):
-        if self.new_level is not None:
-            self.logger.setLevel(self.new_level)
-
-        if self.new_log_file is not None:
-            formatter = logging.Formatter(
-                "[%(asctime)s] %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-            )
-            file_handler = logging.FileHandler(self.new_log_file, mode="a")
-            file_handler.setFormatter(formatter)
-            self.logger.addHandler(file_handler)
-
-        return self.logger
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # Restore original state
-        self.logger.setLevel(self.original_level)
-        self.logger.handlers.clear()
-        for handler in self.original_handlers:
-            self.logger.addHandler(handler)
-
-
 def auto_log_path(
     command: str,
     outdir: Path | str = "results",
@@ -234,13 +176,3 @@ def log_section(logger: logging.Logger, title: str, width: int = 80, char: str =
     logger.info(char * width)
     logger.info(title)
     logger.info(char * width)
-
-
-def log_dict(logger: logging.Logger, data: dict, indent: int = 0, level: int = logging.INFO):
-    """Log a dictionary in a readable format."""
-    for key, value in data.items():
-        if isinstance(value, dict):
-            logger.log(level, "  " * indent + f"{key}:")
-            log_dict(logger, value, indent + 1, level)
-        else:
-            logger.log(level, "  " * indent + f"{key}: {value}")

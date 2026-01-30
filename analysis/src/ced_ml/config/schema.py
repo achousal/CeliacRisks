@@ -51,7 +51,6 @@ class SplitsConfig(BaseModel):
 
     # Output
     outdir: Path = Field(default=Path("../splits"))
-    save_indices_only: bool = False
     overwrite: bool = False
 
     @model_validator(mode="after")
@@ -86,8 +85,6 @@ class CVConfig(BaseModel):
         description="Global n_iter override. If set, overrides all per-model n_iter values.",
     )
     random_state: int = 0
-    tune_n_jobs: int | str = "auto"
-    error_score: str = "nan"
     grid_randomize: bool = False
 
 
@@ -124,7 +121,6 @@ class FeatureConfig(BaseModel):
     screen_top_n: int = Field(default=0, ge=0)
 
     # Hybrid+Stability strategy parameters (used when strategy="hybrid_stability")
-    kbest_scope: Literal["protein", "transformed"] = "protein"
     kbest_max: int = Field(default=500, ge=1)
     k_grid: list[int] = Field(
         default_factory=lambda: [50, 100, 200, 500],
@@ -211,23 +207,6 @@ class FeatureConfig(BaseModel):
 
     # Coefficient threshold for linear model feature extraction
     coef_threshold: float = Field(default=0.01, ge=0.0)
-
-
-# ============================================================================
-# Panel Building Configuration
-# ============================================================================
-
-
-class PanelConfig(BaseModel):
-    """Configuration for biomarker panel building."""
-
-    build_panels: bool = False
-    panel_sizes: list[int] = Field(default_factory=lambda: [10, 25, 50, 100])
-    panel_corr_thresh: float = Field(default=0.80, ge=0.0, le=1.0)
-    panel_corr_method: Literal["pearson", "spearman"] = "spearman"
-    panel_rep_tiebreak: Literal["first", "random"] = "first"
-    panel_refit: bool = True
-    panel_stability_mode: Literal["frequency", "rank"] = "frequency"
 
 
 # ============================================================================
@@ -555,7 +534,6 @@ class OutputConfig(BaseModel):
     save_test_preds: bool = True
     save_calibration: bool = True
     calib_bins: int = Field(default=10, ge=2)
-    save_controls_oof: bool = True
     save_feature_importance: bool = True
     feature_reports: bool = True
     save_plots: bool = True
@@ -618,7 +596,6 @@ class TrainingConfig(BaseModel):
     columns: ColumnsConfig = Field(default_factory=ColumnsConfig)
     cv: CVConfig = Field(default_factory=CVConfig)
     features: FeatureConfig = Field(default_factory=FeatureConfig)
-    panels: PanelConfig = Field(default_factory=PanelConfig)
     thresholds: ThresholdConfig = Field(default_factory=ThresholdConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     dca: DCAConfig = Field(default_factory=DCAConfig)

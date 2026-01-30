@@ -298,7 +298,6 @@ def run_aggregate_splits(
     plot_formats: list[str] | None = None,
     target_specificity: float = 0.95,
     n_boot: int = 500,
-    verbose: int = 0,
     log_level: int | None = None,
     save_plots: bool = True,
     plot_roc: bool = True,
@@ -319,7 +318,6 @@ def run_aggregate_splits(
         plot_formats: List of plot formats (default ["png"])
         target_specificity: Target specificity for alpha threshold (default 0.95)
         n_boot: Number of bootstrap iterations (for future CI computation)
-        verbose: Verbosity level (0=INFO, 1=DEBUG) - deprecated, use log_level
         log_level: Logging level constant (logging.DEBUG, logging.INFO, etc.)
         save_plots: Whether to save plots at all (default True)
         plot_roc: Whether to generate ROC plots (default True)
@@ -340,7 +338,7 @@ def run_aggregate_splits(
         control_spec_targets = [0.90, 0.95, 0.99]
 
     if log_level is None:
-        log_level = 20 - (verbose * 10)
+        log_level = logging.INFO
 
     # Derive run_id and model from results_dir path (pattern: .../run_{ID}/{MODEL}/...)
     results_path = Path(results_dir)

@@ -251,7 +251,7 @@ def run_consensus_panel(
     rfe_weight: float = 0.5,
     rra_method: str = "geometric_mean",
     outdir: str | None = None,
-    verbose: int = 0,
+    log_level: int | None = None,
 ) -> ConsensusResult:
     """Run consensus panel generation from multiple models.
 
@@ -265,7 +265,7 @@ def run_consensus_panel(
         rfe_weight: Weight for RFE vs stability (0-1).
         rra_method: RRA aggregation method.
         outdir: Output directory (default: results/consensus_panel/run_<RUN_ID>).
-        verbose: Verbosity level.
+        log_level: Logging level constant (logging.DEBUG, logging.INFO, etc.)
 
     Returns:
         ConsensusResult with final panel and intermediate data.
@@ -277,10 +277,7 @@ def run_consensus_panel(
     # Setup logging
     from ced_ml.utils.logging import auto_log_path, setup_logger
 
-    log_level = logging.WARNING
-    if verbose >= 2:
-        log_level = logging.DEBUG
-    elif verbose >= 1:
+    if log_level is None:
         log_level = logging.INFO
 
     # Auto-file-logging

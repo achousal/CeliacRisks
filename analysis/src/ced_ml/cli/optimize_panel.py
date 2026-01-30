@@ -149,7 +149,7 @@ def run_optimize_panel(
     step_strategy: str = "geometric",
     outdir: str | None = None,
     use_stability_panel: bool = True,
-    verbose: int = 0,
+    log_level: int | None = None,
 ) -> RFEResult:
     """Run panel optimization via Recursive Feature Elimination.
 
@@ -168,7 +168,7 @@ def run_optimize_panel(
         step_strategy: Elimination strategy ("geometric", "fine", "linear").
         outdir: Output directory (default: alongside model in optimize_panel/).
         use_stability_panel: If True, start from stability ranking; else all proteins.
-        verbose: Verbosity level.
+        log_level: Logging level constant (logging.DEBUG, logging.INFO, etc.)
 
     Returns:
         RFEResult with curve, feature_ranking, and recommendations.
@@ -178,10 +178,7 @@ def run_optimize_panel(
         ValueError: If required data is missing from model bundle.
     """
     # Setup logging to file and console
-    log_level = logging.WARNING
-    if verbose >= 2:
-        log_level = logging.DEBUG
-    elif verbose >= 1:
+    if log_level is None:
         log_level = logging.INFO
 
     # Use unique logger per model to avoid handler accumulation in batch mode
@@ -576,7 +573,7 @@ def run_optimize_panel_aggregated(
     cv_folds: int = 5,
     step_strategy: str = "geometric",
     outdir: str | None = None,
-    verbose: int = 0,
+    log_level: int | None = None,
 ) -> RFEResult:
     """Run panel optimization using aggregated stability panel.
 
@@ -594,7 +591,7 @@ def run_optimize_panel_aggregated(
         cv_folds: CV folds for RFE
         step_strategy: Elimination strategy ("geometric", "fine", "linear")
         outdir: Output directory (default: results_dir/optimize_panel)
-        verbose: Verbosity level
+        log_level: Logging level constant (logging.DEBUG, logging.INFO, etc.)
 
     Returns:
         RFEResult with optimization curve and recommendations
@@ -615,10 +612,7 @@ def run_optimize_panel_aggregated(
         model_name = results_path.parent.parent.name
 
     # Setup logging
-    log_level = logging.WARNING
-    if verbose >= 2:
-        log_level = logging.DEBUG
-    elif verbose >= 1:
+    if log_level is None:
         log_level = logging.INFO
 
     # Derive run_id from path (pattern: .../run_{ID}/...)

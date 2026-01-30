@@ -98,15 +98,6 @@ def validate_training_config(config: TrainingConfig):
             "Need folds >= 2 or explicit validation set."
         )
 
-    # Check panel sizes vs kbest max
-    if config.panels.build_panels:
-        max_panel = max(config.panels.panel_sizes)
-        if max_panel > config.features.kbest_max:
-            issues.append(
-                f"Max panel size ({max_panel}) > kbest_max ({config.features.kbest_max}). "
-                "Not enough features for largest panel."
-            )
-
     # Check DCA configuration
     if config.dca.compute_dca:
         if config.dca.dca_threshold_min >= config.dca.dca_threshold_max:

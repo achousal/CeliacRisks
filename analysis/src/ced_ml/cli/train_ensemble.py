@@ -254,7 +254,6 @@ def run_train_ensemble(
     outdir: str | None = None,
     meta_penalty: str | None = None,
     meta_c: float | None = None,
-    verbose: int = 0,
     log_level: int | None = None,
 ) -> dict[str, Any]:
     """Run ensemble training from base model outputs.
@@ -276,7 +275,6 @@ def run_train_ensemble(
         outdir: Output directory (overrides results_dir/ENSEMBLE/split_{seed})
         meta_penalty: Meta-learner regularization (overrides config)
         meta_c: Meta-learner regularization strength (overrides config)
-        verbose: Verbosity level - deprecated, use log_level
         log_level: Logging level constant (logging.DEBUG, logging.INFO, etc.)
 
     Returns:
@@ -284,7 +282,7 @@ def run_train_ensemble(
     """
     # Setup logger with auto-file-logging
     if log_level is None:
-        log_level = 20 - (verbose * 10)
+        log_level = logging.INFO
 
     # Determine outdir for log path resolution
     _log_outdir = outdir or results_dir or "results"

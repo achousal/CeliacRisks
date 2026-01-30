@@ -22,14 +22,14 @@ cv:
 # Optuna hyperparameter optimization (optional alternative to RandomizedSearchCV)
 optuna:
   enabled: true  # Set to true to use Optuna instead of RandomizedSearchCV
-  n_trials: 600  # Thorough search
+  n_trials: 400
   timeout: null  # Optional timeout in seconds (null = no limit)
   sampler: tpe  # Options: tpe, random, cmaes, grid
   sampler_seed: 42  # Seed for reproducibility
   pruner: median  # Options: median, percentile, hyperband, none
   pruner_n_startup_trials: 20  # Trials before pruning starts
   pruner_percentile: 25.0  # Percentile for percentile pruner (0-100)
-  n_jobs: 4  # CRITICAL: Limit parallelism to prevent memory explosion with CalibratedClassifierCV
+  n_jobs: 1  # CRITICAL: Limit parallelism to prevent memory explosion with CalibratedClassifierCV
   save_study: true  # Save Optuna study object
   save_trials_csv: true  # Save trials as CSV
 
@@ -220,7 +220,6 @@ output:
   save_test_preds: true
   save_calibration: true
   calib_bins: 6
-  save_controls_oof: true
   save_feature_importance: true
   feature_reports: true
   plot_format: png  # Options: png, pdf, svg

@@ -16,19 +16,13 @@ from ced_ml import __version__
 @click.group()
 @click.version_option(version=__version__, prog_name="ced")
 @click.option(
-    "--verbose",
-    "-v",
-    count=True,
-    help="Increase verbosity (can be repeated: -v, -vv, -vvv)",
-)
-@click.option(
     "--log-level",
     type=click.Choice(["debug", "info", "warning", "error"], case_sensitive=False),
     default="info",
     help="Logging level (default: info). Use 'debug' for detailed algorithm insights.",
 )
 @click.pass_context
-def cli(ctx, verbose, log_level):
+def cli(ctx, log_level):
     """
     CeD-ML: Machine Learning Pipeline for Celiac Disease Risk Prediction
 
@@ -41,7 +35,6 @@ def cli(ctx, verbose, log_level):
 
     # Store global options in context
     ctx.ensure_object(dict)
-    ctx.obj["verbose"] = verbose
 
     # Convert log_level string to logging constant
     log_level_map = {
@@ -179,7 +172,6 @@ def save_splits(ctx, config, **kwargs):
         config_file=config,
         cli_args=cli_args,
         overrides=overrides,
-        verbose=ctx.obj.get("verbose", 0),
         log_level=ctx.obj.get("log_level"),
     )
 
@@ -255,7 +247,6 @@ def train(ctx, config, **kwargs):
         config_file=config,
         cli_args=cli_args,
         overrides=overrides,
-        verbose=ctx.obj.get("verbose", 0),
         log_level=ctx.obj.get("log_level"),
     )
 
@@ -376,9 +367,7 @@ def aggregate_splits(ctx, **kwargs):
     kwargs.pop("run_id", None)
     kwargs.pop("model", None)
 
-    run_aggregate_splits(
-        **kwargs, verbose=ctx.obj.get("verbose", 0), log_level=ctx.obj.get("log_level")
-    )
+    run_aggregate_splits(**kwargs, log_level=ctx.obj.get("log_level"))
 
 
 @cli.command("eval-holdout")
@@ -509,7 +498,6 @@ def train_ensemble(ctx, config, base_models, **kwargs):
             config_file=config,
             base_models=base_model_list,
             **kwargs,
-            verbose=ctx.obj.get("verbose", 0),
             log_level=ctx.obj.get("log_level"),
         )
     except FileNotFoundError as e:
@@ -594,12 +582,6 @@ def train_ensemble(ctx, config, base_models, **kwargs):
     default=None,
     help="Output directory (default: results_dir/aggregated/optimize_panel/)",
 )
-@click.option(
-    "--verbose",
-    type=int,
-    default=None,
-    help="Verbosity level (0=warnings, 1=info, 2=debug)",
-)
 @click.pass_context
 def optimize_panel(ctx, config, **kwargs):
     """Find minimum viable panel from aggregated cross-split results.
@@ -675,7 +657,6 @@ def optimize_panel(ctx, config, **kwargs):
         "cv_folds",
         "step_strategy",
         "outdir",
-        "verbose",
     ]:
         if kwargs.get(key) is None and key in config_params:
             kwargs[key] = config_params[key]
@@ -780,13 +761,6 @@ def optimize_panel(ctx, config, **kwargs):
 
         click.echo("")
 
-        # Determine verbosity (config/CLI, with CLI taking precedence via ctx.obj)
-        verbose_level = (
-            kwargs.get("verbose")
-            if kwargs.get("verbose") is not None
-            else ctx.obj.get("verbose", 0)
-        )
-
         # Run optimization for each discovered model
         for model_name, results_dir in model_dirs.items():
             click.echo(f"\n{'='*70}")
@@ -804,7 +778,7 @@ def optimize_panel(ctx, config, **kwargs):
                 cv_folds=kwargs.get("cv_folds") or 5,
                 step_strategy=kwargs.get("step_strategy") or "geometric",
                 outdir=kwargs.get("outdir"),
-                verbose=verbose_level,
+                log_level=ctx.obj.get("log_level"),
             )
 
         click.echo(f"\n{'='*70}")
@@ -819,13 +793,6 @@ def optimize_panel(ctx, config, **kwargs):
                 "When using --results-dir, both --infile and --split-dir are required."
             )
 
-        # Determine verbosity (config/CLI, with CLI taking precedence via ctx.obj)
-        verbose_level = (
-            kwargs.get("verbose")
-            if kwargs.get("verbose") is not None
-            else ctx.obj.get("verbose", 0)
-        )
-
         run_optimize_panel_aggregated(
             results_dir=kwargs["results_dir"],
             infile=kwargs["infile"],
@@ -837,7 +804,7 @@ def optimize_panel(ctx, config, **kwargs):
             cv_folds=kwargs.get("cv_folds") or 5,
             step_strategy=kwargs.get("step_strategy") or "geometric",
             outdir=kwargs.get("outdir"),
-            verbose=verbose_level,
+            log_level=ctx.obj.get("log_level"),
         )
 
 
@@ -902,12 +869,6 @@ def optimize_panel(ctx, config, **kwargs):
     type=click.Path(),
     default=None,
     help="Output directory (default: results/run_<RUN_ID>/consensus)",
-)
-@click.option(
-    "--verbose",
-    type=int,
-    default=None,
-    help="Verbosity level (0=warnings, 1=info, 2=debug)",
 )
 @click.pass_context
 def consensus_panel(ctx, config, **kwargs):
@@ -979,16 +940,10 @@ def consensus_panel(ctx, config, **kwargs):
         "rfe_weight",
         "rra_method",
         "outdir",
-        "verbose",
     ]
     for key in param_keys:
         if kwargs.get(key) is None and key in config_params:
             kwargs[key] = config_params[key]
-
-    # Determine verbosity
-    verbose_level = kwargs.get("verbose")
-    if verbose_level is None:
-        verbose_level = ctx.obj.get("verbose", 0)
 
     # Run consensus panel generation
     run_consensus_panel(
@@ -1001,7 +956,7 @@ def consensus_panel(ctx, config, **kwargs):
         rfe_weight=kwargs.get("rfe_weight") or 0.5,
         rra_method=kwargs.get("rra_method") or "geometric_mean",
         outdir=kwargs.get("outdir"),
-        verbose=verbose_level,
+        log_level=ctx.obj.get("log_level"),
     )
 
 
@@ -1036,7 +991,7 @@ def config_validate(ctx, config_file, command, strict):
         config_file=Path(config_file),
         command=command,
         strict=strict,
-        verbose=ctx.obj.get("verbose", 0),
+        log_level=ctx.obj.get("log_level"),
     )
 
 
@@ -1060,7 +1015,7 @@ def config_diff(ctx, config_file1, config_file2, output):
         config_file1=Path(config_file1),
         config_file2=Path(config_file2),
         output_file=Path(output) if output else None,
-        verbose=ctx.obj.get("verbose", 0),
+        log_level=ctx.obj.get("log_level"),
     )
 
 
@@ -1319,6 +1274,7 @@ def run_pipeline(ctx, config, models, split_seeds, **kwargs):
     outdir = Path(outdir_raw) if outdir_raw else pcfg.get("results_dir", Path("results"))
 
     config_path = Path(config) if config else pcfg.get("training_config")
+    splits_config_path = pcfg.get("splits_config")
     log_file = Path(kwargs["log_file"]) if kwargs.get("log_file") else None
 
     hpc_config_path = Path(hpc_config_cli) if hpc_config_cli else (pcfg_path if hpc_flag else None)
@@ -1341,6 +1297,7 @@ def run_pipeline(ctx, config, models, split_seeds, **kwargs):
     try:
         run_pipeline_impl(
             config_file=config_path,
+            splits_config_file=splits_config_path,
             infile=infile,
             split_dir=split_dir,
             models=model_list,
@@ -1354,7 +1311,6 @@ def run_pipeline(ctx, config, models, split_seeds, **kwargs):
             log_file=log_file,
             cli_args=cli_args,
             overrides=overrides,
-            verbose=ctx.obj.get("verbose", 0),
             log_level=ctx.obj.get("log_level"),
             hpc=hpc_flag,
             hpc_config_file=hpc_config_path,
