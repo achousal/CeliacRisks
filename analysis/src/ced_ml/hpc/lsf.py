@@ -2,10 +2,17 @@
 
 Provides functions to build and submit LSF (bsub) job scripts for running
 the CeD-ML pipeline on HPC clusters with job dependency chains.
+
+Parallelization strategy:
+- Training: M × S parallel jobs (one per model per split)
+- Post-processing: Single aggregation job (waits for all training)
+- Panel optimization: M parallel jobs (one per model)
+- Consensus: Single job (waits for aggregation + panels)
+
+Example: 4 models × 10 splits = 40 training jobs running simultaneously
 """
 
 import logging
-import os
 import re
 import shutil
 import subprocess
@@ -17,36 +24,37 @@ logger = logging.getLogger(__name__)
 
 
 def detect_environment(base_dir: Path) -> dict[str, str]:
-    """Detect active Python environment (venv or conda).
+    """Detect venv at analysis/ subdirectory (for HPC mode).
 
     Args:
-        base_dir: Base directory to search for venv.
+        base_dir: Base directory (cwd).
 
     Returns:
         Dict with keys: type, activation (bash command to activate).
 
     Raises:
-        RuntimeError: If no Python environment is detected.
+        RuntimeError: If venv not found.
     """
-    venv_activate = base_dir / "venv" / "bin" / "activate"
-    if venv_activate.exists():
-        return {
-            "type": "venv",
-            "activation": f'source "{venv_activate}"',
-        }
+    from ced_ml.utils.paths import get_project_root
 
-    conda_env = os.environ.get("CONDA_DEFAULT_ENV")
-    if conda_env:
-        return {
-            "type": "conda",
-            "activation": f"conda activate {conda_env}",
-        }
+    try:
+        project_root = get_project_root()
+    except Exception:
+        if (base_dir / "analysis").exists():
+            project_root = base_dir
+        elif base_dir.name == "analysis":
+            project_root = base_dir.parent
+        else:
+            project_root = base_dir
 
-    raise RuntimeError(
-        "No Python environment detected. "
-        "Expected venv at analysis/venv/ or active conda environment. "
-        "Run: bash scripts/hpc_setup.sh"
-    )
+    venv_activate = project_root / "analysis" / "venv" / "bin" / "activate"
+    if not venv_activate.exists():
+        raise RuntimeError(f"venv not found at {venv_activate}. " f"Run: bash scripts/hpc_setup.sh")
+
+    return {
+        "type": "venv",
+        "activation": f'source "{venv_activate}"',
+    }
 
 
 def load_hpc_config(config_path: Path) -> dict:
@@ -109,9 +117,13 @@ def build_job_script(
 
     Returns:
         Complete bash script string for bsub submission.
+
+    Note:
+        Job output is redirected to /dev/null because ced commands create
+        their own log files in logs/training/, logs/ensemble/, etc.
+        Only stderr is captured to {job_name}.%J.err for LSF errors.
     """
     log_err = log_dir / f"{job_name}.%J.err"
-    live_log = log_dir / f"{job_name}.%J.live.log"
 
     dep_line = ""
     if dependency:
@@ -135,9 +147,9 @@ export FORCE_COLOR=1
 
 {env_activation}
 
-stdbuf -oL -eL {command} 2>&1 | tee -a "{live_log}"
+{command}
 
-exit ${{PIPESTATUS[0]}}
+exit $?
 """
     return script
 
@@ -191,34 +203,25 @@ def _build_training_command(
     infile: Path,
     split_dir: Path,
     outdir: Path,
-    models: list[str],
+    model: str,
     split_seed: int,
     run_id: str,
-    enable_ensemble: bool,
-    enable_consensus: bool,
-    enable_optimize_panel: bool,
 ) -> str:
-    """Build ced run-pipeline command for a single split seed (training only).
+    """Build ced train command for a single (model, split_seed) pair.
 
-    Each per-seed job trains all models for that seed but skips aggregation,
-    ensemble training, panel optimization, and consensus (all handled by
-    separate downstream jobs with proper dependencies).
+    Each job trains ONE model on ONE split for maximum parallelization.
+    Post-processing (aggregation, ensemble, panels, consensus) handled by
+    separate downstream jobs with proper dependencies.
     """
-    models_str = ",".join(models)
     parts = [
-        "ced run-pipeline",
+        "ced train",
         f'--config "{config_file}"',
         f'--infile "{infile}"',
         f'--split-dir "{split_dir}"',
         f'--outdir "{outdir}"',
-        f"--models {models_str}",
-        f"--split-seeds {split_seed}",
+        f"--model {model}",
+        f"--split-seed {split_seed}",
         f"--run-id {run_id}",
-        # Disable post-processing in per-seed jobs -- the post job handles it
-        "--no-ensemble",
-        "--no-consensus",
-        "--no-optimize-panel",
-        "-v",
     ]
     return " \\\n  ".join(parts)
 
@@ -310,11 +313,14 @@ def submit_hpc_pipeline(
 ) -> dict:
     """Submit complete HPC pipeline with dependency chains.
 
-    Job dependency architecture:
-    1. Training jobs (per seed, parallel)
-    2. Post-processing job (aggregation + ensemble, depends on training)
-    3. Panel optimization jobs (per model, parallel, depends on post-processing)
+    Job dependency architecture (OPTIMIZED FOR MAXIMUM PARALLELIZATION):
+    1. Training jobs (M × S jobs: one per model per split, fully parallel)
+       Example: 4 models × 10 splits = 40 parallel jobs
+    2. Post-processing job (aggregation + ensemble, depends on ALL training jobs)
+    3. Panel optimization jobs (M jobs: one per model, parallel, depends on post-processing)
     4. Consensus panel job (depends on post-processing + panel optimization)
+
+    Performance: 4× speedup vs previous per-split parallelization (with 4 models)
 
     Args:
         config_file: Path to training config YAML.
@@ -357,46 +363,47 @@ def submit_hpc_pipeline(
         "log_dir": run_logs_dir,
     }
 
-    # Submit training jobs (one per seed)
-    pipeline_logger.info(f"Submitting {len(split_seeds)} training jobs...")
+    # Submit training jobs (one per model per split for maximum parallelization)
+    n_jobs = len(models) * len(split_seeds)
+    pipeline_logger.info(
+        f"Submitting {n_jobs} training jobs ({len(models)} models \u00d7 {len(split_seeds)} splits)..."
+    )
     training_job_ids = []
 
-    for seed in split_seeds:
-        job_name = f"CeD_{run_id}_seed{seed}"
+    for model in models:
+        for seed in split_seeds:
+            job_name = f"CeD_{run_id}_{model}_s{seed}"
 
-        command = _build_training_command(
-            config_file=config_file.resolve(),
-            infile=infile.resolve(),
-            split_dir=split_dir.resolve(),
-            outdir=outdir.resolve(),
-            models=models,
-            split_seed=seed,
-            run_id=run_id,
-            enable_ensemble=enable_ensemble,
-            enable_consensus=enable_consensus,
-            enable_optimize_panel=enable_optimize_panel,
-        )
+            command = _build_training_command(
+                config_file=config_file.resolve(),
+                infile=infile.resolve(),
+                split_dir=split_dir.resolve(),
+                outdir=outdir.resolve(),
+                model=model,
+                split_seed=seed,
+                run_id=run_id,
+            )
 
-        script = build_job_script(
-            job_name=job_name,
-            command=command,
-            **bsub_params,
-        )
+            script = build_job_script(
+                job_name=job_name,
+                command=command,
+                **bsub_params,
+            )
 
-        job_id = submit_job(script, dry_run=dry_run)
-        if job_id:
-            pipeline_logger.info(f"  Seed {seed}: Job {job_id}")
-            training_job_ids.append(job_id)
-        elif dry_run:
-            pipeline_logger.info(f"  [DRY RUN] Seed {seed}: {job_name}")
-            training_job_ids.append(f"DRYRUN_{seed}")
-        else:
-            pipeline_logger.error(f"  Seed {seed}: Submission failed")
+            job_id = submit_job(script, dry_run=dry_run)
+            if job_id:
+                pipeline_logger.info(f"  {model} seed {seed}: Job {job_id}")
+                training_job_ids.append(job_id)
+            elif dry_run:
+                pipeline_logger.info(f"  [DRY RUN] {model} seed {seed}: {job_name}")
+                training_job_ids.append(f"DRYRUN_{model}_{seed}")
+            else:
+                pipeline_logger.error(f"  {model} seed {seed}: Submission failed")
 
-    # Submit post-processing job (aggregation + ensemble) with dependency on training
+    # Submit post-processing job (aggregation + ensemble) with dependency on ALL training jobs
     pipeline_logger.info("Submitting post-processing job (aggregation + ensemble)...")
     post_job_name = f"CeD_{run_id}_post"
-    dependency_expr = f"done(CeD_{run_id}_seed*)"
+    dependency_expr = f"done(CeD_{run_id}_*_s*)"
 
     post_command = _build_postprocessing_command(
         config_file=config_file.resolve(),

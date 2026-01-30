@@ -193,3 +193,21 @@ def log_section(logger: logging.Logger, title: str, width: int = 80, char: str =
     logger.info(char * width)
     logger.info(title)
     logger.info(char * width)
+
+
+def log_fold_header(
+    logger: logging.Logger,
+    fold_num: int,
+    total_folds: int,
+    repeat_num: int,
+    width: int = 72,
+) -> None:
+    """Log a visually distinct fold header using dashes.
+
+    Example output::
+
+        --- Fold 3/15 (repeat=0) -------------------------------------------
+    """
+    label = f" Fold {fold_num}/{total_folds} (repeat={repeat_num}) "
+    line = f"---{label}{'-' * max(0, width - 3 - len(label))}"
+    logger.info(line)

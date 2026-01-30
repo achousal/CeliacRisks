@@ -55,12 +55,22 @@ echo "  CeliacRisks HPC Setup (v1.0.0)"
 echo "=========================================="
 echo ""
 
+# Detect project root (CeliacRisks/)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ANALYSIS_DIR="$PROJECT_ROOT/analysis"
+
+# Change to analysis directory (where venv will be created)
+cd "$ANALYSIS_DIR" || error "Could not find analysis directory at $ANALYSIS_DIR"
+
 # Check we're in the right directory
 if [ ! -f "pyproject.toml" ]; then
-    error "pyproject.toml not found. Run this script from the analysis/ directory."
+    error "pyproject.toml not found in $ANALYSIS_DIR"
 fi
 
-info "Current directory: $(pwd)"
+info "Project root: $PROJECT_ROOT"
+info "Analysis directory: $ANALYSIS_DIR"
+info "venv location: $ANALYSIS_DIR/venv/"
 
 # Check Python version
 info "Checking Python version..."

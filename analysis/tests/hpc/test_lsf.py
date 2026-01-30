@@ -12,27 +12,25 @@ from ced_ml.hpc.lsf import (
 
 
 def test_build_training_command():
-    """Test training command builder generates correct ced run-pipeline call."""
+    """Test training command builder generates correct ced train call for single model."""
     cmd = _build_training_command(
         config_file=Path("/path/to/config.yaml"),
         infile=Path("/data/input.parquet"),
         split_dir=Path("/splits"),
         outdir=Path("/results"),
-        models=["LR_EN", "RF", "XGBoost"],
+        model="LR_EN",
         split_seed=0,
         run_id="20260130_120000",
-        enable_ensemble=True,
-        enable_consensus=True,
-        enable_optimize_panel=True,
     )
 
-    assert "ced run-pipeline" in cmd
-    assert "--models LR_EN,RF,XGBoost" in cmd
-    assert "--split-seeds 0" in cmd
+    assert "ced train" in cmd
+    assert "--model LR_EN" in cmd
+    assert "--split-seed 0" in cmd
     assert "--run-id 20260130_120000" in cmd
-    assert "--no-ensemble" in cmd
-    assert "--no-consensus" in cmd
-    assert "--no-optimize-panel" in cmd
+    assert "--config" in cmd
+    assert "--infile" in cmd
+    assert "--split-dir" in cmd
+    assert "--outdir" in cmd
 
 
 def test_build_postprocessing_command_basic():
@@ -137,7 +135,11 @@ def test_build_job_script_with_dependency():
 
 
 def test_build_job_script_log_paths():
-    """Test that log paths are correctly configured."""
+    """Test that log paths are correctly configured.
+
+    Note: Only stderr (.err) is captured by LSF. Stdout is discarded because
+    ced commands create their own log files in logs/training/, logs/ensemble/, etc.
+    """
     log_dir = Path("/test/logs")
     script = build_job_script(
         job_name="logging_test",
@@ -152,4 +154,7 @@ def test_build_job_script_log_paths():
     )
 
     assert f"#BSUB -eo {log_dir}/logging_test.%J.err" in script
-    assert f'tee -a "{log_dir}/logging_test.%J.live.log"' in script
+    assert "#BSUB -oo /dev/null" in script
+    # No more .live.log files - ced commands create their own logs
+    assert ".live.log" not in script
+    assert "tee" not in script

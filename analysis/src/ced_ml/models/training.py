@@ -24,6 +24,7 @@ from sklearn.pipeline import Pipeline
 
 from ..config import TrainingConfig
 from ..metrics.scorers import get_scorer
+from ..utils.logging import log_fold_header
 
 if TYPE_CHECKING:
     from ced_ml.features.nested_rfe import NestedRFECVResult
@@ -186,23 +187,19 @@ def oof_predictions_with_nested_cv(
 
         # Log fold start and statistics
         fold_start = time.perf_counter()
-        logger.info(f"Outer fold {split_idx+1}/{total_outer_folds} (repeat={repeat_num}):")
+        log_fold_header(logger, split_idx + 1, total_outer_folds, repeat_num)
 
-        # Log class distribution statistics
+        # Compute class distribution
         y_train = y[train_idx]
         y_val = y[test_idx]
         n_train_cases = int(np.sum(y_train))
-        n_train_controls = int(len(y_train) - n_train_cases)
         n_val_cases = int(np.sum(y_val))
-        n_val_controls = int(len(y_val) - n_val_cases)
         train_prevalence = n_train_cases / len(y_train) if len(y_train) > 0 else 0.0
-        val_prevalence = n_val_cases / len(y_val) if len(y_val) > 0 else 0.0
 
+        # Compact one-liner for train/val sizes
         logger.info(
-            f"  Train: N={len(y_train)} ({n_train_cases} cases, {n_train_controls} controls, prevalence={train_prevalence:.2f})"
-        )
-        logger.info(
-            f"  Val:   N={len(y_val)} ({n_val_cases} cases, {n_val_controls} controls, prevalence={val_prevalence:.2f})"
+            f"  Train: N={len(y_train):,} ({n_train_cases} cases) | "
+            f"Val: N={len(y_val):,} ({n_val_cases} cases)"
         )
 
         # Warn about extreme class imbalance
@@ -407,9 +404,10 @@ def oof_predictions_with_nested_cv(
         # Get actual feature count used by the model
         n_features_used = _get_model_feature_count(fitted_model)
 
+        pct = 100 * (split_idx + 1) / total_outer_folds
         logger.info(
-            f"  Fold completed in {fold_duration:.1f}s: best_score={best_score:.3f}, "
-            f"features_in_model={n_features_used}"
+            f"  Fold completed in {fold_duration:.1f}s | score={best_score:.3f} | "
+            f"features={n_features_used} | [{pct:.0f}%]"
         )
 
         split_idx += 1

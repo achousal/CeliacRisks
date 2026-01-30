@@ -792,7 +792,27 @@ def run_train(
 
     # Step 9: Run nested CV for OOF predictions
     log_section(logger, "Nested Cross-Validation")
-    logger.info(f"Running {config.cv.folds}-fold CV × {config.cv.repeats} repeats...")
+    total_folds = config.cv.folds * config.cv.repeats
+    logger.info(
+        f"Config: {config.model} | {config.cv.folds}-fold x {config.cv.repeats} repeats "
+        f"= {total_folds} outer folds | scoring={config.cv.scoring}"
+    )
+    strategy = config.features.feature_selection_strategy
+    screen_top = getattr(config.features, "screen_top_n", "?")
+    logger.info(
+        f"Features: {strategy} | screen={getattr(config.features, 'screen_method', 'none')} top-{screen_top}"
+    )
+    optuna_cfg = config.optuna
+    cal_strategy = getattr(config.calibration, "strategy", "none")
+    cal_method = getattr(config.calibration, "method", "none")
+    if optuna_cfg.enabled:
+        logger.info(
+            f"Optuna: {optuna_cfg.n_trials} trials ({optuna_cfg.sampler}/{optuna_cfg.pruner}) | "
+            f"calibration: {cal_strategy} ({cal_method})"
+        )
+    else:
+        logger.info(f"Optuna: disabled | calibration: {cal_strategy} ({cal_method})")
+    logger.info(f"Running {total_folds} folds...")
 
     # Create grid RNG if grid randomization is enabled
     grid_rng = np.random.default_rng(seed) if config.cv.grid_randomize else None
@@ -1847,8 +1867,11 @@ def run_train(
         if lc_enabled and plot_lc:
             # CSV goes to diagnostics/, plots go to plots/
             lc_csv_path = Path(outdirs.diag_learning) / f"{config.model}__learning_curve.csv"
+            # Only generate plot if within max_plot_splits limit
             lc_plot_path = (
                 Path(outdirs.plots) / f"{config.model}__learning_curve.{config.output.plot_format}"
+                if should_plot
+                else None
             )
             lc_meta = build_plot_metadata(
                 model=config.model,

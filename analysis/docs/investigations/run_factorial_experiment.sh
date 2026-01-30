@@ -370,12 +370,8 @@ if [ "$SKIP_PANEL" = false ] || [ "$FORCE_PANEL" = true ]; then
 
     if [ -f "$PANEL_FILE" ] && [ "$FORCE_PANEL" = false ]; then
         print_warning "Panel file exists: $PANEL_FILE ($(wc -l < "$PANEL_FILE" | tr -d ' ') proteins)"
-        read -p "Overwrite? (y/n): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            print_status "Using existing panel"
-            SKIP_PANEL=true
-        fi
+        print_status "Using existing panel (use --force-panel to regenerate)"
+        SKIP_PANEL=true
     fi
 
     if [ "$SKIP_PANEL" = false ] || [ "$FORCE_PANEL" = true ]; then

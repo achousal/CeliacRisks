@@ -658,6 +658,14 @@ def run_train_ensemble(
 
     plot_format = "png"
 
+    # Check if plots should be generated (respect max_plot_splits)
+    max_plot_splits = getattr(config.output, "max_plot_splits", 0) if config else 0
+    should_plot = max_plot_splits == 0 or split_seed < max_plot_splits
+    if not should_plot:
+        logger.info(
+            f"Skipping plots for split_seed={split_seed} (max_plot_splits={max_plot_splits})"
+        )
+
     meta_lines_plot = [
         f"Model: ENSEMBLE (base: {', '.join(available_models)})",
         f"Split seed: {split_seed}",
@@ -665,234 +673,243 @@ def run_train_ensemble(
         f"Train n={len(y_train)}, prevalence={y_train.mean():.4f}",
     ]
 
-    try:
-        from ced_ml.metrics.thresholds import compute_threshold_bundle
-        from ced_ml.plotting.calibration import plot_calibration_curve
-        from ced_ml.plotting.dca import plot_dca_curve
-        from ced_ml.plotting.ensemble import plot_meta_learner_weights, plot_model_comparison
-        from ced_ml.plotting.oof import plot_oof_combined
-        from ced_ml.plotting.risk_dist import plot_risk_distribution
-        from ced_ml.plotting.roc_pr import plot_pr_curve, plot_roc_curve
-
-        # --- Standard discrimination plots for validation set ---
-        if "val_proba" in results and "y_val" in results:
-            y_val_arr = np.asarray(results["y_val"])
-            val_proba_arr = np.asarray(results["val_proba"])
-
-            val_bundle = compute_threshold_bundle(y_val_arr, val_proba_arr, target_spec=0.95)
-
-            plot_roc_curve(
-                y_true=y_val_arr,
-                y_pred=val_proba_arr,
-                out_path=plots_dir / f"ENSEMBLE__val_roc.{plot_format}",
-                title="ENSEMBLE - Validation ROC",
-                subtitle=f"split_seed={split_seed}",
-                meta_lines=meta_lines_plot,
-                threshold_bundle=val_bundle,
-            )
-            plot_pr_curve(
-                y_true=y_val_arr,
-                y_pred=val_proba_arr,
-                out_path=plots_dir / f"ENSEMBLE__val_pr.{plot_format}",
-                title="ENSEMBLE - Validation PR Curve",
-                subtitle=f"split_seed={split_seed}",
-                meta_lines=meta_lines_plot,
-            )
-            plot_calibration_curve(
-                y_true=y_val_arr,
-                y_pred=val_proba_arr,
-                out_path=plots_dir / f"ENSEMBLE__val_calibration.{plot_format}",
-                title="ENSEMBLE - Validation Calibration",
-                meta_lines=meta_lines_plot,
-            )
-            plot_dca_curve(
-                y_true=y_val_arr,
-                y_pred=val_proba_arr,
-                out_path=str(plots_dir / f"ENSEMBLE__val_dca.{plot_format}"),
-                title="ENSEMBLE - Validation DCA",
-                meta_lines=meta_lines_plot,
-            )
-            # Get category for validation set if available
-            cat_val_arr = (
-                np.asarray(results["cat_val"])
-                if "cat_val" in results and results["cat_val"] is not None
-                else None
-            )
-
-            plot_risk_distribution(
-                y_true=y_val_arr,
-                scores=val_proba_arr,
-                out_path=plots_dir / f"ENSEMBLE__val_risk_dist.{plot_format}",
-                title="ENSEMBLE - Validation Risk Distribution",
-                category_col=cat_val_arr,
-                threshold_bundle=val_bundle,
-                meta_lines=meta_lines_plot,
-            )
-            logger.info("Validation plots saved")
-
-        # --- Standard discrimination plots for test set ---
-        if "test_proba" in results and "y_test" in results:
-            y_test_arr = np.asarray(results["y_test"])
-            test_proba_arr = np.asarray(results["test_proba"])
-
-            test_bundle = compute_threshold_bundle(y_test_arr, test_proba_arr, target_spec=0.95)
-
-            plot_roc_curve(
-                y_true=y_test_arr,
-                y_pred=test_proba_arr,
-                out_path=plots_dir / f"ENSEMBLE__test_roc.{plot_format}",
-                title="ENSEMBLE - Test ROC",
-                subtitle=f"split_seed={split_seed}",
-                meta_lines=meta_lines_plot,
-                threshold_bundle=test_bundle,
-            )
-            plot_pr_curve(
-                y_true=y_test_arr,
-                y_pred=test_proba_arr,
-                out_path=plots_dir / f"ENSEMBLE__test_pr.{plot_format}",
-                title="ENSEMBLE - Test PR Curve",
-                subtitle=f"split_seed={split_seed}",
-                meta_lines=meta_lines_plot,
-            )
-            plot_calibration_curve(
-                y_true=y_test_arr,
-                y_pred=test_proba_arr,
-                out_path=plots_dir / f"ENSEMBLE__test_calibration.{plot_format}",
-                title="ENSEMBLE - Test Calibration",
-                meta_lines=meta_lines_plot,
-            )
-            plot_dca_curve(
-                y_true=y_test_arr,
-                y_pred=test_proba_arr,
-                out_path=str(plots_dir / f"ENSEMBLE__test_dca.{plot_format}"),
-                title="ENSEMBLE - Test DCA",
-                meta_lines=meta_lines_plot,
-            )
-            # Get category for test set if available
-            cat_test_arr = (
-                np.asarray(results["cat_test"])
-                if "cat_test" in results and results["cat_test"] is not None
-                else None
-            )
-
-            plot_risk_distribution(
-                y_true=y_test_arr,
-                scores=test_proba_arr,
-                out_path=plots_dir / f"ENSEMBLE__test_risk_dist.{plot_format}",
-                title="ENSEMBLE - Test Risk Distribution",
-                category_col=cat_test_arr,
-                threshold_bundle=test_bundle,
-                meta_lines=meta_lines_plot,
-            )
-            logger.info("Test plots saved")
-
-        # --- OOF combined plots (training set with CV repeats) ---
-        # For ensemble, we use single repeat of OOF meta-features (already aggregated)
-        # So n_repeats=1 (no cross-repeat variability to show)
+    if should_plot:
         try:
+            from ced_ml.metrics.thresholds import compute_threshold_bundle
+            from ced_ml.plotting.calibration import plot_calibration_curve
+            from ced_ml.plotting.dca import plot_dca_curve
+            from ced_ml.plotting.ensemble import plot_meta_learner_weights, plot_model_comparison
+            from ced_ml.plotting.oof import plot_oof_combined
+            from ced_ml.plotting.risk_dist import plot_risk_distribution
+            from ced_ml.plotting.roc_pr import plot_pr_curve, plot_roc_curve
 
-            if "y_train" in results:
-                # Build meta-features used for training (OOF predictions from base models)
-                oof_meta_features = ensemble._build_meta_features(oof_dict, aggregate_repeats=True)
-                y_train_arr = np.asarray(results["y_train"])
+            # --- Standard discrimination plots for validation set ---
+            if "val_proba" in results and "y_val" in results:
+                y_val_arr = np.asarray(results["y_val"])
+                val_proba_arr = np.asarray(results["val_proba"])
 
-                # Get meta-learner predictions on OOF features (training set)
-                # This is what the meta-learner sees during training
-                oof_proba = ensemble.predict_proba(oof_meta_features)[:, 1]
+                val_bundle = compute_threshold_bundle(y_val_arr, val_proba_arr, target_spec=0.95)
 
-                # Reshape as (n_repeats=1, n_samples) for plot_oof_combined
-                oof_preds_ensemble = np.expand_dims(oof_proba, axis=0)
-
-                oof_meta_lines = [
-                    "Model: ENSEMBLE (OOF on meta-features)",
-                    f"Base models: {', '.join(available_models)}",
-                    f"Split seed: {split_seed}",
-                    f"Meta-learner: LR(penalty={meta_penalty}, C={meta_c})",
-                    f"Train n={len(y_train_arr)}, prevalence={y_train_arr.mean():.4f}",
-                    "Note: OOF computed from base model OOF predictions (meta-features)",
-                ]
-
-                plot_oof_combined(
-                    y_true=y_train_arr,
-                    oof_preds=oof_preds_ensemble,
-                    out_dir=plots_dir,
-                    model_name="ENSEMBLE",
-                    plot_format=plot_format,
-                    calib_bins=10,
-                    meta_lines=oof_meta_lines,
-                    target_spec=0.95,
+                plot_roc_curve(
+                    y_true=y_val_arr,
+                    y_pred=val_proba_arr,
+                    out_path=plots_dir / f"ENSEMBLE__val_roc.{plot_format}",
+                    title="ENSEMBLE - Validation ROC",
+                    subtitle=f"split_seed={split_seed}",
+                    meta_lines=meta_lines_plot,
+                    threshold_bundle=val_bundle,
                 )
-                logger.info("OOF combined plots saved (training set meta-features)")
-        except Exception as e:
-            logger.warning(f"OOF combined plots generation failed (non-fatal): {e}")
-
-        # --- Train OOF risk distribution plot ---
-        try:
-            from ced_ml.metrics.dca import threshold_dca_zero_crossing
-
-            if "y_train" in results:
-                y_train_arr = np.asarray(results["y_train"])
-
-                # Get meta-learner predictions on OOF meta-features (training set)
-                oof_meta_features = ensemble._build_meta_features(oof_dict, aggregate_repeats=True)
-                oof_proba = ensemble.predict_proba(oof_meta_features)[:, 1]
-
-                # Compute threshold bundle for train OOF
-                oof_dca_thr = threshold_dca_zero_crossing(y_train_arr, oof_proba)
-                oof_bundle = compute_threshold_bundle(
-                    y_train_arr,
-                    oof_proba,
-                    target_spec=0.95,
-                    dca_threshold=oof_dca_thr,
+                plot_pr_curve(
+                    y_true=y_val_arr,
+                    y_pred=val_proba_arr,
+                    out_path=plots_dir / f"ENSEMBLE__val_pr.{plot_format}",
+                    title="ENSEMBLE - Validation PR Curve",
+                    subtitle=f"split_seed={split_seed}",
+                    meta_lines=meta_lines_plot,
                 )
-
-                # Get category for training set if available
-                cat_train_arr = cat_train if cat_train is not None else None
+                plot_calibration_curve(
+                    y_true=y_val_arr,
+                    y_pred=val_proba_arr,
+                    out_path=plots_dir / f"ENSEMBLE__val_calibration.{plot_format}",
+                    title="ENSEMBLE - Validation Calibration",
+                    meta_lines=meta_lines_plot,
+                )
+                plot_dca_curve(
+                    y_true=y_val_arr,
+                    y_pred=val_proba_arr,
+                    out_path=str(plots_dir / f"ENSEMBLE__val_dca.{plot_format}"),
+                    title="ENSEMBLE - Validation DCA",
+                    meta_lines=meta_lines_plot,
+                )
+                # Get category for validation set if available
+                cat_val_arr = (
+                    np.asarray(results["cat_val"])
+                    if "cat_val" in results and results["cat_val"] is not None
+                    else None
+                )
 
                 plot_risk_distribution(
-                    y_true=y_train_arr,
-                    scores=oof_proba,
-                    out_path=plots_dir / f"ENSEMBLE__TRAIN_OOF_risk_distribution.{plot_format}",
-                    title="ENSEMBLE - Train OOF",
-                    subtitle="Risk Score Distribution (meta-learner on OOF meta-features)",
-                    category_col=cat_train_arr,
+                    y_true=y_val_arr,
+                    scores=val_proba_arr,
+                    out_path=plots_dir / f"ENSEMBLE__val_risk_dist.{plot_format}",
+                    title="ENSEMBLE - Validation Risk Distribution",
+                    category_col=cat_val_arr,
+                    threshold_bundle=val_bundle,
                     meta_lines=meta_lines_plot,
-                    threshold_bundle=oof_bundle,
                 )
-                logger.info("Train OOF risk distribution plot saved")
+                logger.info("Validation plots saved")
+
+            # --- Standard discrimination plots for test set ---
+            if "test_proba" in results and "y_test" in results:
+                y_test_arr = np.asarray(results["y_test"])
+                test_proba_arr = np.asarray(results["test_proba"])
+
+                test_bundle = compute_threshold_bundle(y_test_arr, test_proba_arr, target_spec=0.95)
+
+                plot_roc_curve(
+                    y_true=y_test_arr,
+                    y_pred=test_proba_arr,
+                    out_path=plots_dir / f"ENSEMBLE__test_roc.{plot_format}",
+                    title="ENSEMBLE - Test ROC",
+                    subtitle=f"split_seed={split_seed}",
+                    meta_lines=meta_lines_plot,
+                    threshold_bundle=test_bundle,
+                )
+                plot_pr_curve(
+                    y_true=y_test_arr,
+                    y_pred=test_proba_arr,
+                    out_path=plots_dir / f"ENSEMBLE__test_pr.{plot_format}",
+                    title="ENSEMBLE - Test PR Curve",
+                    subtitle=f"split_seed={split_seed}",
+                    meta_lines=meta_lines_plot,
+                )
+                plot_calibration_curve(
+                    y_true=y_test_arr,
+                    y_pred=test_proba_arr,
+                    out_path=plots_dir / f"ENSEMBLE__test_calibration.{plot_format}",
+                    title="ENSEMBLE - Test Calibration",
+                    meta_lines=meta_lines_plot,
+                )
+                plot_dca_curve(
+                    y_true=y_test_arr,
+                    y_pred=test_proba_arr,
+                    out_path=str(plots_dir / f"ENSEMBLE__test_dca.{plot_format}"),
+                    title="ENSEMBLE - Test DCA",
+                    meta_lines=meta_lines_plot,
+                )
+                # Get category for test set if available
+                cat_test_arr = (
+                    np.asarray(results["cat_test"])
+                    if "cat_test" in results and results["cat_test"] is not None
+                    else None
+                )
+
+                plot_risk_distribution(
+                    y_true=y_test_arr,
+                    scores=test_proba_arr,
+                    out_path=plots_dir / f"ENSEMBLE__test_risk_dist.{plot_format}",
+                    title="ENSEMBLE - Test Risk Distribution",
+                    category_col=cat_test_arr,
+                    threshold_bundle=test_bundle,
+                    meta_lines=meta_lines_plot,
+                )
+                logger.info("Test plots saved")
+
+            # --- OOF combined plots (training set with CV repeats) ---
+            # For ensemble, we use single repeat of OOF meta-features (already aggregated)
+            # So n_repeats=1 (no cross-repeat variability to show)
+            try:
+
+                if "y_train" in results:
+                    # Build meta-features used for training (OOF predictions from base models)
+                    oof_meta_features = ensemble._build_meta_features(
+                        oof_dict, aggregate_repeats=True
+                    )
+                    y_train_arr = np.asarray(results["y_train"])
+
+                    # Get meta-learner predictions on OOF features (training set)
+                    # This is what the meta-learner sees during training
+                    oof_proba = ensemble.predict_proba(oof_meta_features)[:, 1]
+
+                    # Reshape as (n_repeats=1, n_samples) for plot_oof_combined
+                    oof_preds_ensemble = np.expand_dims(oof_proba, axis=0)
+
+                    oof_meta_lines = [
+                        "Model: ENSEMBLE (OOF on meta-features)",
+                        f"Base models: {', '.join(available_models)}",
+                        f"Split seed: {split_seed}",
+                        f"Meta-learner: LR(penalty={meta_penalty}, C={meta_c})",
+                        f"Train n={len(y_train_arr)}, prevalence={y_train_arr.mean():.4f}",
+                        "Note: OOF computed from base model OOF predictions (meta-features)",
+                    ]
+
+                    plot_oof_combined(
+                        y_true=y_train_arr,
+                        oof_preds=oof_preds_ensemble,
+                        out_dir=plots_dir,
+                        model_name="ENSEMBLE",
+                        plot_format=plot_format,
+                        calib_bins=10,
+                        meta_lines=oof_meta_lines,
+                        target_spec=0.95,
+                    )
+                    logger.info("OOF combined plots saved (training set meta-features)")
+            except Exception as e:
+                logger.warning(f"OOF combined plots generation failed (non-fatal): {e}")
+
+            # --- Train OOF risk distribution plot ---
+            try:
+                from ced_ml.metrics.dca import threshold_dca_zero_crossing
+
+                if "y_train" in results:
+                    y_train_arr = np.asarray(results["y_train"])
+
+                    # Get meta-learner predictions on OOF meta-features (training set)
+                    oof_meta_features = ensemble._build_meta_features(
+                        oof_dict, aggregate_repeats=True
+                    )
+                    oof_proba = ensemble.predict_proba(oof_meta_features)[:, 1]
+
+                    # Compute threshold bundle for train OOF
+                    oof_dca_thr = threshold_dca_zero_crossing(y_train_arr, oof_proba)
+                    oof_bundle = compute_threshold_bundle(
+                        y_train_arr,
+                        oof_proba,
+                        target_spec=0.95,
+                        dca_threshold=oof_dca_thr,
+                    )
+
+                    # Get category for training set if available
+                    cat_train_arr = cat_train if cat_train is not None else None
+
+                    plot_risk_distribution(
+                        y_true=y_train_arr,
+                        scores=oof_proba,
+                        out_path=plots_dir / f"ENSEMBLE__TRAIN_OOF_risk_distribution.{plot_format}",
+                        title="ENSEMBLE - Train OOF",
+                        subtitle="Risk Score Distribution (meta-learner on OOF meta-features)",
+                        category_col=cat_train_arr,
+                        meta_lines=meta_lines_plot,
+                        threshold_bundle=oof_bundle,
+                    )
+                    logger.info("Train OOF risk distribution plot saved")
+            except Exception as e:
+                logger.warning(
+                    f"Train OOF risk distribution plot generation failed (non-fatal): {e}"
+                )
+
+            # --- Ensemble-specific plots ---
+            if coef:
+                plot_meta_learner_weights(
+                    coef=coef,
+                    out_path=diagnostics_dir / f"ENSEMBLE__meta_weights.{plot_format}",
+                    title="Meta-Learner Coefficients",
+                    subtitle=f"split_seed={split_seed}",
+                    meta_penalty=meta_penalty,
+                    meta_c=meta_c,
+                    meta_lines=meta_lines_plot,
+                )
+
+            # Model comparison chart (ENSEMBLE vs base models)
+            base_metrics = _collect_base_model_test_metrics(
+                results_path, available_models, split_seed
+            )
+            if "test_metrics" in results:
+                base_metrics["ENSEMBLE"] = results["test_metrics"]
+            if len(base_metrics) >= 2:
+                plot_model_comparison(
+                    metrics=base_metrics,
+                    out_path=diagnostics_dir / f"ENSEMBLE__model_comparison.{plot_format}",
+                    title="Model Comparison (Test Set)",
+                    subtitle=f"split_seed={split_seed}",
+                    highlight_model="ENSEMBLE",
+                    meta_lines=meta_lines_plot,
+                )
+
+                logger.info(f"Ensemble-specific plots saved to: {diagnostics_dir}")
+
         except Exception as e:
-            logger.warning(f"Train OOF risk distribution plot generation failed (non-fatal): {e}")
-
-        # --- Ensemble-specific plots ---
-        if coef:
-            plot_meta_learner_weights(
-                coef=coef,
-                out_path=diagnostics_dir / f"ENSEMBLE__meta_weights.{plot_format}",
-                title="Meta-Learner Coefficients",
-                subtitle=f"split_seed={split_seed}",
-                meta_penalty=meta_penalty,
-                meta_c=meta_c,
-                meta_lines=meta_lines_plot,
-            )
-
-        # Model comparison chart (ENSEMBLE vs base models)
-        base_metrics = _collect_base_model_test_metrics(results_path, available_models, split_seed)
-        if "test_metrics" in results:
-            base_metrics["ENSEMBLE"] = results["test_metrics"]
-        if len(base_metrics) >= 2:
-            plot_model_comparison(
-                metrics=base_metrics,
-                out_path=diagnostics_dir / f"ENSEMBLE__model_comparison.{plot_format}",
-                title="Model Comparison (Test Set)",
-                subtitle=f"split_seed={split_seed}",
-                highlight_model="ENSEMBLE",
-                meta_lines=meta_lines_plot,
-            )
-
-        logger.info(f"Ensemble-specific plots saved to: {diagnostics_dir}")
-
-    except Exception as e:
-        logger.warning(f"Plot generation failed (non-fatal): {e}")
+            logger.warning(f"Plot generation failed (non-fatal): {e}")
 
     # --- Learning curve for meta-learner (on OOF meta-features) ---
     try:
@@ -906,7 +923,10 @@ def run_train_ensemble(
             plots_dir.mkdir(parents=True, exist_ok=True)
 
             lc_csv_path = diagnostics_dir / "ENSEMBLE__learning_curve.csv"
-            lc_plot_path = plots_dir / f"ENSEMBLE__learning_curve.{plot_format}"
+            # Only generate plot if within max_plot_splits limit
+            lc_plot_path = (
+                plots_dir / f"ENSEMBLE__learning_curve.{plot_format}" if should_plot else None
+            )
 
             # Build meta-features for learning curve computation
             # Use OOF predictions from base models as features for the meta-learner
