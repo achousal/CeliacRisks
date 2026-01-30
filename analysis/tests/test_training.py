@@ -149,8 +149,8 @@ def test_oof_predictions_invalid_repeats(toy_data, simple_pipeline, minimal_conf
 def test_oof_predictions_no_nan_after_training(toy_data, simple_pipeline, minimal_config):
     """Test that OOF predictions contain no NaN values after training completes.
 
-    This is a critical validation to ensure that the clipping and handling in
-    training.py:189 properly prevents NaN propagation to downstream metrics.
+    Validates that probability clipping prevents NaN propagation to downstream
+    metric computations.
     """
     X, y, protein_cols = toy_data
 

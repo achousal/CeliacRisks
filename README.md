@@ -3,7 +3,7 @@
 **Production-grade ML pipeline for disease risk prediction from high-dimensional biomarker data**
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)
-![Tests](https://img.shields.io/badge/tests-1271%20passing-success)
+![Tests](https://img.shields.io/badge/tests-1422%20passing-success)
 ![Coverage](https://img.shields.io/badge/coverage-14%25-red)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
@@ -29,19 +29,24 @@ A modular ML framework for predicting disease risk from proteomics or other high
 ### Local
 ```bash
 git clone https://github.com/achousal/CeliacRiskML.git
-cd CeliacRiskML/analysis
-pip install -e .
-./run_local.sh
+cd CeliacRiskML/
+pip install -e analysis/
+ced run-pipeline
 ```
 
 ### HPC
 ```bash
-cd analysis
-bash scripts/hpc_setup.sh
-./run_hpc.sh
+cd CeliacRiskML/
+bash analysis/scripts/hpc_setup.sh
 
-# After jobs finish
-bash scripts/post_training_pipeline.sh --run-id <RUN_ID>
+# Submit pipeline with LSF job dependency chains
+ced run-pipeline --hpc
+
+# Preview without submitting
+ced run-pipeline --hpc --dry-run
+
+# Monitor jobs
+bjobs -w | grep CeD_
 ```
 
 **Pipeline flow:** Data → Split → Feature Selection → Model Training → Calibration → Ensemble → Evaluation
@@ -50,63 +55,53 @@ bash scripts/post_training_pipeline.sh --run-id <RUN_ID>
 
 ## What Can This Software Do?
 
-### 1. Train Models Locally
-Run the full pipeline on your machine with default configs:
+### 1. Run the Full Pipeline (Local)
+Run the complete pipeline on your machine with a single command:
 
 ```bash
-cd analysis/
-./run_local.sh
+cd CeliacRiskML/
+ced run-pipeline
 ```
 
-**What happens:** Trains 4 models (LR, RF, SVM, XGBoost) on 10 splits with nested CV, hyperparameter tuning, and calibration. Results in `../results/`.
+**What happens:** Auto-discovers data, trains 4 models (LR_EN, RF, LinSVM_cal, XGBoost) across splits with nested CV, hyperparameter tuning, calibration, ensemble, and panel optimization. Results in `results/`.
 
-### 2. Train Models on HPC
-Submit batch jobs with automated resource management:
+### 2. Run the Full Pipeline (HPC)
+Submit batch jobs with automated resource management and dependency chains:
 
 ```bash
-cd analysis/
-./run_hpc.sh
+cd CeliacRiskML/
+ced run-pipeline --hpc
 
 # Monitor jobs
 bjobs -w | grep CeD_
 ```
 
-**Configure resources** in `configs/pipeline_hpc.yaml` (cores, memory, walltime, queue).
-
-### 3. Post-Training Pipeline (HPC)
-After HPC jobs complete, run automated aggregation and ensemble training:
-
-```bash
-bash scripts/post_training_pipeline.sh --run-id 20260127_115115 --train-ensemble
-```
+**Configure resources** in `analysis/configs/pipeline_hpc.yaml` (cores, memory, walltime, queue).
 
 **What happens:**
-1. Validates all model outputs
-2. Trains stacking ensemble meta-learner
-3. Aggregates results across splits (metrics + bootstrap CIs)
-4. Generates validation reports and summary JSON
+1. Generates splits locally
+2. Submits per-model training jobs to LSF
+3. Chains aggregation, ensemble, and panel optimization as dependent jobs
+4. Auto-detects everything from run-id
 
-**No manual steps needed** - auto-detects models and paths from run-id.
+**No manual post-processing needed** - all steps are chained automatically.
 
-### 4. Optimize Panel Size (Single Model)
-Find the minimal protein panel for clinical deployment:
+### 3. CLI Commands
 
-```bash
-ced optimize-panel --run-id 20260127_115115 --model LR_EN
-```
+| Command | Description |
+|---------|-------------|
+| `ced run-pipeline` | End-to-end workflow orchestration (local or `--hpc`) |
+| `ced save-splits` | Generate stratified train/val/test splits |
+| `ced train` | Train a single model on one split |
+| `ced train-ensemble` | Train stacking meta-learner on base model OOF predictions |
+| `ced aggregate-splits` | Aggregate results across splits with bootstrap CIs |
+| `ced optimize-panel` | Find minimal protein panel for a single model |
+| `ced consensus-panel` | Cross-model consensus panel via Robust Rank Aggregation |
+| `ced eval-holdout` | Evaluate on held-out test set |
+| `ced config` | Validate or diff config files |
+| `ced convert-to-parquet` | Convert CSV to Parquet format |
 
-**Output:** `panel_curve.png`, `recommended_panel_50.csv`, `rfe_results.csv` in `results/LR_EN/run_{RUN_ID}/aggregated/panel_optimization/`
-
-### 5. Cross-Model Consensus Panel
-Generate a robust panel via Robust Rank Aggregation across all models:
-
-```bash
-ced consensus-panel --run-id 20260127_115115
-```
-
-**Output:** `consensus_panel_50.csv`, `rra_scores.csv`, `model_comparison.png` in `results/consensus_panel/run_{RUN_ID}/`
-
-**Use this for deployment** when you want features that work well across multiple models.
+Run `ced --help` or `ced <command> --help` for full usage.
 
 ---
 
@@ -117,24 +112,6 @@ All commands use YAML configs in `analysis/configs/`:
 - `pipeline_local.yaml` / `pipeline_hpc.yaml` - Models, paths, execution settings
 - `training_config.yaml` - Feature selection, calibration, ensemble
 - `splits_config.yaml` - Train/val/test ratios
-
-**Example:** Enable temporal validation and OOF-posthoc calibration:
-
-```yaml
-# training_config.yaml
-splits:
-  temporal_split: true
-  temporal_column: "sample_date"
-
-calibration:
-  strategy: oof_posthoc  # Unbiased calibration
-
-ensemble:
-  enabled: true
-  base_models: [LR_EN, RF, XGBoost]
-```
-
-Then just run `./run_local.sh` - configs are applied automatically.
 
 ---
 
@@ -149,7 +126,7 @@ Then just run `./run_local.sh` - configs are applied automatically.
   - Post-hoc RFE (single-model deployment, ~10 min)
   - Cross-model consensus via RRA (robust deployment, ~15 min)
   - Fixed panel validation (regulatory, ~30 min)
-- **Hyperparameter Tuning**: Bayesian optimization (Optuna TPE, 100 trials)
+- **Hyperparameter Tuning**: Optuna Bayesian optimization or grid search
 - **Temporal Validation**: Chronological splits to prevent future data leakage
 
 ### Evaluation
@@ -162,34 +139,7 @@ Then just run `./run_local.sh` - configs are applied automatically.
 - **Reproducibility**: Fixed seeds, YAML configs, Git commit tracking
 - **HPC Support**: LSF/Slurm array jobs with automated post-processing (conda/venv compatible)
 - **Provenance**: Complete metadata for every run (config, environment, timing)
-- **Testing**: 1,271 tests with comprehensive E2E coverage
 - **Investigation Framework**: Factorial experiment design for methodological optimization
-
----
-
-## Configuration
-
-All settings in YAML configs under `analysis/configs/`:
-
-**Essential configs:**
-- `pipeline_{local,hpc}.yaml` - Execution settings (models, paths, HPC resources)
-- `training_config.yaml` - Model/feature/calibration settings
-- `splits_config.yaml` - Train/val/test split ratios
-
-**Example: Enable ensemble + temporal validation**
-```yaml
-# training_config.yaml
-ensemble:
-  enabled: true
-  base_models: [LR_EN, RF, XGBoost]
-
-splits:
-  temporal_split: true
-  temporal_column: "sample_date"
-
-calibration:
-  strategy: oof_posthoc  # Unbiased
-```
 
 ---
 

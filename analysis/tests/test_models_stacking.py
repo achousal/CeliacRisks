@@ -898,7 +898,7 @@ def test_ensemble_predictions_directory_structure():
             results_dir=str(results_dir),
             base_models=["LR_EN", "RF"],
             split_seed=0,
-            verbose=0,
+            log_level=None,
         )
 
         assert result is not None

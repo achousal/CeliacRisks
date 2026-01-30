@@ -66,6 +66,13 @@ class TestROCCurvePlotting:
         assert out_path.exists()
         assert out_path.stat().st_size > 0
 
+        # Validate plot content dimensions
+        import matplotlib.image as mpimg
+
+        img = mpimg.imread(str(out_path))
+        assert img.shape[0] > 100, "Image height too small"
+        assert img.shape[1] > 100, "Image width too small"
+
     def test_roc_with_subtitle(self, basic_predictions, tmp_path):
         """Test ROC curve with subtitle."""
         y_true, y_pred = basic_predictions
@@ -296,6 +303,13 @@ class TestPRCurvePlotting:
 
         assert out_path.exists()
         assert out_path.stat().st_size > 0
+
+        # Validate plot content dimensions
+        import matplotlib.image as mpimg
+
+        img = mpimg.imread(str(out_path))
+        assert img.shape[0] > 100, "Image height too small"
+        assert img.shape[1] > 100, "Image width too small"
 
     def test_pr_with_subtitle(self, basic_predictions, tmp_path):
         """Test PR curve with subtitle."""

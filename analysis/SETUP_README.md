@@ -1,7 +1,7 @@
 # CeliacRisks Setup Guide
 
 **Version**: 1.0.0
-**Updated**: 2026-01-20
+**Updated**: 2026-01-30
 **Author**: Andres Chousal
 
 This guide covers environment setup for both local development and HPC production runs.
@@ -25,20 +25,20 @@ This guide covers environment setup for both local development and HPC productio
 If you already have a conda environment:
 
 ```bash
-# 1. Ensure you're in the analysis directory
-cd analysis/
+# 1. Ensure you're in the project root
+cd CeliacRisks/
 
 # 2. Install the package in your conda environment
-pip install -e .
+pip install -e analysis/
 
 # 3. Verify installation
 ced --help
 
-# 4. Run smoke test (1 split, 1 model, ~5 minutes)
-./run_local.sh
+# 4. Run smoke test (auto-discovers data, trains default models)
+ced run-pipeline
 
-# 5. Run full local test (multiple models)
-# Edit configs/pipeline_local.yaml to customize models and settings
+# 5. Or use the legacy bash wrapper
+cd analysis/
 ./run_local.sh
 ```
 
@@ -48,14 +48,17 @@ For HPC job submission with LSF (`bsub`):
 
 ```bash
 # 1. Run automated setup (creates venv, installs package)
-bash scripts/hpc_setup.sh
+cd CeliacRisks/
+bash analysis/scripts/hpc_setup.sh
 
 # 2. Edit HPC config with your HPC project allocation
-# Change project: YOUR_PROJECT_ALLOCATION in configs/pipeline_hpc.yaml
-nano configs/pipeline_hpc.yaml
+nano analysis/configs/pipeline_hpc.yaml
 
-# 3. Submit production run
-./run_hpc.sh
+# 3. Preview jobs (dry run)
+ced run-pipeline --hpc --dry-run
+
+# 4. Submit production run
+ced run-pipeline --hpc
 ```
 
 ---
@@ -505,7 +508,7 @@ If you encounter issues:
 
 ---
 
-**Last Updated**: 2026-01-20
+**Last Updated**: 2026-01-30
 **Tested On**:
 - macOS (local)
 - HPC cluster with LSF scheduler

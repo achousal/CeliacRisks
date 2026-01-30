@@ -105,9 +105,9 @@ class TestMakeStrata:
             }
         )
         strata = make_strata(df, "outcome+sex")
-        # Pandas converts None to "None" string when using .astype(str)
-        assert "None" in strata[0] or "UnknownOutcome" in strata[0]
-        assert "None" in strata[1] or "UnknownSex" in strata[1]
+        # astype(str) converts None to "None" before fillna can replace it
+        assert strata[0] == "None_Male"
+        assert strata[1] == "Incident_None"
 
     def test_invalid_scheme_raises(self):
         """Should raise for unknown scheme."""

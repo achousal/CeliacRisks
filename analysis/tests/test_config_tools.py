@@ -41,7 +41,7 @@ class TestValidateConfigFile:
                 config_file=config_file,
                 command="save-splits",
                 strict=False,
-                verbose=0,
+                log_level=None,
             )
 
             assert is_valid is True
@@ -66,7 +66,7 @@ class TestValidateConfigFile:
                 config_file=config_file,
                 command="save-splits",
                 strict=False,
-                verbose=0,
+                log_level=None,
             )
 
             assert is_valid is False
@@ -97,7 +97,7 @@ class TestDiffConfigs:
             diff_result = diff_configs(
                 config_file1=config1,
                 config_file2=config2,
-                verbose=0,
+                log_level=None,
             )
 
             assert len(diff_result["only_in_first"]) == 0
@@ -132,7 +132,7 @@ class TestDiffConfigs:
             diff_result = diff_configs(
                 config_file1=config1,
                 config_file2=config2,
-                verbose=0,
+                log_level=None,
             )
 
             # Different values
@@ -177,7 +177,7 @@ class TestDiffConfigs:
             diff_result = diff_configs(
                 config_file1=config1,
                 config_file2=config2,
-                verbose=0,
+                log_level=None,
             )
 
             # Check nested differences
