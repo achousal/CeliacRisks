@@ -919,8 +919,11 @@ def consensus_panel(ctx, config, **kwargs):
     from ced_ml.utils.paths import get_analysis_dir
 
     config_params = {}
-    default_config = get_analysis_dir() / "configs" / "consensus_panel.yaml"
-    config_path = config or (default_config if default_config.exists() else None)
+    try:
+        default_config = get_analysis_dir() / "configs" / "consensus_panel.yaml"
+    except RuntimeError:
+        default_config = None
+    config_path = config or (default_config if default_config and default_config.exists() else None)
 
     if config_path:
         import yaml

@@ -183,7 +183,7 @@ class TestSharedRunIdCoordination:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / model),
+                    str(results_dir),
                     "--config",
                     str(fast_multi_config),
                     "--model",
@@ -201,8 +201,8 @@ class TestSharedRunIdCoordination:
 
         # Verify both models created run directories with shared run_id
         # Production structure: results/{MODEL}/run_{RUN_ID}/{MODEL}/splits/split_seed{N}/
-        lr_run_dir = results_dir / "LR_EN" / f"run_{SHARED_RUN_ID}" / "LR_EN"
-        rf_run_dir = results_dir / "RF" / f"run_{SHARED_RUN_ID}" / "RF"
+        lr_run_dir = results_dir / f"run_{SHARED_RUN_ID}" / "LR_EN"
+        rf_run_dir = results_dir / f"run_{SHARED_RUN_ID}" / "RF"
 
         assert lr_run_dir.exists(), "LR_EN run directory not found"
         assert rf_run_dir.exists(), "RF run directory not found"
@@ -254,7 +254,7 @@ class TestSharedRunIdCoordination:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / model),
+                    str(results_dir),
                     "--config",
                     str(fast_multi_config),
                     "--model",
@@ -272,8 +272,8 @@ class TestSharedRunIdCoordination:
 
         # Load metadata from both models
         # Each model has its own run_metadata.json at results/{MODEL}/run_{RUN_ID}/
-        lr_metadata_path = results_dir / "LR_EN" / f"run_{SHARED_RUN_ID}" / "run_metadata.json"
-        rf_metadata_path = results_dir / "RF" / f"run_{SHARED_RUN_ID}" / "run_metadata.json"
+        lr_metadata_path = results_dir / f"run_{SHARED_RUN_ID}" / "run_metadata.json"
+        rf_metadata_path = results_dir / f"run_{SHARED_RUN_ID}" / "run_metadata.json"
 
         if not lr_metadata_path.exists() or not rf_metadata_path.exists():
             pytest.skip("Metadata files not found")
@@ -346,7 +346,7 @@ class TestCrossModelAggregation:
                         "--split-dir",
                         str(splits_dir),
                         "--outdir",
-                        str(results_dir / model),
+                        str(results_dir),
                         "--config",
                         str(fast_multi_config),
                         "--model",
@@ -366,7 +366,7 @@ class TestCrossModelAggregation:
         for model in models:
             # Pass full results-dir explicitly since we're using non-standard layout
             # Production structure: results/{MODEL}/run_{RUN_ID}/{MODEL}/
-            model_results_dir = results_dir / model / f"run_{SHARED_RUN_ID}" / model
+            model_results_dir = results_dir / f"run_{SHARED_RUN_ID}" / model
             result_agg = runner.invoke(
                 cli,
                 [
@@ -382,7 +382,7 @@ class TestCrossModelAggregation:
 
             # Verify aggregated outputs
             # Production structure: results/{MODEL}/run_{RUN_ID}/{MODEL}/aggregated/
-            agg_dir = results_dir / model / f"run_{SHARED_RUN_ID}" / model / "aggregated"
+            agg_dir = results_dir / f"run_{SHARED_RUN_ID}" / model / "aggregated"
             assert agg_dir.exists(), f"{model} aggregation directory not found"
             assert (agg_dir / "metrics").exists(), f"{model} aggregation metrics missing"
 
@@ -430,7 +430,7 @@ class TestCrossModelAggregation:
                         "--split-dir",
                         str(splits_dir),
                         "--outdir",
-                        str(results_dir / model),
+                        str(results_dir),
                         "--config",
                         str(fast_multi_config),
                         "--model",
@@ -448,7 +448,7 @@ class TestCrossModelAggregation:
 
         for model in models:
             # Production structure: results/{MODEL}/run_{RUN_ID}/{MODEL}/
-            model_results_dir = results_dir / model / f"run_{SHARED_RUN_ID}" / model
+            model_results_dir = results_dir / f"run_{SHARED_RUN_ID}" / model
             runner.invoke(
                 cli,
                 [
@@ -461,8 +461,8 @@ class TestCrossModelAggregation:
 
         # Check that both models have similar output structures
         # Production structure: results/{MODEL}/run_{RUN_ID}/{MODEL}/aggregated/
-        lr_agg_dir = results_dir / "LR_EN" / f"run_{SHARED_RUN_ID}" / "LR_EN" / "aggregated"
-        rf_agg_dir = results_dir / "RF" / f"run_{SHARED_RUN_ID}" / "RF" / "aggregated"
+        lr_agg_dir = results_dir / f"run_{SHARED_RUN_ID}" / "LR_EN" / "aggregated"
+        rf_agg_dir = results_dir / f"run_{SHARED_RUN_ID}" / "RF" / "aggregated"
 
         lr_subdirs = {d.name for d in lr_agg_dir.iterdir() if d.is_dir()}
         rf_subdirs = {d.name for d in rf_agg_dir.iterdir() if d.is_dir()}
@@ -806,7 +806,7 @@ class TestEnsembleMultiModelWorkflow:
                 "--split-dir",
                 str(splits_dir),
                 "--outdir",
-                str(results_dir / "LR_EN"),
+                str(results_dir),
                 "--config",
                 str(fast_multi_config),
                 "--model",
@@ -826,6 +826,8 @@ class TestEnsembleMultiModelWorkflow:
                 "train-ensemble",
                 "--run-id",
                 SHARED_RUN_ID,
+                "--results-dir",
+                str(results_dir),
                 "--split-seed",
                 "42",
             ],
@@ -888,7 +890,7 @@ class TestMultiModelPanelOptimization:
                         "--split-dir",
                         str(splits_dir),
                         "--outdir",
-                        str(results_dir / model),
+                        str(results_dir),
                         "--config",
                         str(fast_multi_config),
                         "--model",
@@ -902,7 +904,7 @@ class TestMultiModelPanelOptimization:
                 )
 
             # Production structure: results/{MODEL}/run_{RUN_ID}/{MODEL}/
-            model_results_dir = results_dir / model / f"run_{SHARED_RUN_ID}" / model
+            model_results_dir = results_dir / f"run_{SHARED_RUN_ID}" / model
             result_agg = runner.invoke(
                 cli,
                 [
@@ -917,17 +919,18 @@ class TestMultiModelPanelOptimization:
                 pytest.skip(f"{model} aggregation failed")
 
         # Optimize panels for all models
-        result_optimize = runner.invoke(
-            cli,
-            [
-                "optimize-panel",
-                "--run-id",
-                SHARED_RUN_ID,
-                "--min-size",
-                "3",
-            ],
-            catch_exceptions=False,
-        )
+        with unittest.mock.patch.dict(os.environ, {"CED_RESULTS_DIR": str(results_dir)}):
+            result_optimize = runner.invoke(
+                cli,
+                [
+                    "optimize-panel",
+                    "--run-id",
+                    SHARED_RUN_ID,
+                    "--min-size",
+                    "3",
+                ],
+                catch_exceptions=False,
+            )
 
         if result_optimize.exit_code != 0:
             pytest.skip(f"Panel optimization failed: {result_optimize.output[:200]}")
@@ -936,12 +939,7 @@ class TestMultiModelPanelOptimization:
         for model in models:
             # Production structure: results/{MODEL}/run_{RUN_ID}/{MODEL}/aggregated/optimize_panel/
             panel_dir = (
-                results_dir
-                / model
-                / f"run_{SHARED_RUN_ID}"
-                / model
-                / "aggregated"
-                / "optimize_panel"
+                results_dir / f"run_{SHARED_RUN_ID}" / model / "aggregated" / "optimize_panel"
             )
             assert panel_dir.exists(), f"{model} panel optimization not found"
             assert (
@@ -995,7 +993,7 @@ class TestMultiModelMetadataConsistency:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / model),
+                    str(results_dir),
                     "--config",
                     str(fast_multi_config),
                     "--model",
@@ -1011,8 +1009,8 @@ class TestMultiModelMetadataConsistency:
         # Load metadata files
         # Production structure: results/{MODEL}/run_{RUN_ID}/run_metadata.json
         # Each model has its own metadata file
-        lr_metadata_path = results_dir / "LR_EN" / f"run_{SHARED_RUN_ID}" / "run_metadata.json"
-        rf_metadata_path = results_dir / "RF" / f"run_{SHARED_RUN_ID}" / "run_metadata.json"
+        lr_metadata_path = results_dir / f"run_{SHARED_RUN_ID}" / "run_metadata.json"
+        rf_metadata_path = results_dir / f"run_{SHARED_RUN_ID}" / "run_metadata.json"
 
         if not lr_metadata_path.exists() or not rf_metadata_path.exists():
             pytest.skip("Metadata files not found")

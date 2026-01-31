@@ -144,8 +144,15 @@ class TestOptunaSearchCVBasic:
             # No random_state or sampler_seed provided
         )
 
-        with caplog.at_level(logging.WARNING):
-            search.fit(X, y)
+        # Re-enable propagation on ced_ml logger so caplog can capture
+        ced_ml_logger = logging.getLogger("ced_ml")
+        orig_propagate = ced_ml_logger.propagate
+        ced_ml_logger.propagate = True
+        try:
+            with caplog.at_level(logging.WARNING, logger="ced_ml.models.optuna_search"):
+                search.fit(X, y)
+        finally:
+            ced_ml_logger.propagate = orig_propagate
 
         # Verify warning was logged about seed fallback
         assert any(

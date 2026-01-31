@@ -353,9 +353,16 @@ class TestIdentifyProteinColumns:
         """Should warn when protein count is below 10."""
         import logging
 
-        df = pd.DataFrame({f"P{i}_resid": [0.1] for i in range(5)})
-        with caplog.at_level(logging.WARNING):
-            proteins = identify_protein_columns(df)
+        # Re-enable propagation on ced_ml logger so caplog can capture
+        ced_ml_logger = logging.getLogger("ced_ml")
+        orig_propagate = ced_ml_logger.propagate
+        ced_ml_logger.propagate = True
+        try:
+            df = pd.DataFrame({f"P{i}_resid": [0.1] for i in range(5)})
+            with caplog.at_level(logging.WARNING, logger="ced_ml.data.io"):
+                proteins = identify_protein_columns(df)
+        finally:
+            ced_ml_logger.propagate = orig_propagate
         assert len(proteins) == 5
         assert "only 5 protein" in caplog.text.lower()
 

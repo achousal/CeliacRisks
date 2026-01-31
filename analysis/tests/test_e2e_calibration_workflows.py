@@ -803,7 +803,7 @@ class TestCalibrationAggregation:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / "LR_EN"),
+                    str(results_dir),
                     "--config",
                     str(oof_posthoc_config),
                     "--model",
@@ -830,7 +830,7 @@ class TestCalibrationAggregation:
             pytest.skip("Aggregation failed")
 
         # Verify aggregated outputs
-        agg_dir = results_dir / "LR_EN" / f"run_{run_id}" / "aggregated"
+        agg_dir = results_dir / f"run_{run_id}" / "LR_EN" / "aggregated"
         assert agg_dir.exists()
         assert (agg_dir / "metrics").exists()
 

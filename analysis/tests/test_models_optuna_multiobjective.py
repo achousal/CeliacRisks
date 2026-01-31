@@ -69,12 +69,19 @@ class TestOptunaConfigValidation:
         """CMA-ES with multi-objective should log warning."""
         import logging
 
-        with caplog.at_level(logging.WARNING):
-            OptunaConfig(
-                multi_objective=True,
-                objectives=["roc_auc", "neg_brier_score"],
-                sampler="cmaes",
-            )
+        # Re-enable propagation on ced_ml logger so caplog can capture
+        ced_ml_logger = logging.getLogger("ced_ml")
+        orig_propagate = ced_ml_logger.propagate
+        ced_ml_logger.propagate = True
+        try:
+            with caplog.at_level(logging.WARNING, logger="ced_ml.config.schema"):
+                OptunaConfig(
+                    multi_objective=True,
+                    objectives=["roc_auc", "neg_brier_score"],
+                    sampler="cmaes",
+                )
+        finally:
+            ced_ml_logger.propagate = orig_propagate
         assert "CMA-ES sampler with multi-objective may be unstable" in caplog.text
 
 

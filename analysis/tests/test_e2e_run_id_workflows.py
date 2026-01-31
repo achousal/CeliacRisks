@@ -20,6 +20,8 @@ Run slow tests: pytest tests/test_e2e_run_id_workflows.py -v -m slow
 """
 
 import json
+import os
+import unittest.mock
 from pathlib import Path
 
 import numpy as np
@@ -619,6 +621,8 @@ class TestEnsembleWithRunId:
 
         Error handling for missing base models.
         """
+        results_dir = tmp_path / "results"
+        results_dir.mkdir()
         runner = CliRunner()
 
         result = runner.invoke(
@@ -627,6 +631,8 @@ class TestEnsembleWithRunId:
                 "train-ensemble",
                 "--run-id",
                 "20260101_000000",
+                "--results-dir",
+                str(results_dir),
                 "--split-seed",
                 "42",
             ],
@@ -967,36 +973,37 @@ class TestConsensusPanelWithRunId:
         run_id = SHARED_RUN_ID
 
         # Step 3: Aggregate both models
-        for model in base_models:
-            result_agg = runner.invoke(
+        with unittest.mock.patch.dict(os.environ, {"CED_RESULTS_DIR": str(results_dir)}):
+            for model in base_models:
+                result_agg = runner.invoke(
+                    cli,
+                    [
+                        "aggregate-splits",
+                        "--run-id",
+                        run_id,
+                        "--model",
+                        model,
+                    ],
+                    catch_exceptions=False,
+                )
+
+                if result_agg.exit_code != 0:
+                    pytest.skip(f"Aggregation for {model} failed")
+
+            # Step 4: Generate consensus panel
+            result_consensus = runner.invoke(
                 cli,
                 [
-                    "aggregate-splits",
+                    "consensus-panel",
                     "--run-id",
                     run_id,
-                    "--model",
-                    model,
+                    "--infile",
+                    str(small_proteomics_data),
+                    "--split-dir",
+                    str(splits_dir),
                 ],
                 catch_exceptions=False,
             )
-
-            if result_agg.exit_code != 0:
-                pytest.skip(f"Aggregation for {model} failed")
-
-        # Step 4: Generate consensus panel
-        result_consensus = runner.invoke(
-            cli,
-            [
-                "consensus-panel",
-                "--run-id",
-                run_id,
-                "--infile",
-                str(small_proteomics_data),
-                "--split-dir",
-                str(splits_dir),
-            ],
-            catch_exceptions=False,
-        )
 
         if result_consensus.exit_code != 0:
             print("CONSENSUS-PANEL OUTPUT:", result_consensus.output)
@@ -1026,16 +1033,19 @@ class TestConsensusPanelWithRunId:
 
         Error handling for missing aggregation.
         """
+        results_dir = tmp_path / "results"
+        results_dir.mkdir()
         runner = CliRunner()
 
-        result = runner.invoke(
-            cli,
-            [
-                "consensus-panel",
-                "--run-id",
-                "20260101_000000",
-            ],
-        )
+        with unittest.mock.patch.dict(os.environ, {"CED_RESULTS_DIR": str(results_dir)}):
+            result = runner.invoke(
+                cli,
+                [
+                    "consensus-panel",
+                    "--run-id",
+                    "20260101_000000",
+                ],
+            )
 
         assert result.exit_code != 0
         # Check error in either output or exception message

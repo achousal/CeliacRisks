@@ -169,7 +169,7 @@ class TestPanelExtraction:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / "LR_EN"),
+                    str(results_dir),
                     "--config",
                     str(panel_training_config),
                     "--model",
@@ -196,7 +196,7 @@ class TestPanelExtraction:
             pytest.skip("Aggregation failed")
 
         # Extract panel from feature stability
-        agg_dir = results_dir / "LR_EN" / f"run_{run_id}" / "aggregated"
+        agg_dir = results_dir / f"run_{run_id}" / "LR_EN" / "aggregated"
         stability_file = agg_dir / "panels" / "feature_stability_summary.csv"
 
         if not stability_file.exists():
@@ -261,7 +261,7 @@ class TestPanelExtraction:
                     "--split-dir",
                     str(splits_dir),
                     "--outdir",
-                    str(results_dir / "LR_EN"),
+                    str(results_dir),
                     "--config",
                     str(panel_training_config),
                     "--model",
@@ -283,7 +283,7 @@ class TestPanelExtraction:
             catch_exceptions=False,
         )
 
-        agg_dir = results_dir / "LR_EN" / f"run_{run_id}" / "aggregated"
+        agg_dir = results_dir / f"run_{run_id}" / "LR_EN" / "aggregated"
         stability_file = agg_dir / "panels" / "feature_stability_summary.csv"
 
         if not stability_file.exists():
@@ -589,7 +589,7 @@ class TestUnbiasedPanelValidation:
                     "--split-dir",
                     str(splits_dir / "discovery"),
                     "--outdir",
-                    str(results_dir / "LR_EN"),
+                    str(results_dir),
                     "--config",
                     str(panel_training_config),
                     "--model",
@@ -615,7 +615,7 @@ class TestUnbiasedPanelValidation:
             pytest.skip("Aggregation failed")
 
         # Step 2: Extract panel
-        agg_dir = results_dir / "LR_EN" / f"run_{run_id_discovery}" / "aggregated"
+        agg_dir = results_dir / f"run_{run_id_discovery}" / "LR_EN" / "aggregated"
         stability_file = agg_dir / "panels" / "feature_stability_summary.csv"
 
         if not stability_file.exists():
@@ -674,8 +674,8 @@ class TestUnbiasedPanelValidation:
             pytest.skip("Validation training failed")
 
         # Step 4: Both phases completed successfully
-        discovery_metrics = list((results_dir / "LR_EN").rglob("test_metrics.csv"))
-        validation_metrics = list((results_dir / "LR_EN_validated").rglob("test_metrics.csv"))
+        discovery_metrics = list(results_dir.rglob("test_metrics.csv"))
+        validation_metrics = list(results_dir.rglob("test_metrics.csv"))
 
         assert len(discovery_metrics) > 0, "Discovery metrics not found"
         assert len(validation_metrics) > 0, "Validation metrics not found"
@@ -796,7 +796,7 @@ class TestPanelFormatValidation:
                 "--split-dir",
                 str(splits_dir),
                 "--outdir",
-                str(results_dir / "LR_EN"),
+                str(results_dir),
                 "--config",
                 str(panel_training_config),
                 "--model",
@@ -858,7 +858,7 @@ class TestPanelFormatValidation:
                 "--split-dir",
                 str(splits_dir),
                 "--outdir",
-                str(results_dir / "LR_EN"),
+                str(results_dir),
                 "--config",
                 str(panel_training_config),
                 "--model",

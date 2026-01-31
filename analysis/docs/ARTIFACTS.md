@@ -12,7 +12,6 @@
 6. **Flat panels** - All panel reports in single `panels/` directory (no subdirectories)
 7. **Auto-detection support** - `run_metadata.json` at run level enables zero-config CLI commands
 
-
 ## 1. Directory Structure
 
 ### 1.1 Overview

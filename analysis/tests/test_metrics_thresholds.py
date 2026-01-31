@@ -477,9 +477,16 @@ def test_choose_threshold_objective_none_logs_warning(balanced_data, caplog):
     """Test that None objective logs a warning with actionable message."""
     import logging
 
-    y, p = balanced_data
-    with caplog.at_level(logging.WARNING):
-        name, thr = choose_threshold_objective(y, p, objective=None)
+    # Re-enable propagation on ced_ml logger so caplog (root handler) can capture
+    ced_ml_logger = logging.getLogger("ced_ml")
+    orig_propagate = ced_ml_logger.propagate
+    ced_ml_logger.propagate = True
+    try:
+        y, p = balanced_data
+        with caplog.at_level(logging.WARNING, logger="ced_ml.metrics.thresholds"):
+            name, thr = choose_threshold_objective(y, p, objective=None)
+    finally:
+        ced_ml_logger.propagate = orig_propagate
 
     assert name == "youden"
     assert 0.0 <= thr <= 1.0

@@ -20,6 +20,8 @@ Run slow tests: pytest tests/test_e2e_output_structure.py -v -m slow
 """
 
 import json
+import os
+import unittest.mock
 
 import numpy as np
 import pandas as pd
@@ -1068,19 +1070,20 @@ class TestConsensusPanelOutputStructure:
                 pytest.skip(f"Aggregation {model} failed")
 
         # Generate consensus
-        result_consensus = runner.invoke(
-            cli,
-            [
-                "consensus-panel",
-                "--run-id",
-                run_id,
-                "--infile",
-                str(tiny_proteomics_data),
-                "--split-dir",
-                str(splits_dir),
-            ],
-            catch_exceptions=False,
-        )
+        with unittest.mock.patch.dict(os.environ, {"CED_RESULTS_DIR": str(results_dir)}):
+            result_consensus = runner.invoke(
+                cli,
+                [
+                    "consensus-panel",
+                    "--run-id",
+                    run_id,
+                    "--infile",
+                    str(tiny_proteomics_data),
+                    "--split-dir",
+                    str(splits_dir),
+                ],
+                catch_exceptions=False,
+            )
 
         if result_consensus.exit_code != 0:
             pytest.skip("Consensus panel failed")
@@ -1173,19 +1176,20 @@ class TestConsensusPanelOutputStructure:
             if result.exit_code != 0:
                 pytest.skip(f"Aggregation {model} failed")
 
-        result_consensus = runner.invoke(
-            cli,
-            [
-                "consensus-panel",
-                "--run-id",
-                run_id,
-                "--infile",
-                str(tiny_proteomics_data),
-                "--split-dir",
-                str(splits_dir),
-            ],
-            catch_exceptions=False,
-        )
+        with unittest.mock.patch.dict(os.environ, {"CED_RESULTS_DIR": str(results_dir)}):
+            result_consensus = runner.invoke(
+                cli,
+                [
+                    "consensus-panel",
+                    "--run-id",
+                    run_id,
+                    "--infile",
+                    str(tiny_proteomics_data),
+                    "--split-dir",
+                    str(splits_dir),
+                ],
+                catch_exceptions=False,
+            )
 
         if result_consensus.exit_code != 0:
             pytest.skip("Consensus panel failed")
