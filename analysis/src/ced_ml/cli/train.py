@@ -719,7 +719,7 @@ def run_train(
             fixed_panel_path = Path(config.features.fixed_panel_csv)
             if not fixed_panel_path.is_absolute():
                 # Assume path is relative to configs/ directory
-                config_dir = Path(__file__).parent.parent.parent / "configs"
+                config_dir = Path(__file__).parent.parent.parent.parent / "configs"
                 fixed_panel_path = config_dir / fixed_panel_path
         else:
             raise ValueError(
