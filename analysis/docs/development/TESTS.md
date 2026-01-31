@@ -1,33 +1,66 @@
 # Test Suite Audit and Improvement Plan
 
-**Audited**: 2026-01-30
-**Suite**: 1,350 test items across `analysis/tests/`
-**Passing**: 1,317 (97.6%) | **Failing**: 13 (1.0%) | **Skipped**: 16 (1.2%)
-**Coverage**: 13% overall
+**Audited**: 2026-01-31
+**Suite**: 1,348 test items across `analysis/tests/`
+**Passing**: 1,344 (99.7%) | **Failing**: 0 | **Skipped**: 2 | **xfail**: 2
+**Coverage**: ~77% (line coverage via pytest-cov)
 
 ---
 
-## Status: 80 -> 13 Failing Tests (2026-01-30)
+## Status: 0 Failing Tests (2026-01-31)
 
-**Root cause (FIXED)**: `utils/logging.py` `auto_log_path()` assumed a
+All 13 previously failing tests have been fixed. See history below.
+
+### Fix round 1 (2026-01-30): 80 -> 13 failures
+
+**Root cause**: `utils/logging.py` `auto_log_path()` assumed a
 `CeliacRisks` parent directory exists, which broke in pytest temp directories.
 
-**Fix applied**: added fallback to `outdir.parent / "logs"` when project root
+**Fix**: added fallback to `outdir.parent / "logs"` when project root
 is not found. Also fixed `verbose` -> `log_level` API mismatch in
 `test_config_tools.py` and `test_models_stacking.py`.
 
-### Remaining 13 failures (pre-existing, unrelated to audit)
+### Fix round 2 (2026-01-31): 13 -> 0 failures
 
-- `test_e2e_output_structure.py` (9): consensus panel output structure
-  assertions do not match current CLI output paths.
-- `test_e2e_run_id_workflows.py` (2): ensemble/consensus error message
-  assertions do not match current CLI wording.
-- `test_e2e_runner.py` (1): temporal splits generation test has incorrect
-  seed expectation (expects seed0, CLI uses seed_start from config).
-- `test_metrics_thresholds.py` (1): `pytest.warns` does not capture
-  `logging.warning` (test uses wrong capture mechanism).
-- `test_models_optuna.py` (1): same `pytest.warns` vs `logging` issue.
-- `test_models_optuna_multiobjective.py` (1): same issue.
+**Root causes and fixes**:
+
+1. **`--outdir` path mismatch** (9 tests across 6 files):
+   `OutputDirectories.create()` builds `root/run_{id}/{model}/splits/...`.
+   Tests passed `results_dir / "MODEL"` as `--outdir`, doubling the model
+   directory. Fixed by passing `results_dir` directly and updating all
+   assertion paths from `results_dir / "MODEL" / f"run_{id}" / ...` to
+   `results_dir / f"run_{id}" / "MODEL" / ...`.
+
+2. **caplog propagation** (4 tests):
+   `setup_logger("ced_ml")` sets `propagate=False`, preventing `caplog`
+   from capturing child logger messages in subsequent tests. Fixed by
+   temporarily re-enabling propagation in affected tests.
+
+3. **Temporal fixture** (1 test):
+   All incident cases grouped at end of timeline caused 0 cases in training
+   split. Fixed by interleaving labels across the timeline.
+
+4. **Missing `CED_RESULTS_DIR`** (consensus/ensemble negative tests):
+   Commands using `--run-id` without explicit paths call `get_project_root()`
+   which fails in test tmp dirs. Fixed by setting `CED_RESULTS_DIR` env var.
+
+5. **`get_analysis_dir()` in consensus-panel CLI** (production fix):
+   Config auto-detection called `get_analysis_dir()` unconditionally before
+   checking `CED_RESULTS_DIR`. Wrapped in try/except to gracefully handle
+   non-project-root execution.
+
+**Files modified**:
+- `tests/test_e2e_output_structure.py`
+- `tests/test_e2e_run_id_workflows.py`
+- `tests/test_e2e_runner.py`
+- `tests/test_e2e_calibration_workflows.py`
+- `tests/test_e2e_fixed_panel_workflows.py`
+- `tests/test_e2e_multi_model_workflows.py`
+- `tests/test_metrics_thresholds.py`
+- `tests/test_models_optuna.py`
+- `tests/test_models_optuna_multiobjective.py`
+- `tests/test_data_io.py`
+- `src/ced_ml/cli/main.py` (consensus-panel config auto-detection)
 
 ---
 

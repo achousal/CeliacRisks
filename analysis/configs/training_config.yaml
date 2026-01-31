@@ -26,10 +26,12 @@ optuna:
   timeout: null  # Optional timeout in seconds (null = no limit)
   sampler: tpe  # Options: tpe, random, cmaes, grid
   sampler_seed: 42  # Seed for reproducibility
-  pruner: median  # Options: median, percentile, hyperband, none
+  pruner: hyperband  # Options: median, percentile, hyperband, none
   pruner_n_startup_trials: 20  # Trials before pruning starts
   pruner_percentile: 25.0  # Percentile for percentile pruner (0-100)
-  n_jobs: 1  # CRITICAL: Limit parallelism to prevent memory explosion with CalibratedClassifierCV
+  n_jobs: 1  # CRITICAL: Sequential trials required for (1) memory control with CalibratedClassifierCV
+            # and (2) effective Bayesian optimization - parallelization prevents TPE sampler from
+            # using recent trial results to inform next hyperparameter choices
   save_study: true  # Save Optuna study object
   save_trials_csv: true  # Save trials as CSV
 
@@ -38,9 +40,10 @@ optuna:
 # All parameters for all strategies are defined below
 features:
   # Strategy selection (change this to switch methods)
-  feature_selection_strategy: hybrid_stability  # Options: hybrid_stability, rfecv, none
+  feature_selection_strategy: hybrid_stability  # Options: hybrid_stability, rfecv, fixed_panel, none
   # - hybrid_stability: Fast (~30 min), screen -> k-best -> stability -> corr-prune
   # - rfecv: Rigorous (~4-5h with k-best=100), screen -> RFE with CV
+  # - fixed_panel: Use pre-specified panel from CSV (see fixed_panel_csv below)
   # - none: No feature selection (use all screened features)
 
   # Common: Screening (used by all strategies)
@@ -68,6 +71,12 @@ features:
   model_selector_threshold: "median"  # Threshold for SelectFromModel (median, mean, or numeric)
   model_selector_max_features: null  # Max features to keep (null = no limit)
   model_selector_min_features: 10  # Minimum features floor (prevents empty selection)
+
+  # Fixed Panel Configuration (used when feature_selection_strategy='fixed_panel')
+  # The pipeline expects a file named 'fixed_panel.csv' in the configs/ folder
+  # CSV format: 'protein' column OR features in first column (one per row, protein names only)
+  # Note: age, BMI, sex, ethnicity are automatically added - do not include in CSV
+  fixed_panel_csv: "fixed_panel.csv"
 
 # Model-specific hyperparameter search spaces
 # These define the ranges for RandomizedSearchCV or Optuna optimization

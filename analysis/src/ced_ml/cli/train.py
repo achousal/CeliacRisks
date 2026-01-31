@@ -709,16 +709,32 @@ def run_train(
 
     feature_cols = resolved.all_feature_cols
 
-    # Handle fixed panel (if provided via CLI)
-    fixed_panel = cli_args.get("fixed_panel") if cli_args else None
+    # Handle fixed panel (from CLI or config)
+    fixed_panel_path = cli_args.get("fixed_panel") if cli_args else None
+
+    # Check if fixed panel is specified in config
+    if not fixed_panel_path and config.features.feature_selection_strategy == "fixed_panel":
+        if config.features.fixed_panel_csv:
+            # Resolve path relative to configs/ directory if not absolute
+            fixed_panel_path = Path(config.features.fixed_panel_csv)
+            if not fixed_panel_path.is_absolute():
+                # Assume path is relative to configs/ directory
+                config_dir = Path(__file__).parent.parent.parent / "configs"
+                fixed_panel_path = config_dir / fixed_panel_path
+        else:
+            raise ValueError(
+                "feature_selection_strategy='fixed_panel' but fixed_panel_csv not specified in config. "
+                "Set features.fixed_panel_csv in training_config.yaml"
+            )
+
     fixed_panel_proteins = None
 
-    if fixed_panel:
+    if fixed_panel_path:
         log_section(logger, "Fixed Panel Mode")
-        logger.info(f"Loading fixed panel from: {fixed_panel}")
+        logger.info(f"Loading fixed panel from: {fixed_panel_path}")
 
         # Load fixed panel CSV
-        fixed_panel_df = pd.read_csv(fixed_panel)
+        fixed_panel_df = pd.read_csv(fixed_panel_path)
 
         # Expect a column named 'protein' or use first column
         if "protein" in fixed_panel_df.columns:
@@ -1038,8 +1054,13 @@ def run_train(
         },
         # Fixed panel metadata (if used)
         "fixed_panel": {
-            "enabled": fixed_panel is not None,
-            "path": str(fixed_panel) if fixed_panel else None,
+            "enabled": fixed_panel_path is not None,
+            "path": str(fixed_panel_path) if fixed_panel_path else None,
+            "source": (
+                "cli"
+                if (cli_args and cli_args.get("fixed_panel"))
+                else "config" if fixed_panel_path else None
+            ),
             "n_proteins": len(fixed_panel_proteins) if fixed_panel_proteins else None,
         },
         "config": config.model_dump() if hasattr(config, "model_dump") else config.dict(),

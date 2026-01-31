@@ -105,13 +105,16 @@ class FeatureConfig(BaseModel):
        - Best for: scientific discovery, understanding feature stability
     """
 
+    model_config = ConfigDict(protected_namespaces=())
+
     # Feature selection strategy (mutually exclusive paths)
-    feature_selection_strategy: Literal["hybrid_stability", "rfecv", "none"] = Field(
+    feature_selection_strategy: Literal["hybrid_stability", "rfecv", "fixed_panel", "none"] = Field(
         default="hybrid_stability",
         description=(
             "Feature selection strategy:\n"
             "  - hybrid_stability: screen → kbest (tuned) → stability → model (recommended default)\n"
             "  - rfecv: screen → light kbest cap → RFECV → model (automatic size discovery)\n"
+            "  - fixed_panel: use pre-specified feature panel from CSV file\n"
             "  - none: no feature selection"
         ),
     )
@@ -207,6 +210,17 @@ class FeatureConfig(BaseModel):
 
     # Coefficient threshold for linear model feature extraction
     coef_threshold: float = Field(default=0.01, ge=0.0)
+
+    # Fixed panel configuration (used when strategy="fixed_panel")
+    fixed_panel_csv: str | None = Field(
+        default=None,
+        description=(
+            "Path to CSV file containing fixed panel features. "
+            "Relative paths are resolved from configs/ directory. "
+            "CSV should have 'protein' column or features in first column. "
+            "Only used when feature_selection_strategy='fixed_panel'."
+        ),
+    )
 
 
 # ============================================================================
@@ -690,7 +704,7 @@ class PanelOptimizeConfig(BaseModel):
     through Recursive Feature Elimination after training.
     """
 
-    model_config = {"protected_namespaces": ()}
+    model_config = ConfigDict(protected_namespaces=())
 
     # Required paths
     infile: Path | None = Field(
@@ -782,7 +796,7 @@ class PanelOptimizeConfig(BaseModel):
 class HoldoutEvalConfig(BaseModel):
     """Configuration for holdout evaluation."""
 
-    model_config = {"protected_namespaces": ()}
+    model_config = ConfigDict(protected_namespaces=())
 
     # Data paths
     infile: Path
@@ -823,4 +837,4 @@ class RootConfig(BaseModel):
     holdout: HoldoutEvalConfig | None = None
     panel_optimize: PanelOptimizeConfig | None = None
 
-    model_config = {"arbitrary_types_allowed": True}
+    model_config = ConfigDict(arbitrary_types_allowed=True, protected_namespaces=())
